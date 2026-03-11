@@ -35,6 +35,8 @@ All endpoints:
 
 **Request Headers**: None (authentication not required for MVP)
 
+**Processing**: Synchronous. Extraction completes before response is returned.
+
 **Example**:
 ```bash
 curl -X POST http://localhost:8000/api/v1/documents/550e8400-e29b-41d4-a716-446655440000/extract-entities/
@@ -43,18 +45,22 @@ curl -X POST http://localhost:8000/api/v1/documents/550e8400-e29b-41d4-a716-4466
 ### Response
 
 **Status Codes**:
-- **202 Accepted** — Extraction triggered successfully (asyncronous or synchronous, exact behavior TBD in dev)
+- **201 Created** — Extraction completed successfully; entities created/replaced
 - **404 Not Found** — Document with given `id` does not exist
 - **400 Bad Request** — Invalid document ID format (not a valid UUID)
+- **429 Too Many Requests** — Groq API rate limit exceeded
 - **500 Internal Server Error** — Unexpected server error during extraction
 
-### Success Response (202 Accepted)
+**Processing**: Synchronous. Extraction completes before response is returned.
+
+### Success Response (201 Created)
 
 ```json
 {
-  "status": "extraction_triggered",
+  "status": "extraction_completed",
   "document_id": "550e8400-e29b-41d4-a716-446655440000",
-  "message": "Entity extraction started. Previous entities will be replaced upon completion."
+  "entities_created": 8,
+  "message": "Entity extraction completed. Previous entities have been replaced."
 }
 ```
 
@@ -73,7 +79,8 @@ curl -X POST http://localhost:8000/api/v1/documents/550e8400-e29b-41d4-a716-4466
 {
   "error": "rate_limited",
   "detail": "Groq API rate limit exceeded. Please retry after a delay.",
-  "retry_after": 60
+  "retry_after": 60,
+  "document_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 

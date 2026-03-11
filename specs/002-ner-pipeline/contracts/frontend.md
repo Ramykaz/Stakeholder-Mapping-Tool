@@ -46,33 +46,43 @@ apiClient.interceptors.response.use(
 ### 1. Extract Entities
 
 ```typescript
-export async function extractEntities(documentId: string): Promise<void> {
+export async function extractEntities(
+  documentId: string
+): Promise<{ entities_created: number }> {
   // POST /api/v1/documents/{id}/extract-entities/
-  // Triggers extraction, no response body to return
+  // Synchronous extraction; completes before response
+  // Returns count of created/updated entities
   // Throws AxiosError if request fails
   
   const response = await apiClient.post(
     `/api/v1/documents/${documentId}/extract-entities/`
   );
   
-  if (response.status !== 202) {
+  if (response.status !== 201) {
     throw new Error(`Unexpected status code: ${response.status}`);
   }
+  
+  return response.data;
 }
 ```
 
 **Parameters**:
 - `documentId: string` — UUID of document to extract entities from
 
-**Returns**: `Promise<void>`
+**Returns**: `Promise<{ entities_created: number }>` — Count of entities created/replaced
 
 **Throws**: `AxiosError` with backend error response
+
+**Processing**: Synchronous. Waits for all entities to be extracted, deduplicated, and stored before returning.
 
 **Example Usage**:
 ```typescript
 try {
-  await extractEntities('550e8400-e29b-41d4-a716-446655440000');
-  // Show success message to user
+  const { entities_created } = await extractEntities('550e8400-e29b-41d4-a716-446655440000');
+  showSuccess(`Extracted ${entities_created} entities`);
+  // Automatically fetch updated entities
+  const updatedEntities = await getEntities(documentId);
+  setEntities(updatedEntities);
 } catch (error) {
   // Display error message
   const detail = error.response?.data?.detail || 'Extraction failed';
@@ -304,6 +314,41 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ---
 
 ## Component Integration
+
+### Important: Cytoscape.js Dynamic Import Requirement
+
+**Cytoscape.js is a client-side-only library and cannot be server-side rendered.** Always use Next.js dynamic import with `ssr: false`:
+
+```typescript
+import dynamic from 'next/dynamic';
+import { CytoscapeNode } from '@/types';
+
+// Dynamically import Cytoscape component (no SSR)
+const GraphView = dynamic(
+  () => import('@/components/GraphView'),
+  {
+    loading: () => <div>Loading graph...</div>,
+    ssr: false, // CRITICAL: Cytoscape requires client-side rendering only
+  }
+);
+
+export default function GraphPage({ documentId }: { documentId: string }) {
+  const [nodes, setNodes] = useState<CytoscapeNode[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getGraphNodes(documentId)
+      .then(setNodes)
+      .catch((err) => setError(err.response?.data?.detail || 'Failed to load graph'));
+  }, [documentId]);
+
+  if (error) return <div className="alert-error">{error}</div>;
+
+  return <GraphView nodes={nodes} />;
+}
+```
+
+---
 
 ### Example: Entities List Component
 

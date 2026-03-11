@@ -3,16 +3,25 @@
 import pytest
 from unittest.mock import MagicMock
 from uuid import uuid4
+from django.test import TestCase
+from ingestion.models import Document
 from ner.services.deduplicator import deduplicate_entities
 from ner.models import Entity
 
 
-class TestDeduplicateEntities:
+class TestDeduplicateEntities(TestCase):
     """Test deduplication of extracted entities."""
+
+    def setUp(self):
+        """Create a test document."""
+        self.document = Document.objects.create(
+            filename="test.pdf",
+            file_format="pdf",
+            processing_status="completed",
+        )
 
     def test_deduplicate_new_entities(self):
         """Test all entities are new (no existing)."""
-        document_id = uuid4()
         extracted = [
             {'entity_type': 'PERSON', 'text': 'John', 'confidence': 0.95},
             {'entity_type': 'LOCATION', 'text': 'New York', 'confidence': 0.92},
@@ -21,7 +30,7 @@ class TestDeduplicateEntities:
         # No existing entities
         existing = Entity.objects.none()
 
-        result = deduplicate_entities(extracted, str(document_id), existing)
+        result = deduplicate_entities(extracted, self.document, existing)
 
         assert len(result) == 2
         assert all(isinstance(e, Entity) for e in result)
@@ -30,27 +39,22 @@ class TestDeduplicateEntities:
 
     def test_deduplicate_merge_duplicates(self):
         """Test merging of duplicate entities by canonical name."""
-        document_id = uuid4()
-
         # Create existing entity
-        existing_entity = Entity(
-            id=uuid4(),
+        existing_entity = Entity.objects.create(
             entity_type='PERSON',
             canonical_name='John Doe',
             raw_mentions=['John Doe', 'John'],
             confidence=0.85,
-            document_id=document_id,
+            document=self.document,
         )
 
         extracted = [
             {'entity_type': 'PERSON', 'text': 'John Doe', 'confidence': 0.95},
         ]
 
-        # Mock existing queryset
-        existing = MagicMock()
-        existing.__iter__ = lambda self: iter([existing_entity])
+        existing = Entity.objects.filter(document=self.document)
 
-        result = deduplicate_entities(extracted, str(document_id), existing)
+        result = deduplicate_entities(extracted, self.document, existing)
 
         # Should update existing entity, not create new
         assert len(result) == 0  # No new entities to create
@@ -58,14 +62,13 @@ class TestDeduplicateEntities:
 
     def test_deduplicate_different_entity_types(self):
         """Test entities with same text but different types are kept separate."""
-        document_id = uuid4()
         extracted = [
             {'entity_type': 'PERSON', 'text': 'Washington', 'confidence': 0.8},
             {'entity_type': 'LOCATION', 'text': 'Washington', 'confidence': 0.95},
         ]
 
         existing = Entity.objects.none()
-        result = deduplicate_entities(extracted, str(document_id), existing)
+        result = deduplicate_entities(extracted, self.document, existing)
 
         # Should create both (different entity_type)
         assert len(result) == 2
@@ -74,14 +77,13 @@ class TestDeduplicateEntities:
 
     def test_deduplicate_invalid_confidence(self):
         """Test handling of invalid confidence values."""
-        document_id = uuid4()
         extracted = [
             {'entity_type': 'PERSON', 'text': 'John', 'confidence': 1.5},  # > 1.0
             {'entity_type': 'LOCATION', 'text': 'Boston', 'confidence': -0.5},  # < 0.0
         ]
 
         existing = Entity.objects.none()
-        result = deduplicate_entities(extracted, str(document_id), existing)
+        result = deduplicate_entities(extracted, self.document, existing)
 
         # Should clamp to [0.0, 1.0]
         assert result[0].confidence <= 1.0
@@ -89,7 +91,6 @@ class TestDeduplicateEntities:
 
     def test_deduplicate_skip_invalid_entities(self):
         """Test skipping of invalid entities (missing fields)."""
-        document_id = uuid4()
         extracted = [
             {'entity_type': 'PERSON', 'text': 'John', 'confidence': 0.95},
             {'entity_type': '', 'text': 'Invalid', 'confidence': 0.5},  # Missing type
@@ -98,8 +99,9 @@ class TestDeduplicateEntities:
 
         existing = Entity.objects.none()
 
-        with pytest.mock.patch('ner.services.deduplicator.logger'):
-            result = deduplicate_entities(extracted, str(document_id), existing)
+        from unittest.mock import patch
+        with patch('ner.services.deduplicator.logger'):
+            result = deduplicate_entities(extracted, self.document, existing)
 
         # Should only create valid entity
         assert len(result) == 1

@@ -89,7 +89,7 @@ def extract_entities_for_document(document_id: str) -> dict:
         existing_entities = Entity.objects.filter(document_id=document_id)
         entities_to_create = deduplicate_entities(
             all_extracted_entities,
-            document_id,
+            document,
             existing_entities,
         )
 

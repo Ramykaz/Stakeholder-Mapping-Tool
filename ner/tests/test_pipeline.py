@@ -15,10 +15,9 @@ class TestExtractEntitiesForDocument(TestCase):
     def setUp(self):
         """Create test document and chunks."""
         self.document = Document.objects.create(
-            id=uuid4(),
             filename="test.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
         self.chunk1 = Chunk.objects.create(
             document=self.document,
@@ -116,8 +115,8 @@ class TestExtractEntitiesForDocument(TestCase):
         """Test document with no chunks."""
         doc_no_chunks = Document.objects.create(
             filename="empty.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
 
         result = extract_entities_for_document(str(doc_no_chunks.id))

@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 def deduplicate_entities(
     extracted_entities: List[dict],
-    document_id: str,
-    existing_entities: QuerySet,
+    document,
+    existing_entities: QuerySet = None,
 ) -> List[Entity]:
     """
     Merge extracted entities with existing ones by canonical_name.
@@ -23,14 +23,17 @@ def deduplicate_entities(
     
     Args:
         extracted_entities: List of {entity_type, text, confidence} from Groq.
-        document_id: UUID of the document.
-        existing_entities: QuerySet of existing Entity objects for the document.
+        document: Document instance (or UUID that will be used to set FK).
+        existing_entities: QuerySet of existing Entity objects for the document (optional).
     
     Returns:
         List of Entity objects ready for bulk_create or update.
     """
     entities_to_create = []
     canonical_name_map = {}
+
+    if existing_entities is None:
+        existing_entities = Entity.objects.none()
 
     # Build map of existing entities
     for entity in existing_entities:
@@ -67,7 +70,7 @@ def deduplicate_entities(
                 canonical_name=canonical_name,
                 raw_mentions=[canonical_name],
                 confidence=confidence,
-                document_id=document_id,
+                document=document,
             )
             canonical_name_map[key] = entity
             entities_to_create.append(entity)

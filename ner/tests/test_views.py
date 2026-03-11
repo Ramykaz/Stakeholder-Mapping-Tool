@@ -18,8 +18,8 @@ class TestExtractEntitiesView(TestCase):
         self.client = Client()
         self.document = Document.objects.create(
             filename="test.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
         self.chunk = Chunk.objects.create(
             document=self.document,
@@ -104,15 +104,15 @@ class TestDocumentEntitiesView(TestCase):
         self.client = Client()
         self.document = Document.objects.create(
             filename="test.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
         Entity.objects.create(
             entity_type='PERSON',
             canonical_name='John Doe',
             raw_mentions=['John Doe', 'John'],
             confidence=0.95,
-            document_id=self.document.id,
+            document=self.document,
         )
         Entity.objects.create(
             entity_type='ORGANIZATION',
@@ -137,8 +137,8 @@ class TestDocumentEntitiesView(TestCase):
         """Test retrieving entities for document with no entities."""
         empty_doc = Document.objects.create(
             filename="empty.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
 
         url = f'/api/v1/documents/{empty_doc.id}/entities/'
@@ -168,15 +168,15 @@ class TestGraphNodesView(TestCase):
         self.client = Client()
         self.document = Document.objects.create(
             filename="test.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
         Entity.objects.create(
             entity_type='PERSON',
             canonical_name='John Doe',
             raw_mentions=['John', 'John Doe'],
             confidence=0.95,
-            document_id=self.document.id,
+            document=self.document,
         )
 
     def test_get_graph_nodes_success(self):

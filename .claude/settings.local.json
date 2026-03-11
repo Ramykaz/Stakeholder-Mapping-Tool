@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(cd \"C:\\\\Users\\\\ramad\\\\dev\\\\UNDP\\\\stakeholder-analysis-tool\" && mkdir -p stakeholder_analysis ingestion/services ingestion/tests ingestion/migrations ner/migrations reasoning/migrations graph/migrations models prompts && touch ingestion/__init__.py ingestion/services/__init__.py ingestion/tests/__init__.py ingestion/migrations/__init__.py ner/__init__.py ner/migrations/__init__.py reasoning/__init__.py reasoning/migrations/__init__.py graph/__init__.py graph/migrations/__init__.py stakeholder_analysis/__init__.py && echo \"Directory structure created\")",
-      "Bash(docker compose:*)"
-    ]
-  }
-}

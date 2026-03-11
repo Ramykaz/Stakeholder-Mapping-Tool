@@ -35,14 +35,14 @@ the spec and plan phases and receiving Project Lead approval.
 | Person | Role |
 |---|---|
 | Ramadan | Project Lead — owns delivery, reviews all specs and PRs, merges |
-| Josue | Engineer — frontend, visualization, Cytoscape.js |
+| Josue | Consultant — frontend architecture and visualization advice |
 | Mert | Consultant — RAG architecture, embedding strategy |
 | Muhammad | Consultant — knowledge graph methods, backend patterns |
 
 **Engineers** submit specs and PRs for Ramadan's review before
 merge. No self-merge.
 
-**Consultants** (Mert, Muhammad) are domain advisors — reviewed
+**Consultants** (Mert, Muhammad, Josue) are domain advisors — reviewed
 async before relevant specs are written, not co-implementors.
 
 Review delays over 1 business day are raised as blockers

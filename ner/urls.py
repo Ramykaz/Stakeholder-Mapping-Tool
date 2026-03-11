@@ -1,10 +1,10 @@
 """URL configuration for NER API endpoints."""
 
 from django.urls import path
+from . import views
 
-# Placeholder for views - will be added in Phase 2 T017
 urlpatterns = [
-    # POST /api/v1/documents/{id}/extract-entities/
-    # GET /api/v1/documents/{id}/entities/
-    # GET /api/v1/graph/?document_id={id}
+    path('documents/<uuid:id>/extract-entities/', views.ExtractEntitiesView.as_view(), name='extract-entities'),
+    path('documents/<uuid:id>/entities/', views.DocumentEntitiesView.as_view(), name='document-entities'),
+    path('graph/', views.GraphNodesView.as_view(), name='graph-nodes'),
 ]

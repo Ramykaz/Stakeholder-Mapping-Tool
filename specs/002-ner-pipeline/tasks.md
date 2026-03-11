@@ -1,533 +1,327 @@
 # Tasks: NER Pipeline + Entity API + Basic Frontend
 
 **Input**: Design documents from `/specs/002-ner-pipeline/`
-**Prerequisites**: spec.md (4 user stories), plan.md (technical context, constraints), contracts/ (api.md, frontend.md, prompt.md)
-**Tests**: Tests are INCLUDED — pytest for backend, Jest for frontend. Tests MUST be written first and FAIL before implementation.
+**Prerequisites**: plan.md ✅ spec.md ✅ contracts/api.md ✅ contracts/frontend.md ✅ contracts/prompt.md ✅
 
-**Organization**: Tasks grouped by user story to enable independent implementation and testing. Backend and frontend work can proceed in parallel.
+**Tests**: Included — tests must be written first and fail before implementation. Requirements: pytest (backend), Jest (frontend).
+
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story (US1, US2, US3, US4)
-- Paths: `ingestion/` (US-01 app), `ner/` (new US-02 app), `frontend/` (new Next.js app)
+- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
+- **[Story]**: Which user story this task belongs to ([Extract Entities], [Retrieve Entities], [Graph Nodes API], [Frontend])
+- Exact file paths included in every task description
+
+## Path Conventions
+
+Django project at repository root with Next.js frontend app. Source layout:
+
+```
+stakeholder-analysis-tool/       ← repo root
+├── stakeholder_analysis/         ← Django project package
+├── ingestion/                    ← Django app (US-01)
+├── ner/                          ← Django app (US-02)
+├── frontend/                     ← Next.js 14 app (new)
+├── prompts/                      ← NER extraction prompts
+└── specs/002-ner-pipeline/       ← Design documents
+```
 
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Project initialization and basic structure
+**Purpose**: Project structure initialization, Next.js app bootstrap, Docker integration. No Django code yet.
 
-- [ ] T001 Create `ner/` Django app structure (models.py, views.py, serializers.py, services/, urls.py, tests/)
-- [ ] T002 [P] Create `frontend/` Next.js 14 project structure with TypeScript, ESLint, Tailwind CSS (optional styling)
-- [ ] T003 Create `prompts/` directory; commit empty `prompts/ner-extraction-v1.md` and `prompts/ner-extraction-v1.txt` placeholders
-- [ ] T004 Update `docker-compose.yml`: add frontend service for Next.js app (port 3000, volume mounts for hot reload)
-- [ ] T005 Create `frontend/Dockerfile` for multi-stage build (Node.js 20 base, build output, production image)
-- [ ] T006 [P] Update `requirements.txt`: add `groq` Python SDK and any other missing backend dependencies
-- [ ] T007 [P] Initialize `frontend/package.json`: add Next.js 14, React 18, axios, Cytoscape.js, Jest, React Testing Library, TypeScript dependencies
+- [ ] T001 Create `ner/` Django app structure: `models.py`, `views.py`, `serializers.py`, `services/`, `urls.py`, `tests/`, `migrations/` (with `__init__.py`)
+- [ ] T002 [P] Create `frontend/` Next.js 14 project structure: `pages/`, `src/components/`, `src/lib/`, `public/`, `package.json`, `tsconfig.json`, `next.config.js`
+- [ ] T003 Create `prompts/` directory with placeholder files: `prompts/ner-extraction-v1.md` (empty), `prompts/ner-extraction-v1.txt` (empty)
+- [ ] T004 Update `docker-compose.yml`: add `frontend` service (Node.js 20, port 3000, environment `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`, volumes for hot reload)
+- [ ] T005 Create `frontend/Dockerfile`: multi-stage build (Stage 1: Node 20, npm install, npm run build; Stage 2: Node 20, COPY built app, expose 3000, CMD npm start)
+- [ ] T006 [P] Update `requirements.txt`: add `groq` Python SDK and verify no version conflicts
+- [ ] T007 [P] Initialize `frontend/package.json`: add Next.js 14, React 18, axios, cytoscape, typescript, jest, @testing-library/react, tailwindcss
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
+**Purpose**: Django models, core services, API infrastructure, frontend base. Must be complete before any user story begins.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
 ### Database Schema & Models
 
-- [ ] T008 Create Django migration: new `Entity` model in `ner/models.py` with fields:
-  - `id` (UUID primary key)
+- [ ] T008 Create `Entity` model in `ner/models.py` with fields:
+  - `id` (UUIDField primary key)
   - `entity_type` (CharField, choices: PERSON, ORGANIZATION, LOCATION, ROLE)
   - `canonical_name` (CharField, indexed)
-  - `raw_mentions` (JSONField: list of surface forms from extraction)
-  - `confidence` (FloatField, 0.0–1.0, indexed)
+  - `raw_mentions` (JSONField: list of surface forms)
+  - `confidence` (FloatField 0.0–1.0, indexed)
   - `document_id` (ForeignKey to ingestion.Document)
   - `chunk_id` (ForeignKey to ingestion.Chunk, nullable)
   - `created_at` (DateTimeField auto_now_add)
-  - Unique constraint on (canonical_name, document_id, entity_type)
+  - `Meta.unique_together = [('canonical_name', 'document_id', 'entity_type')]`
 
-- [ ] T009 Create Django migration for Entity model (run migrations; ensures Supabase schema updated)
+- [ ] T009 Generate and apply Django migration `ner/migrations/0001_initial.py`: creates `ner_entity` table with all indexes; verify migration applies cleanly
 
-### Authentication & Authorization
+### Core Services
 
-- [ ] T010 [P] Document that MVP has NO authentication (all endpoints public); add comment in `ner/views.py`
+- [ ] T010 [P] Create `ner/services/__init__.py` (empty)
+- [ ] T011 [P] Implement `ner/services/groq_client.py`:
+  - Function `load_ner_prompt() -> str`: reads `prompts/ner-extraction-v1.md`
+  - Function `extract_entities_from_chunk(chunk_text: str) -> dict`: calls Groq Llama 3 API, parses JSON response, returns `{entities: [{entity_type, text, confidence}]}`
+  - Error handling: raise custom exceptions on API failure, rate limit (429), invalid JSON
 
-### Base Services & Utilities
+- [ ] T012 [P] Implement `ner/services/deduplicator.py`:
+  - Function `deduplicate_entities(extracted_entities: list, existing_entities: QuerySet) -> list`: merges duplicate entities by (canonical_name, document_id, entity_type); returns Entity objects ready for create/update
 
-- [ ] T011 [P] Create `ner/services/__init__.py`
-- [ ] T012 [P] Create `ner/services/groq_client.py`: 
-  - Function `load_ner_prompt()` → reads `prompts/ner-extraction-v1.md`
-  - Function `extract_entities_from_chunk(chunk_text: str) → dict` → calls Groq Llama 3 API
-  - Error handling: raises exceptions on API failure, rate limit (HTTP 429), or invalid JSON response
+- [ ] T013 Create `ner/services/pipeline.py`:
+  - Function `extract_entities_for_document(document_id: str) -> dict`: orchestrates full extraction for all document chunks
+  - Delete existing entities (clean slate per clarification)
+  - Loop through chunks, call groq_client.extract_entities_from_chunk()
+  - Deduplicate via deduplicator.deduplicate_entities()
+  - Bulk create entities in database (atomic transaction)
+  - Return `{entities_created: int}`
 
-- [ ] T013 [P] Create `ner/services/deduplicator.py`:
-  - Function `deduplicate_entities(extracted_entities: list, existing_entities: QuerySet) → list` → merges duplicates
-  - Deduplication logic: match canonical_name + document_id + entity_type; if no match, create new
-  - Return list of Entity objects ready for bulk_create or update
+### Serializers & API Views
 
-- [ ] T014 Create `ner/services/pipeline.py`:
-  - Function `extract_entities_for_document(document_id: str) → dict` (orchestrates extraction for all document chunks)
-  - Delete all existing entities for document (clean slate per clarification)
-  - Loop through all chunks, call groq_client.extract_entities_from_chunk()
-  - Deduplicate results via deduplicator.deduplicate_entities()
-  - Bulk create Entity records in database
-  - Return { entities_created: int }
+- [ ] T014 [P] Create serializers in `ner/serializers.py`:
+  - `EntitySerializer` (read-only): id, entity_type, canonical_name, raw_mentions, confidence, chunk_id, document_id, created_at
+  - `CytoscapeNodeSerializer` (read-only): id, label (=canonical_name), data (nested: entity_id, entity_type, confidence, document_id, chunk_id, raw_mentions_count)
 
-### Serializers & API Infrastructure
-
-- [ ] T015 [P] Create `ner/serializers.py`:
-  - `EntitySerializer` (read-only) → matches api.md schema: id, entity_type, canonical_name, raw_mentions, confidence, chunk_id, document_id, created_at
-  - `CytoscapeNodeSerializer` (read-only) → matches api.md schema: id, label (canonical_name), data (nested object with entity_type, confidence, document_id, chunk_id, raw_mentions_count)
-
-### API Views Framework
-
-- [ ] T016 Create `ner/views.py` base structure:
+- [ ] T015 Create `ner/views.py` base structure:
   - Import DRF generics, Response, status
-  - Define error handling helper: `handle_groq_error(exception) → Response` (catches rate limit, API errors)
+  - Define error handler helper: `handle_groq_error(exception) -> Response`
   - Add logging setup
 
-- [ ] T017 [P] Update `ner/urls.py`: 
-  - Add URL patterns (endpoints defined in api.md)
-  - POST /api/v1/documents/{id}/extract-entities/ → ExtractEntitiesView
-  - GET /api/v1/documents/{id}/entities/ → DocumentEntitiesView
-  - GET /api/v1/graph/?document_id={id} → GraphNodesView
+- [ ] T016 [P] Create `ner/urls.py`:
+  - URL pattern: `POST api/v1/documents/{id}/extract-entities/ -> ExtractEntitiesView`
+  - URL pattern: `GET api/v1/documents/{id}/entities/ -> DocumentEntitiesView`
+  - URL pattern: `GET api/v1/graph/?document_id={id} -> GraphNodesView`
 
 ### Frontend Base Setup
 
-- [ ] T018 [P] Initialize Next.js app: `npx create-next-app@latest frontend --typescript --tailwind --eslint`
-- [ ] T019 [P] Create `frontend/src/lib/api.ts`: axios client instance (baseURL: http://localhost:8000, timeout: 10000, error interceptor)
-- [ ] T020 [P] Create TypeScript interfaces in `frontend/src/types/index.ts`:
-  - `Entity`, `Document`, `CytoscapeNode`, `GraphResponse`, `ApiErrorResponse` (match api.md schemas)
-- [ ] T021 [P] Create `frontend/src/pages` directory structure: _app.tsx, _document.tsx
-- [ ] T022 [P] Create error boundary component: `frontend/src/components/ErrorBoundary.tsx`
+- [ ] T017 [P] Create `frontend/src/lib/api.ts`: axios client instance (baseURL: http://localhost:8000, timeout: 10000, error interceptor)
+- [ ] T018 [P] Create TypeScript interfaces in `frontend/src/types/index.ts`: Entity, Document, CytoscapeNode, GraphResponse, ApiErrorResponse
+- [ ] T019 [P] Create `frontend/src/pages` directory structure: `_app.tsx`, `_document.tsx`
+- [ ] T020 [P] Create error boundary component: `frontend/src/components/ErrorBoundary.tsx`
 
-**Checkpoint**: Foundation complete ✅ — all models, services, and infrastructure in place. User story implementation can now proceed in parallel.
+**Checkpoint**: Foundation complete ✅ — all models, services, and infrastructure in place. User story implementation can now begin.
 
 ---
 
-## Phase 3: User Story 1 — Extract and Deduplicate Named Entities (Priority: P1) 🎯 MVP
+## Phase 3: User Story — Extract & Deduplicate Named Entities (Priority: P1) 🎯 MVP
 
-**Goal**: Extract named entities (PERSON, ORGANIZATION, LOCATION, ROLE) from document chunks using Groq Llama 3, deduplicate across chunks, store with confidence scores and canonical names.
+**Goal**: Extract named entities (PERSON, ORGANIZATION, LOCATION, ROLE) from document chunks using Groq Llama 3, deduplicate across chunks, store with confidence scores and canonical names. Return HTTP 201 Created with entities_created count.
 
-**Independent Test**: Call POST /api/v1/documents/{id}/extract-entities/, wait for synchronous completion, verify Entity records created in database with correct canonical names, confidence scores, deduplicated raw mentions.
+**Independent Test**: Call `POST /api/v1/documents/{id}/extract-entities/`, wait for synchronous completion, verify Entity records created in database with correct canonical names, confidence scores, deduplicated raw mentions.
 
-### Tests for User Story 1
+### Tests for Extract Entities ⚠️
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T023 [P] [US1] Unit test: `ner/tests/test_groq_client.py`
-  - Test `extract_entities_from_chunk()` with mock Groq_response → returns dict with entities array
-  - Test error handling: Groq API timeout → raises GroqAPIError
-  - Test error handling: invalid JSON response → raises JSONDecodeError
+- [ ] T021 [P] [Extract Entities] Unit test in `ner/tests/test_groq_client.py`: test `extract_entities_from_chunk()` with mock Groq response; test error handling (API timeout, rate limit, invalid JSON)
+- [ ] T022 [P] [Extract Entities] Unit test in `ner/tests/test_deduplicator.py`: test merging duplicate entities; test separate entities for different types; test all new entities
+- [ ] T023 [P] [Extract Entities] Unit test in `ner/tests/test_pipeline.py`: test `extract_entities_for_document()` with 3 chunks; test clean slate deletion; test error handling (rate limit → no entities persisted)
+- [ ] T024 [Extract Entities] Integration test in `ner/tests/test_views.py::test_extract_entities_success`: call `POST /api/v1/documents/{id}/extract-entities/`, mock Groq; verify HTTP 201, response schema matches api.md, entities_created > 0
+- [ ] T025 [Extract Entities] Integration test in `ner/tests/test_views.py::test_extract_entities_document_not_found`: call endpoint with non-existent document; verify HTTP 404
+- [ ] T026 [Extract Entities] Integration test in `ner/tests/test_views.py::test_extract_entities_groq_rate_limit`: mock Groq 429 error; verify HTTP 429 with retry_after header; verify no Entity records created
+- [ ] T027 [Extract Entities] Integration test in `ner/tests/test_views.py::test_extract_entities_replaces_previous`: extract twice, verify entities_created matches new count (not cumulative)
 
-- [ ] T024 [P] [US1] Unit test: `ner/tests/test_deduplicator.py`
-  - Test deduplication: same entity_type + canonical_name + document_id → merged into 1 Entity with combined raw_mentions
-  - Test deduplication: different entity_type (same canonical_name) → creates separate Entity records
-  - Test deduplication: no existing entities → all extracted entities created as new
+### Implementation for Extract Entities
 
-- [ ] T025 [P] [US1] Unit test: `ner/tests/test_pipeline.py`
-  - Test extract_entities_for_document() with 3 chunks → deletes old entities, creates new ones, returns entities_created count
-  - Test pipeline error handling: Groq API rate limit (429) → raises exception, no entities persisted (rollback)
+- [ ] T028 [Extract Entities] Implement `ner/services/groq_client.py::extract_entities_from_chunk()`: load prompt from `prompts/ner-extraction-v1.md`; call Groq Llama 3 API; parse JSON response; return `{entities: [{entity_type, text, confidence}]}`; error handling for API timeout, rate limit (429), invalid JSON
+- [ ] T029 [Extract Entities] Create prompt file `prompts/ner-extraction-v1.md`: define system prompt for Groq Llama 3; specify entity types with definitions and examples; specify input/output JSON schema; specify confidence scoring guidelines (0.9+, 0.7-0.9, 0.5-0.7, <0.5)
+- [ ] T030 [Extract Entities] Implement `ner/services/deduplicator.py::deduplicate_entities()`: input is extracted entities from Groq + QuerySet of existing entities; check each extracted entity for match (canonical_name, document_id, entity_type); merge raw_mentions and confidence; return Entity objects for bulk_create
+- [ ] T031 [Extract Entities] Implement `ner/services/pipeline.py::extract_entities_for_document()`: get document (404 if not found); delete all existing entities (clean slate); get all chunks; loop chunk → extract via groq_client → deduplicate; bulk create Entity records in atomic transaction; return `{entities_created: int}`
+- [ ] T032 [Extract Entities] Implement `ExtractEntitiesView` in `ner/views.py`: HTTP POST `/api/v1/documents/{id}/extract-entities/`; synchronous processing (waits for completion); success response HTTP 201 Created with `{status, document_id, entities_created, message}`; error responses: 404 (no document), 429 (rate limit with retry_after), 500 (other failures)
 
-- [ ] T026 [US1] Integration test: `ner/tests/test_views.py::test_extract_entities_success`
-  - Setup: Create document with 2 chunks containing entity mentions
-  - Call: POST /api/v1/documents/{id}/extract-entities/
-  - Verify: Response status 201 Created
-  - Verify: Response body contains { status, document_id, entities_created, message }
-  - Verify: entities_created > 0, Entity records in database match extracted data
-
-- [ ] T027 [US1] Integration test: `ner/tests/test_views.py::test_extract_entities_document_not_found`
-  - Call: POST /api/v1/documents/nonexistent-id/extract-entities/
-  - Verify: Response status 404 Not Found with error message
-
-- [ ] T028 [US1] Integration test: `ner/tests/test_views.py::test_extract_entities_groq_rate_limit`
-  - Setup: Mock Groq API to return 429 (rate limit)
-  - Call: POST /api/v1/documents/{id}/extract-entities/
-  - Verify: Response status 429 Too Many Requests with retry_after header
-  - Verify: No Entity records created (transaction rolled back)
-
-- [ ] T029 [US1] Integration test: `ner/tests/test_views.py::test_extract_entities_replaces_previous`
-  - Setup: Create document, extract entities, verify entities_created = N
-  - Call: Extract again on same document
-  - Verify: Response shows entities_created = M (new count)
-  - Verify: Database contains M entities (not N+M) — old entities deleted
-
-### Implementation for User Story 1
-
-- [ ] T030 [US1] Implement `ner/services/groq_client.py::extract_entities_from_chunk()` (depends on T012)
-  - Load prompt from `prompts/ner-extraction-v1.md`
-  - Call Groq Llama 3 API with chunk text
-  - Parse JSON response from Groq
-  - Return { entities: [{ entity_type, text, confidence }] }
-  - Error handling: API timeout → log and re-raise as GroqAPIError
-  - Error handling: rate limit (429) → extract retry-after header, re-raise as GroqRateLimitError
-
-- [ ] T031 [US1] Implement prompt file: `prompts/ner-extraction-v1.md` (depends on T003)
-  - Define system prompt for Groq Llama 3
-  - Specify entity types: PERSON, ORGANIZATION, LOCATION, ROLE with definitions and examples
-  - Specify input (chunk text), output JSON schema
-  - Specify confidence scoring guidelines (0.9+/0.7-0.9/0.5-0.7/<0.5)
-  - Include extraction instructions and edge cases
-
-- [ ] T032 [US1] Implement `ner/services/deduplicator.py::deduplicate_entities()` (depends on T013)
-  - Input: list of extracted entities from Groq, QuerySet of existing entities from database
-  - For each extracted entity:
-    - Check if (canonical_name, document_id, entity_type) exists in QuerySet
-    - If match: merge raw_mentions (union of old + new), use highest confidence, mark for update
-    - If no match: create new Entity object
-  - Return list of Entity objects (mix of updates/creates)
-
-- [ ] T033 [US1] Implement `ner/services/pipeline.py::extract_entities_for_document()` (depends on T014)
-  - Get document by ID (or raise 404 if not found)
-  - Delete ALL existing entities for this document (clean slate)
-  - Get all chunks for document
-  - For each chunk: call groq_client.extract_entities_from_chunk() (error handling per T032)
-  - Aggregate all extracted entities
-  - Call deduplicator.deduplicate_entities() to merge duplicates
-  - Bulk create Entity records in database
-  - Return { entities_created: count }
-  - Transaction safety: wrap in atomic transaction; rollback on error
-
-- [ ] T034 [US1] Create API view: `ner/views.py::ExtractEntitiesView` (depends on T016, T030-T033)
-  - HTTP method: POST
-  - URL: /api/v1/documents/{id}/extract-entities/
-  - Handler: Calls pipeline.extract_entities_for_document(document_id)
-  - Success response: 201 Created
-    - Body: { status: "extraction_completed", document_id, entities_created, message }
-  - Error responses:
-    - 404 Not Found: document does not exist
-    - 429 Too Many Requests: Groq API rate limit (include retry_after header)
-    - 500 Internal Server Error: other failures (log exception)
-  - Processing: Synchronous (waits for completion before returning response)
-
-**Checkpoint**: User Story 1 complete ✅ — entities can be extracted, deduplicated, stored. Backend retrieves entities via database. Can be tested independently via API.
+**Checkpoint**: Extract Entities complete ✅ — entities extracted, deduplicated, stored. Can be tested independently via API.
 
 ---
 
-## Phase 4: User Story 2 — Retrieve Entities for a Document via REST API (Priority: P1)
+## Phase 4: User Story — Retrieve Entities for Document (Priority: P1)
 
-**Goal**: Provide GET endpoint that returns all extracted entities for a document in list format with full attributes.
+**Goal**: Provide GET endpoint that returns all extracted entities for a document in list format with full attributes. Return HTTP 200 with entity array.
 
-**Independent Test**: Call GET /api/v1/documents/{id}/entities/ and verify response contains complete entity objects with all attributes (id, entity_type, canonical_name, raw_mentions, confidence, chunk_id, document_id, created_at).
+**Independent Test**: Call `GET /api/v1/documents/{id}/entities/` after entities are extracted; verify HTTP 200 with complete entity objects (all fields from api.md).
 
-### Tests for User Story 2
+### Tests for Retrieve Entities ⚠️
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+- [ ] T033 [P] [Retrieve Entities] Integration test in `ner/tests/test_views.py::test_get_entities_success`: create document with extracted entities; call `GET /api/v1/documents/{id}/entities/`; verify HTTP 200, response schema matches api.md, all entity fields present
+- [ ] T034 [P] [Retrieve Entities] Integration test in `ner/tests/test_views.py::test_get_entities_empty_document`: document with no entities; verify HTTP 200 with empty array
+- [ ] T035 [P] [Retrieve Entities] Integration test in `ner/tests/test_views.py::test_get_entities_document_not_found`: non-existent document; verify HTTP 404
+- [ ] T036 [P] [Retrieve Entities] Integration test in `ner/tests/test_views.py::test_get_entities_with_filters` (optional): verify filtering by entity_type and confidence_min (future enhancement)
 
-- [ ] T035 [P] [US2] Integration test: `ner/tests/test_views.py::test_get_entities_success`
-  - Setup: Create document with extracted entities (4+ entities, different types, various confidence levels)
-  - Call: GET /api/v1/documents/{id}/entities/
-  - Verify: Response status 200 OK
-  - Verify: Response body matches api.md schema:
-    - { document_id, entities: [{ id, entity_type, canonical_name, raw_mentions, confidence, chunk_id, document_id, created_at }], total_count }
-  - Verify: All entities returned regardless of confidence (no filtering applied)
+### Implementation for Retrieve Entities
 
-- [ ] T036 [P] [US2] Integration test: `ner/tests/test_views.py::test_get_entities_empty_document`
-  - Setup: Create document with NO extracted entities
-  - Call: GET /api/v1/documents/{id}/entities/
-  - Verify: Response status 200 OK with empty entities array: { document_id, entities: [], total_count: 0 }
+- [ ] T037 [Retrieve Entities] Implement `DocumentEntitiesView` in `ner/views.py`: HTTP GET `/api/v1/documents/{id}/entities/`; query Entity table by document_id; serialize with EntitySerializer; return HTTP 200 `{document_id, entities: [...], total_count}`; error responses: 404 (no document), 500 (query failure)
+- [ ] T038 [Retrieve Entities] Add pagination (optional, for scalability): If more than 100 entities, implement limit/offset pagination; add to response: `{document_id, entities: [...], total_count, page, page_size}`
 
-- [ ] T037 [P] [US2] Integration test: `ner/tests/test_views.py::test_get_entities_document_not_found`
-  - Call: GET /api/v1/documents/nonexistent-id/entities/
-  - Verify: Response status 404 Not Found with error message
-
-- [ ] T038 [P] [US2] Integration test: `ner/tests/test_views.py::test_get_entities_with_filters` (optional, for future enhancement)
-  - Setup: Create document with mixed entity types and confidence levels
-  - Call: GET /api/v1/documents/{id}/entities/?entity_type=PERSON&confidence_min=0.7
-  - Verify: Response filters entities by type and minimum confidence
-  - **Note**: Not required for MVP; placeholder for future feature
-
-### Implementation for User Story 2
-
-- [ ] T039 [US2] Create API view: `ner/views.py::DocumentEntitiesView` (depends on T015)
-  - HTTP method: GET
-  - URL: /api/v1/documents/{id}/entities/
-  - Handler: Queries Entity table, filters by document_id
-  - Success response: 200 OK
-    - Body: { document_id, entities: [EntitySerializer], total_count }
-  - Error responses:
-    - 404 Not Found: document does not exist
-    - 500 Internal Server Error: database query failure
-  - Optional parameters (future enhancement): entity_type, confidence_min (extract from query params, apply to QuerySet)
-
-- [ ] T040 [US2] Add pagination (optional, for scalability):
-  - If more than 100 entities, implement limit/offset pagination
-  - Add to response: { document_id, entities: [...], total_count, page, page_size }
-
-**Checkpoint**: User Story 2 complete ✅ — entities can be retrieved via REST API. Can be tested independently.
+**Checkpoint**: Retrieve Entities complete ✅ — entities retrievable via REST API. Can be tested independently.
 
 ---
 
-## Phase 5: User Story 3 — Retrieve Entity Graph Nodes via REST API (Priority: P1)
+## Phase 5: User Story — Graph Nodes API (Priority: P1)
 
-**Goal**: Provide GET endpoint that returns entity data formatted for Cytoscape.js visualization as graph nodes (edges out of scope).
+**Goal**: Provide GET endpoint that returns entity data formatted for Cytoscape.js visualization as graph nodes. Return HTTP 200 with Cytoscape-compatible node array.
 
-**Independent Test**: Call GET /api/v1/graph/?document_id={id}, verify response contains Cytoscape-compatible node array with id, label, and nested data object.
+**Independent Test**: Call `GET /api/v1/graph/?document_id={id}`; verify HTTP 200 with Cytoscape node format (id, label, data object with entity metadata).
 
-### Tests for User Story 3
+### Tests for Graph Nodes API ⚠️
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+- [ ] T039 [P] [Graph Nodes API] Integration test in `ner/tests/test_views.py::test_get_graph_nodes_success`: create document with entities; call `GET /api/v1/graph/?document_id={id}`; verify HTTP 200, Cytoscape format (id, label, data), response matches api.md
+- [ ] T040 [P] [Graph Nodes API] Integration test in `ner/tests/test_views.py::test_get_graph_nodes_empty_document`: document with no entities; verify HTTP 200 with empty nodes array
+- [ ] T041 [P] [Graph Nodes API] Integration test in `ner/tests/test_views.py::test_get_graph_nodes_document_not_found`: non-existent document; verify HTTP 404
+- [ ] T042 [P] [Graph Nodes API] Integration test in `ner/tests/test_views.py::test_get_graph_nodes_cytoscape_format`: verify response format is valid Cytoscape.js node format (no frontend transformation needed)
 
-- [ ] T041 [P] [US3] Integration test: `ner/tests/test_views.py::test_get_graph_nodes_success`
-  - Setup: Create document with extracted entities (mix of types, various confidence levels)
-  - Call: GET /api/v1/graph/?document_id={id}
-  - Verify: Response status 200 OK
-  - Verify: Response body matches api.md Cytoscape schema:
-    - { document_id, nodes: [{ id, label, data: { entity_id, entity_type, confidence, document_id, chunk_id, raw_mentions_count } }], total_nodes }
-  - Verify: label === canonical_name, raw_mentions_count = len(raw_mentions)
+### Implementation for Graph Nodes API
 
-- [ ] T042 [P] [US3] Integration test: `ner/tests/test_views.py::test_get_graph_nodes_empty_document`
-  - Setup: Create document with NO extracted entities
-  - Call: GET /api/v1/graph/?document_id={id}
-  - Verify: Response status 200 OK with empty nodes array: { document_id, nodes: [], total_nodes: 0 }
+- [ ] T043 [P] [Graph Nodes API] Create `CytoscapeNodeSerializer` helper in `ner/serializers.py`: input Entity object; output `{id, label (canonical_name), data: {entity_id: id, entity_type, confidence, document_id, chunk_id, raw_mentions_count}}`
+- [ ] T044 [Graph Nodes API] Implement `GraphNodesView` in `ner/views.py`: HTTP GET `/api/v1/graph/?document_id={id}`; query parameter: `document_id` (required); query Entity table by document_id; serialize as CytoscapeNode objects; return HTTP 200 `{document_id, nodes: [...], total_nodes}`; error responses: 404 (no document), 400 (missing document_id), 500 (query failure)
 
-- [ ] T043 [P] [US3] Integration test: `ner/tests/test_views.py::test_get_graph_nodes_document_not_found`
-  - Call: GET /api/v1/graph/?document_id=nonexistent-id
-  - Verify: Response status 404 Not Found with error message
-
-- [ ] T044 [P] [US3] Integration test: `ner/tests/test_views.py::test_get_graph_nodes_cytoscape_format`
-  - Setup: Create document with entities
-  - Call: GET /api/v1/graph/?document_id={id}
-  - Verify: Response format is valid Cytoscape.js node format (can be directly passed to cy.add())
-  - Verify: No transformation needed on frontend (format matches contract exactly)
-
-### Implementation for User Story 3
-
-- [ ] T045 [P] [US3] Create CytoscapeNode helper class in `ner/serializers.py`:
-  - Input: Entity object
-  - Output: { id, label (canonical_name), data: { entity_id: id, entity_type, confidence, document_id, chunk_id, raw_mentions_count } }
-  - Note: Rename `id` to `entity_id` in data object to avoid conflict with node id
-
-- [ ] T046 [US3] Create API view: `ner/views.py::GraphNodesView` (depends on T015, T045)
-  - HTTP method: GET
-  - URL: /api/v1/graph/?document_id={id}
-  - Query parameter: document_id (required)
-  - Handler: Queries Entity table, filters by document_id, serializes as CytoscapeNode objects
-  - Success response: 200 OK
-    - Body: { document_id, nodes: [CytoscapeNodeSerializer], total_nodes }
-  - Error responses:
-    - 404 Not Found: document does not exist
-    - 400 Bad Request: document_id parameter missing
-    - 500 Internal Server Error: database query failure
-
-**Checkpoint**: User Story 3 complete ✅ — graph-ready entity data can be retrieved via REST API. Frontend can directly use response in Cytoscape.js without transformation.
+**Checkpoint**: Graph Nodes API complete ✅ — graph-ready entity data retrievable via REST API. Can be tested independently.
 
 ---
 
-## Phase 6: User Story 4 — Basic Frontend with Document Upload, Entities, and Graph Pages (Priority: P2)
+## Phase 6: User Story — Frontend with Pages & Graph Visualization (Priority: P2)
 
-**Goal**: Next.js frontend with pages for document upload, entity list view, and entity graph visualization using Cytoscape.js. All pages connect to Django backend.
+**Goal**: Next.js frontend with pages for document upload, entity list view, and entity graph visualization using Cytoscape.js. All pages connect to Django backend. Return responsive UI with error handling.
 
-**Independent Test**: Start frontend container, verify pages load in browser, verify API calls to backend succeed, verify data displays correctly (no 404s, network errors, or rendering failures).
+**Independent Test**: Start frontend + backend containers; verify pages load in browser; verify API calls succeed; verify data displays correctly (no 404s, network errors, or rendering failures); verify Cytoscape renders nodes without errors.
 
-### Tests for User Story 4
+### Tests for Frontend ⚠️
 
-> **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
+- [ ] T045 [P] [Frontend] Unit test in `frontend/src/__tests__/lib/api.ts`: test axios client initialization; test error interceptor (catches 404, 429, 500)
+- [ ] T046 [P] [Frontend] Unit test in `frontend/src/__tests__/pages/upload.test.tsx`: test form renders; test file input; test submission calls uploadDocument() API; test success response; test error response
+- [ ] T047 [P] [Frontend] Unit test in `frontend/src/__tests__/pages/entities.test.tsx`: test page renders; test getEntities() API call; test entities table displays all fields; test empty state; test error state
+- [ ] T048 [P] [Frontend] Unit test in `frontend/src/__tests__/pages/graph.test.tsx`: test page renders; test Cytoscape component (dynamic import, ssr:false); test getGraphNodes() API call; test empty state; test error state; verify Cytoscape initialization succeeds
+- [ ] T049 [Frontend] Integration test: manual browser test (or Playwright). Start docker-compose; load frontend on localhost:3000; verify pages load; verify API calls use correct backend URL; verify data displays correctly
 
-- [ ] T047 [P] [US4] Unit test: `frontend/src/__tests__/lib/api.ts`
-  - Test axios client initialization (correct baseURL, timeout)
-  - Test error interceptor (catches 404, 429, 500 errors)
+### Implementation for Frontend
 
-- [ ] T048 [P] [US4] Unit test: `frontend/src/__tests__/pages/upload.test.tsx`
-  - Test document upload form renders (input field, submit button)
-  - Test form submission calls uploadDocument() API method
-  - Test success response: displays uploaded document_id to user
-  - Test error response: displays error message to user
+#### API Client & Types
 
-- [ ] T049 [P] [US4] Unit test: `frontend/src/__tests__/pages/entities.test.tsx`
-  - Test entities list page renders (table/list format)
-  - Test entities list calls getEntities() API method
-  - Test success response: displays all entities with canonical_name, entity_type, confidence, raw_mentions
-  - Test empty state: displays "no entities extracted yet" when entities array is empty
-  - Test error response: displays error message to user
+- [ ] T050 [P] [Frontend] Implement API client methods in `frontend/src/lib/api.ts`:
+  - `uploadDocument(file: File) -> Promise<{document_id}>`
+  - `extractEntities(documentId: string) -> Promise<{entities_created}>`
+  - `getEntities(documentId: string, filters?: {...}) -> Promise<Entity[]>`
+  - `getGraphNodes(documentId: string, confidenceMin?: number) -> Promise<CytoscapeNode[]>`
+  - Error handling: catch and log API errors; return user-friendly error messages
 
-- [ ] T050 [P] [US4] Unit test: `frontend/src/__tests__/pages/graph.test.tsx`
-  - Test graph visualization page renders
-  - Test Cytoscape component initializes (with dynamic import, ssr:false)
-  - Test graph calls getGraphNodes() API method
-  - Test success response: Cytoscape renders nodes without error
-  - Test empty state: displays "no entities yet" when nodes array is empty
-  - Test error response: displays error message, page remains functional
+- [ ] T051 [P] [Frontend] Create TypeScript interfaces in `frontend/src/types/index.ts` (if not already): Entity, Document, CytoscapeNode, GraphResponse, ApiErrorResponse; match api.md schemas exactly
 
-- [ ] T051 [US4] Integration test: Browser/E2E (manual or Playwright)
-  - Start frontend and backend containers (docker-compose up)
-  - Verify frontend loads on localhost:3000
-  - Verify upload page: select file, submit, receive success response
-  - Verify entities page: displays extracted entities or "no entities" message
-  - Verify graph page: Cytoscape renders nodes or "no entities" message
-  - Verify API calls use correct backend URL (http://localhost:8000)
+#### Frontend Pages
 
-### Implementation for User Story 4
+- [ ] T052 [P] [Frontend] Create home page `frontend/src/pages/index.tsx`: navigation links to upload, entities, graph; brief description of feature
 
-#### Frontend Pages & Components
-
-- [ ] T052 [P] [US4] Create API client methods in `frontend/src/lib/api.ts` (depends on T019):
-  - `uploadDocument(file: File) → Promise<{ document_id: string }>`
-  - `extractEntities(documentId: string) → Promise<{ entities_created: number }>`
-  - `getEntities(documentId: string, filters?: { confidence_min?, entity_type? }) → Promise<Entity[]>`
-  - `getGraphNodes(documentId: string, confidenceMin?: number) → Promise<CytoscapeNode[]>`
-  - Error handling: catch and log API errors, return user-friendly error messages
-
-- [ ] T053 [P] [US4] Create page: `frontend/src/pages/index.tsx` (home/dashboard)
-  - Navigation links to upload, entities, graph pages
-  - Brief description of the feature
-
-- [ ] T054 [P] [US4] Create page: `frontend/src/pages/upload.tsx` (document upload)
+- [ ] T053 [P] [Frontend] Create upload page `frontend/src/pages/upload.tsx`:
   - Form: file input (accept .pdf, .docx, .txt), submit button
   - On submit: call uploadDocument(file) API method
   - Success: display "Document uploaded successfully! Document ID: {id}"
   - Error: display error message with retry option
   - After success: redirect to entities page or show "View Entities" button
 
-- [ ] T055 [P] [US4] Create page: `frontend/src/pages/entities.tsx` (entities list)
-  - Query parameter: document_id (optional; if missing, show "select a document" message)
+- [ ] T054 [P] [Frontend] Create entities page `frontend/src/pages/entities.tsx`:
+  - Query parameter: document_id (optional)
   - API call: getEntities(document_id) to fetch entities
-  - Display: table or list with columns: canonical_name, entity_type, confidence (as %), raw_mentions_count
-  - Empty state: "No entities extracted yet. Trigger extraction from here?" (link or button)
+  - Display: table/list with columns: canonical_name, entity_type, confidence (%), raw_mentions_count
+  - Empty state: "No entities extracted yet"
   - Error state: display error message with retry button
   - Enhancement (optional): link to graph page
 
-- [ ] T056 [US4] Create page: `frontend/src/pages/graph.tsx` (entity graph visualization) (depends on T055)
+- [ ] T055 [Frontend] Create graph page `frontend/src/pages/graph.tsx`:
   - Query parameter: document_id (optional)
-  - API call: getGraphNodes(document_id) to fetch Cytoscape-compatible nodes
-  - Component: Import Cytoscape.js with Next.js dynamic import (ssr:false, no SSR)
+  - API call: getGraphNodes(document_id) to fetch Cytoscape nodes
+  - Component: Import Cytoscape.js with Next.js dynamic import (ssr:false) — CRITICAL requirement
   - Render: Cytoscape container with nodes from API response
-  - Empty state: "No entities to visualize yet."
+  - Empty state: "No entities to visualize yet"
   - Error state: display error message with retry button
-  - Layout: Force-directed layout (e.g., cose or breadthfirst)
-  - Styling: Color nodes by entity_type (e.g., PERSON=blue, ORG=red, LOCATION=green, ROLE=yellow)
-  - Interactivity: hover to highlight node, click for details (optional)
+  - Layout: Force-directed (cose algorithm)
+  - Styling: Color nodes by entity_type (PERSON=blue, ORG=red, LOCATION=green, ROLE=yellow)
 
-- [ ] T057 [US4] Create Cytoscape wrapper component: `frontend/src/components/GraphVisualization.tsx` (depends on T056)
-  - Props: nodes (CytoscapeNode[]), edges (optional; empty for MVP)
+#### Frontend Components
+
+- [ ] T056 [Frontend] Create Cytoscape wrapper component `frontend/src/components/GraphVisualization.tsx`:
+  - Props: nodes (CytoscapeNode[]), edges (empty for MVP)
   - Initialize Cytoscape instance with DOM container
-  - Apply styling rules for node colors by entity_type
+  - Apply styling rules: node colors by entity_type
   - Handle resize events (responsive layout)
-  - Error boundary: catch initialization errors, display fallback message
+  - Error boundary: catch initialization errors, display fallback
   - **CRITICAL**: Use Next.js dynamic import with ssr:false to prevent server-side rendering issues
 
-- [ ] T058 [P] [US4] Create error handling components:
-  - `frontend/src/components/ErrorMessage.tsx` → displays error with retry button
-  - `frontend/src/components/LoadingSpinner.tsx` → displays loading indicator during API calls
+- [ ] T057 [P] [Frontend] Create error handling components:
+  - `frontend/src/components/ErrorMessage.tsx`: displays error with retry button
+  - `frontend/src/components/LoadingSpinner.tsx`: loading indicator during API calls
 
-- [ ] T059 [P] [US4] Create layout/navigation: `frontend/src/components/Layout.tsx`
+- [ ] T058 [P] [Frontend] Create layout/navigation `frontend/src/components/Layout.tsx`:
   - Header with app title and navigation menu
-  - Links to: home, upload, entities, graph pages
-  - Footer with copyright/attribution
+  - Links: home, upload, entities, graph pages
+  - Footer
 
-#### Dockerfile & Container Setup
+#### Docker & Container Setup
 
-- [ ] T060 [US4] Create `frontend/Dockerfile` (depends on T005)
-  - Multi-stage build:
-    - Stage 1: Node.js 20 base, install dependencies (npm ci), build Next.js app (npm run build)
-    - Stage 2: Node.js 20 base, copy built app, expose port 3000, run npm start
-  - Optimizations: .dockerignore to exclude node_modules, .next, etc.
-  - Environment: NODE_ENV=production, NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 (configurable)
+- [ ] T059 [Frontend] Create `frontend/Dockerfile` (finalize):
+  - Multi-stage build (Stage 1: Node 20, npm install, build; Stage 2: Node 20, built app, expose 3000, npm start)
+  - Optimizations: .dockerignore excludes node_modules, .next, etc.
+  - Environment: NODE_ENV=production, NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 
-- [ ] T061 [US4] Update `docker-compose.yml` (depends on T004)
-  - Add frontend service:
-    - service name: frontend
-    - build: ./frontend
-    - ports: "3000:3000"
-    - depends_on: backend (ensure backend starts first for health checks)
-    - environment: NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-    - volumes (development mode): ./frontend/src:/app/src (hot reload)
+- [ ] T060 [Frontend] Update `docker-compose.yml` (finalize):
+  - Add frontend service: name `frontend`, build ./frontend, ports `3000:3000`
+  - depends_on: `backend` (ensure backend starts first)
+  - environment: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
+  - volumes (dev mode): `./frontend/src:/app/src` (hot reload)
 
-- [ ] T062 [US4] Create `frontend/.env.local` (local development)
-  - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+- [ ] T061 [Frontend] Create `frontend/.env.local`: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
 
-- [ ] T063 [P] [US4] Create `frontend/next.config.js`:
-  - Suppress build warnings (optional)
-  - Configure internationalization if needed (optional)
+- [ ] T062 [P] [Frontend] Create `frontend/next.config.js`: basic configuration
 
-#### Styling & UI Enhancements
+#### Styling & UI
 
-- [ ] T064 [P] [US4] Create global styles: `frontend/src/styles/globals.css` (Tailwind CSS)
-  - Basic layout: responsive containers, typography, spacing
-  - Color scheme: professional look (optional theming)
-  - Accessibility: focus states, contrast ratios
+- [ ] T063 [P] [Frontend] Create global styles `frontend/src/styles/globals.css`: Tailwind CSS setup, responsive layout, typography, color scheme, accessibility
 
-- [ ] T065 [P] [US4] Create Cytoscape styling: `frontend/src/lib/cytoscapeStyle.ts`
-  - Node styles: size, color by entity_type, label visibility
-  - Hover states: highlight on hover
-  - Layout: force-directed (cose algorithm)
-  - Responsive: adjust for different screen sizes
+- [ ] T064 [P] [Frontend] Create Cytoscape styling `frontend/src/lib/cytoscapeStyle.ts`: node colors, hover states, layout (force-directed), responsive sizing
 
-**Checkpoint**: User Story 4 complete ✅ — full frontend with all pages, API integration, graph visualization. Can be tested end-to-end in browser.
+**Checkpoint**: Frontend complete ✅ — all pages, API integration, graph visualization. Can be tested end-to-end in browser.
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-**Purpose**: Improvements and final validation across all stories
+**Purpose**: Documentation, code quality, test coverage, performance, security, final validation.
 
-- [ ] T066 [P] Complete prompt file: `prompts/ner-extraction-v1.md` (depends on T031)
-  - Finalize based on Phase 0 research findings and actual Groq behavior
-  - Add example inputs/outputs
-  - Document confidence scoring heuristics
-  - Version history placeholder for v2, v3
+- [ ] T065 [P] Complete prompt file `prompts/ner-extraction-v1.md`: finalize based on actual Groq behavior; add example inputs/outputs; document confidence scoring heuristics; version history placeholder for v2, v3
 
-- [ ] T067 [P] Create comprehensive docstrings and inline comments:
-  - Backend: models, services, views (describe each method/parameter)
-  - Frontend: pages, components, hooks
+- [ ] T066 [P] Add comprehensive docstrings and inline comments: Backend: models.py, services/*.py, views.py; Frontend: pages, components, hooks
 
-- [ ] T068 [P] Add additional unit tests for edge cases:
-  - Test: Groq returns entities with very low confidence (<0.5) → should be included per api.md
-  - Test: Groq returns empty entity list → pipeline completes, entities_created=0
-  - Test: Chunk has special characters, emoji, mixed language → extraction handles gracefully
-  - Test: Very long canonical_name (>255 chars) → truncated or rejected (decide in Phase 0)
+- [ ] T067 [P] Add unit tests for edge cases (backend): Groq returns low confidence entities; Groq returns empty entity list; Chunk has special characters/emoji/mixed language; Very long canonical_name (>255 chars)
 
-- [ ] T069 [P] Run full test suites:
-  - Backend: `cd . && pytest` (runs all ner/tests/)
-  - Frontend: `cd frontend && npm test` (runs all __tests__/)
-  - Verify all tests pass (T023-T050 should all be green)
+- [ ] T068 [P] Run full test suites: Backend: `pytest` (all ner/tests/ must pass); Frontend: `npm test` (all __tests__/ must pass)
 
-- [ ] T070 [P] Code cleanup and style:
-  - Backend: `ruff check ner/` (linting), fix violations
-  - Frontend: `npm run lint` (ESLint), fix violations
-  - Backend: format with Black (optional)
-  - Frontend: format with Prettier (optional)
+- [ ] T069 [P] Code cleanup and style: Backend: `ruff check ner/`, `black ner/`; Frontend: `npm run lint`, `npm run format`
 
-- [ ] T071 [P] Create or complete documentation:
-  - `specs/002-ner-pipeline/research.md` (Phase 0 findings) → finalize based on implementation learnings
-  - `specs/002-ner-pipeline/data-model.md` → document Entity model, schema, relationships
-  - `specs/002-ner-pipeline/quickstart.md` → developer setup guide (install deps, run migrations, start docker-compose, test endpoints)
+- [ ] T070 [P] Create/complete documentation:
+  - `specs/002-ner-pipeline/research.md` (Groq patterns, deduplication, Cytoscape React patterns, Next.js architecture)
+  - `specs/002-ner-pipeline/data-model.md` (Entity model schema, relationships, validation rules)
+  - `specs/002-ner-pipeline/quickstart.md` (developer setup guide)
 
-- [ ] T072 Run `quickstart.md` validation:
-  - Fresh checkout of branch
-  - Follow quickstart.md steps explicitly
-  - Verify all steps work without errors
-  - Verify all 4 user story endpoints work correctly
-  - Update quickstart.md based on any issues found
+- [ ] T071 Validate `quickstart.md`: fresh clone, follow every step explicitly; verify all steps work without errors; verify all 3 backend endpoints work (extract, get entities, get graph); verify frontend loads and connects to backend
 
-- [ ] T073 [P] Security hardening (MVP considerations):
-  - Validate document_id is valid UUID (prevent SQL injection)
-  - Validate chunk text length before sending to Groq (prevent abuse)
-  - Add rate limiting per IP (optional, for production readiness)
-  - Add CORS headers to backend if frontend and backend on different origins (verify if needed for docker-compose)
+- [ ] T072 [P] Security hardening: Validate document_id is valid UUID; validate chunk text length before sending to Groq; add rate limiting per IP (optional); add CORS headers if needed
 
-- [ ] T074 [P] Performance optimization:
-  - Profile entity extraction: measure time for 50 chunks (target: <30 seconds per plan.md)
-  - Profile entity retrieval: measure GET /api/v1/documents/{id}/entities/ (target: <1 second for 1000 entities)
-  - Profile Cytoscape render: measure render time for 100+ nodes (target: <2 seconds)
-  - Add database indexes if needed (entity_type, confidence, document_id)
+- [ ] T073 [P] Performance optimization: Profile entity extraction (<30 seconds for 50 chunks); profile entity retrieval (<1 second for 1000 entities); profile Cytoscape render (<2 seconds for 100+ nodes); add database indexes if needed
 
-- [ ] T075 [P] Final validation before PR:
-  - Verify no NEEDS CLARIFICATION markers in code
-  - Verify all code matches contracts (api.md, frontend.md, prompt.md)
-  - Verify all 4 user stories independently testable and functional
-  - Verify constitution gates still pass (Docker, Supabase, prompts versioned, etc.)
-  - Verify git history is clean (commits are logical, messages are clear)
+- [ ] T074 [P] Final validation before PR: Verify no NEEDS CLARIFICATION markers; verify all code matches contracts (api.md, frontend.md, prompt.md); verify all stories independently testable and functional; verify constitution gates pass (Docker, Supabase, prompts versioned); verify git history clean
 
-- [ ] T076 Create test fixtures / seed data (optional, for manual testing):
-  - Django: create sample documents with chunks for testing extraction
-  - Frontend: mock API responses if needed for isolated testing
+- [ ] T075 Create test fixtures / seed data (optional): Django: create sample documents with chunks; Frontend: mock API responses if needed
 
-- [ ] T077 [P] Documentation in code comments:
-  - Explain deduplication strategy in deduplicator.py
-  - Explain synchronous extraction choice in ExtractEntitiesView
-  - Explain Cytoscape dynamic import necessity in GraphVisualization.tsx
+- [ ] T076 [P] Add code comments explaining key decisions: Explain deduplication strategy in deduplicator.py; explain synchronous extraction choice in ExtractEntitiesView; explain Cytoscape dynamic import necessity
+
+- [ ] T077 [P] Update CHANGELOG.md: add entry for US-02 delivery (NER Pipeline + Entity API + Frontend); describe features, endpoints, dependencies
+
+- [ ] T078 Run full test suite in Docker: `docker compose run --rm app pytest` + `docker compose run --rm frontend npm test`; all tests must pass
+
+- [ ] T079 Final end-to-end validation: `docker compose up`; use frontend UI to upload document, view entities, view graph; verify no errors; take screenshots for documentation
 
 ---
 
@@ -538,197 +332,84 @@
 - **Setup (Phase 1)**: No dependencies — can start immediately
 - **Foundational (Phase 2)**: Depends on Setup completion — **BLOCKS all user stories**
 - **User Stories (Phase 3-6)**: All depend on Foundational completion
-  - US1, US2, US3 (all P1): Can proceed in parallel after Foundational
-  - US4 (P2): Can start after US1, US2, US3 complete (depends on those APIs working)
-- **Polish (Phase 7)**: Depends on all desired user stories being complete
+  - Extract Entities/Retrieve Entities/Graph Nodes API (all P1) can proceed in parallel after Foundational
+  - Frontend (P2) depends on all 3 P1 APIs working
+- **Polish (Phase 7)**: Depends on all desired user stories complete
 
 ### Within-Phase Dependencies
 
-**Phase 2 (Foundational)**:
-- T008 (Entity model) → T009 (migration)
-- T012 (groq_client) → T030 (implement extraction)
-- T013 (deduplicator) → T032 (implement dedup)
-- T014 (pipeline) → T033 (implement pipeline)
-- T015 (serializers) → T039 (DocumentEntitiesView), T046 (GraphNodesView)
-- T018-T022 (frontend setup) → all frontend pages in Phase 6
+**Phase 2**:
+- T008-T009 (models) → T010-T013 (services)
+- T014 (serializers) → T037 (DocumentEntitiesView), T044 (GraphNodesView)
+- T017-T020 (frontend base) → all frontend pages in Phase 6
 
-**Phase 3 (US1)**:
-- Tests T023-T029 → Implementation T030-T034 (write tests first!)
-- T030 (groq_client) → T031 (prompt file/CRITICAL DATA)
-- T032 (deduplicator) → T033 (pipeline)
-- T033 (pipeline) → T034 (ExtractEntitiesView)
+**Phase 3 (Extract Entities)**:
+- Tests T021-T027 → Implementation T028-T032 (write tests first!)
+- T028 (groq_client) → T029 (prompt file)
+- T030 (deduplicator) → T031 (pipeline)
+- T031 (pipeline) → T032 (ExtractEntitiesView)
 
-**Phase 4 (US2)**:
-- Tests T035-T038 → Implementation T039 (write tests first!)
-- T015 (EntitySerializer) → T039 (DocumentEntitiesView)
+**Phase 4 (Retrieve Entities)**:
+- Tests T033-T036 → Implementation T037 (write tests first!)
 
-**Phase 5 (US3)**:
-- Tests T041-T044 → Implementation T045-T046 (write tests first!)
-- T015 (EntitySerializer) → T045 (CytoscapeNode serializer)
-- T045 (CytoscapeNode) → T046 (GraphNodesView)
+**Phase 5 (Graph Nodes API)**:
+- Tests T039-T042 → Implementation T043-T044 (write tests first!)
 
-**Phase 6 (US4)**:
-- Tests T047-T051 → Implementation T052-T065 (write tests first!)
-- T019 (axios client) → T052 (API methods)
-- T020-T021 (TypeScript types) → all pages
-- T052 (API methods) → T054-T056 (pages)
-- T055 (entities page) → T056 (graph page uses same document_id logic)
-- T056 (graph page) → T057 (Cytoscape component, must use dynamic import!)
-- T004 (docker-compose setup) → T060 (Dockerfile)
-- T060 (Dockerfile) → T061 (docker-compose integration)
+**Phase 6 (Frontend)**:
+- Tests T045-T049 → Implementation T050-T064 (write tests first!)
+- T050 (API methods) → T053-T055 (pages)
+- T055 (graph page) → T056 (Cytoscape component, must use dynamic import!)
+- T004 (docker-compose setup) → T059 (Dockerfile) → T060 (docker-compose integration)
 
 ### Parallel Opportunities
 
-**Phase 1**:
-- T001, T002, T003 (setup) can run in parallel
-- T006, T007 (dependencies) can run in parallel
-
-**Phase 2**:
-- T008-T009 (models) vs. T012-T014 (services) independently
-- T015-T017 (serializers/views) in parallel
-- T018-T022 (frontend base) in parallel with backend setup
-
-**Phase 3, 4, 5** (after Phase 2 complete):
-- US1, US2, US3 tests (T023-T044) can run in parallel (different test files)
-- US1, US2, US3 implementation (T030-T046) can proceed in parallel if dependencies met
-- **Recommended order**: US1 first (most critical), then US2, US3 in parallel
-
-**Phase 6** (after US1-3 complete):
-- Frontend pages (T054-T056) can be developed in parallel (different files)
-- Component creation (T057-T059) in parallel
-- Dockerfile/container setup (T060-T063) in parallel with page development
-- Styling (T064-T065) in parallel
-
-**Phase 7**:
-- T066-T068 (documentation, tests, comments) in parallel
-- T069-T070 (test suites, linting) in parallel
-- T071-T077 (final checks, docs) sequential at end
-
-### Recommended Execution Strategy
-
-**Option A: Sequential (Safest for Solo Dev)**
-1. Phase 1: Setup (2 hours)
-2. Phase 2: Foundational (6 hours)
-   - Checkpoint: Models, services, views in place
-3. Phase 3: US1 (8 hours) — highest value, enables extraction
-   - US1 tests must PASS before moving forward
-4. Phase 4: US2 (4 hours) — enabled by US1
-5. Phase 5: US3 (4 hours) — enabled by US1
-6. Phase 6: US4 (12 hours) — frontend enabled by US1-3
-   - Launch docker-compose
-   - Run browser tests manually
-7. Phase 7: Polish (6 hours)
-   - Total: ~42 hours for complete implementation
-
-**Option B: Parallel (For Team)**
-- Developer A: Phase 1 + 2 (foundational) — MUST be first
-- Developer B & C: Wait for Phase 2 checkpoint, then:
-  - B: Phase 3 (US1 extraction pipeline)
-  - C: Phase 6a (frontend setup: base pages)
-- When US1 complete:
-  - B: Phase 4 (US2 retrieval API)
-  - C: Continue Phase 6 (pages, Cytoscape)
-- When US2 complete:
-  - B: Phase 5 (US3 graph API)
-  - C: Finish Phase 6
-- Parallel Phase 7:
-  - All: Tests, linting, docs
+**Phase 1**: T002, T003, T004, T005, T006, T007 all parallel
+**Phase 2**: T008-T009 (models) parallel with T010-T020 (services/frontend)
+**Phase 3 Tests**: T021, T022, T023 parallel
+**Phase 6**: T052-T064 many tasks can run in parallel (different files, different developers)
+**Phase 7**: T065-T077 many tasks parallel; T070-T079 more sequential at end
 
 ---
 
-## Testing Strategy
+## Implementation Strategy
 
-### Before Implementation: Write Tests First
+### MVP First (Extract Entities Only)
 
-For each user story:
-1. Write tests based on api.md, frontend.md contracts
-2. Run tests → FAIL (red status)
-3. Implement feature until tests PASS (green status)
-4. Ensure no unrelated tests break (regression)
+1. Complete Phase 1: Setup (T001–T007)
+2. Complete Phase 2: Foundational (T008–T020) — **mandatory, blocks all stories**
+3. Complete Phase 3: Extract Entities (T021–T032)
+4. **STOP and VALIDATE**: `pytest ner/tests/` passes; `curl POST .../api/v1/documents/{id}/extract-entities/` returns 201 with entities_created > 0
+5. Demo to stakeholders; proceed to Retrieve Entities only after Extract Entities sign-off
 
-### Unit Tests (Backend)
+### Incremental Delivery
 
-- **groq_client.py**: Mock Groq API responses, test JSON parsing, error handling
-- **deduplicator.py**: Mock Entity QuerySet, test merge logic, dedupe accuracy
-- **pipeline.py**: Mock services, test orchestration, transaction rollback on error
+1. Setup + Foundational → container boots, models/migrations in place
+2. Extract Entities → working entity extraction pipeline → **Sprint 2 MVP**
+3. Retrieve Entities → entity list endpoint → query capability ready
+4. Graph Nodes API → graph-ready data → visualization foundation ready
+5. Frontend → complete UI layer → end-to-end workflow ready
+6. Polish → docs, tests, performance, security → PR-ready
 
-### Integration Tests (Backend)
+### Parallel Team Strategy
 
-- **views.py**: Mock Groq API, test full request→response flow, HTTP status codes, response JSON schema
-
-### Unit Tests (Frontend)
-
-- **api.ts**: Mock axios, test error handling, response parsing
-- **pages/*.tsx**: Mock API client, test rendering, form submission, error states
-
-### Integration Tests (Frontend)
-
-- **Browser/E2E**: Start docker-compose, test full workflow: upload → extract → view entities → view graph
-
-### Test Coverage Goals
-
-- Backend: >80% code coverage (pytest with coverage.py)
-- Frontend: >70% component coverage (Jest)
-
----
-
-## Deliverables (End of Phase 7)
-
-### Backend
-
-✅ Django `ner/` app with:
-- Entity model (indexed, with relationships)
-- ExtractEntitiesView, DocumentEntitiesView, GraphNodesView endpoints
-- groq_client, deduplicator, pipeline services
-- Comprehensive test suite (pytest)
-
-✅ NER extraction prompt: `prompts/ner-extraction-v1.md`
-
-✅ Updated docker-compose.yml with tested configuration
-
-### Frontend
-
-✅ Next.js 14 app with:
-- Pages: upload, entities, graph
-- Cytoscape.js graph visualization (dynamic import, ssr:false)
-- API integration with error handling
-- Comprehensive test suite (Jest)
-
-✅ Updated docker-compose.yml with frontend service
-
-### Documentation
-
-✅ Completed Phase 1 artifacts:
-- research.md (if Phase 0 research needed)
-- data-model.md (Entity schema, relationships)
-- quickstart.md (developer setup, running docker-compose, testing endpoints)
-
-✅ All contracts validated to match implementation:
-- api.md (3 endpoints, 201 Created, error responses)
-- frontend.md (4 API methods, Cytoscape pattern, TypeScript interfaces)
-- prompt.md (NER extraction specification)
-
-### Validation
-
-✅ quickstart.md runs end-to-end without errors
-
-✅ All 4 user stories independently testable and functional
-
-✅ Constitution gates still pass (Docker, Supabase, versioned prompts)
-
-✅ Clean git history with logical commits
+After Phase 2 complete:
+- **Developer A**: Extract Entities (T021–T032) — NER pipeline with Groq
+- **Developer B**: Retrieve Entities (T033–T036) — entity retrieval API
+- Developer B can start Graph Nodes API (T039–T044) once Retrieve Entities merges
+- **Developer C**: Frontend pages/components (T053–T064) once all 3 APIs working
 
 ---
 
 ## Notes
 
-- **[P] tasks**: Different files, no dependencies — can run in parallel
-- **[Story] label**: Maps each task to specific user story for traceability
-- **Tests first**: Every user story must have tests written and FAIL before implementation
+- `[P]` = different files, no dependencies — safe to run concurrently
+- `[Story]` label maps each task to a user story for traceability
+- Tests must FAIL before implementation; commit test files separately from implementation
+- Commit after each task or logical group; PRs per user story
+- Stop at any checkpoint to validate story independently before the next
 - **Synchronous extraction**: Per clarification — POST returns 201 Created after completion, not 202 Accepted
-- **Clean slate re-extraction**: Per clarification — deletes all previous entities before creating new ones
-- **Cytoscape ssr:false**: Per clarification — Next.js dynamic import with ssr:false MANDATORY to prevent hydration errors
-- **Commit strategy**: Commit after each task or logical group (not per line of code)
-- **Stop at checkpoints**: Can deploy/demo at any checkpoint to validate story independently
-- **No authentication (MVP)**: All endpoints public; add auth in future sprint if needed
+- **Clean slate re-extraction**: Per clarification — DELETE all existing entities before creating new ones
+- **Cytoscape ssr:false**: Per clarification — Next.js dynamic import with `ssr: false` MANDATORY to prevent hydration errors
+- **Prompt versioning**: Per constitution — NER prompts stored in `prompts/ner-extraction-v1.md` as versioned source artifacts
+- No authentication (MVP) — all endpoints public
 

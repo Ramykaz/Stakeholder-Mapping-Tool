@@ -197,7 +197,7 @@ stakeholder-analysis-tool/       ← repo root
 - [x] T046 [P] [Frontend] Unit test in `frontend/src/__tests__/pages/upload.test.tsx`: test form renders; test file input; test submission calls uploadDocument() API; test success response; test error response
 - [x] T047 [P] [Frontend] Unit test in `frontend/src/__tests__/pages/entities.test.tsx`: test page renders; test getEntities() API call; test entities table displays all fields; test empty state; test error state
 - [x] T048 [P] [Frontend] Unit test in `frontend/src/__tests__/pages/graph.test.tsx`: test page renders; test Cytoscape component (dynamic import, ssr:false); test getGraphNodes() API call; test empty state; test error state; verify Cytoscape initialization succeeds
-- [ ] T049 [Frontend] Integration test: manual browser test (or Playwright). Start docker-compose; load frontend on localhost:3000; verify pages load; verify API calls use correct backend URL; verify data displays correctly
+- [x] T049 [Frontend] Integration test: manual browser test (or Playwright). Start docker-compose; load frontend on localhost:3000; verify pages load; verify API calls use correct backend URL; verify data displays correctly
 
 ### Implementation for Frontend
 
@@ -306,7 +306,7 @@ stakeholder-analysis-tool/       ← repo root
   - `specs/002-ner-pipeline/data-model.md` (Entity model schema, relationships, validation rules)
   - `specs/002-ner-pipeline/quickstart.md` (developer setup guide)
 
-- [ ] T071 Validate `quickstart.md`: fresh clone, follow every step explicitly; verify all steps work without errors; verify all 3 backend endpoints work (extract, get entities, get graph); verify frontend loads and connects to backend
+- [x] T071 Validate `quickstart.md`: fresh clone, follow every step explicitly; verify all steps work without errors; verify all 3 backend endpoints work (extract, get entities, get graph); verify frontend loads and connects to backend
 
 - [x] T072 [P] Security hardening: Validate document_id is valid UUID; validate chunk text length before sending to Groq; add rate limiting per IP (optional); add CORS headers if needed
 
@@ -322,7 +322,7 @@ stakeholder-analysis-tool/       ← repo root
 
 - [x] T078 Run full test suite in Docker: `docker compose run --rm app pytest` + `docker compose run --rm frontend npm test`; all tests must pass
 
-- [ ] T079 Final end-to-end validation: `docker compose up`; use frontend UI to upload document, view entities, view graph; verify no errors; take screenshots for documentation
+- [x] T079 Final end-to-end validation: `docker compose up`; use frontend UI to upload document, view entities, view graph; verify no errors; take screenshots for documentation
 
 ---
 

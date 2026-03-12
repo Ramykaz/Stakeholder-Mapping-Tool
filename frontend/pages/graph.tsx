@@ -65,9 +65,9 @@ export default function GraphPage() {
     }
   };
 
-  const handleNodeClick = (node: CytoscapeNode) => {
+  const handleNodeClick = useCallback((node: CytoscapeNode) => {
     setSelectedNode(node);
-  };
+  }, []);
 
   return (
     <Layout title="Stakeholder Graph">

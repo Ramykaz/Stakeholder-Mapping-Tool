@@ -4,6 +4,7 @@ import django.db.models.deletion
 import django.utils.timezone
 from django.db import migrations, models
 from pgvector.django import VectorExtension
+from pgvector.django.vector import VectorField
 
 
 class Migration(migrations.Migration):
@@ -47,7 +48,7 @@ class Migration(migrations.Migration):
                 ('text', models.TextField()),
                 # VectorField stores a 384-dimensional float vector.
                 # pgvector extension must be enabled (handled by VectorExtension above).
-                ('embedding', models.Field(db_column='embedding')),  # placeholder; overridden below
+                ('embedding', VectorField(dimensions=384)),
                 ('chunk_index', models.IntegerField()),
                 ('token_count', models.IntegerField()),
             ],

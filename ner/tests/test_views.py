@@ -203,8 +203,8 @@ class TestGraphNodesView(TestCase):
         """Test retrieving nodes for document with no entities."""
         empty_doc = Document.objects.create(
             filename="empty.pdf",
-            format="pdf",
-            status="completed",
+            file_format="pdf",
+            processing_status="completed",
         )
 
         url = f'/api/v1/graph/?document_id={empty_doc.id}'

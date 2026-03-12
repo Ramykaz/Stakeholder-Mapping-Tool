@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+﻿# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
@@ -210,10 +210,19 @@ marimo/_lsp/
 __marimo__/
 
 # Project-specific
-# Model weights are mounted as Docker volumes — do not commit
+# Model weights are mounted as Docker volumes â€” do not commit
 models/
 # Local Django env
 local_settings.py
 # Editor
 .vscode/
 .idea/
+
+
+# Node / Frontend
+node_modules/
+.next/
+out/
+
+# Binary test data
+*.pdf

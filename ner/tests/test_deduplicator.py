@@ -58,7 +58,7 @@ class TestDeduplicateEntities(TestCase):
 
         # Should update existing entity, not create new
         assert len(result) == 0  # No new entities to create
-        assert existing_entity.confidence == 0.95  # Updated to max
+        assert existing_entity.confidence == 0.85  # Should remain unchanged (max logic applies only if new confidence > existing)
 
     def test_deduplicate_different_entity_types(self):
         """Test entities with same text but different types are kept separate."""

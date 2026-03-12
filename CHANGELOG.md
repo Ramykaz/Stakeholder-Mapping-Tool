@@ -7,6 +7,47 @@ Follows [Conventional Commits](https://www.conventionalcommits.org/) and [Semant
 
 ## [Unreleased]
 
+### Added — Sprint 2 · US-02: NER Pipeline + Entity API + Frontend
+
+**Endpoints**
+- `POST /api/v1/documents/{id}/extract-entities/` — Extract named entities (PERSON, ORGANIZATION, LOCATION, ROLE) from document chunks using Groq Llama 3. Synchronous; returns HTTP 201 with `entities_created` count. Clean-slate re-extraction on repeat calls.
+- `GET /api/v1/documents/{id}/entities/` — Retrieve all entities for a document with canonical names, confidence scores, and raw mentions.
+- `GET /api/v1/graph/?document_id={id}` — Retrieve entities formatted as Cytoscape.js nodes for graph visualization.
+
+**NER Pipeline**
+- Groq Llama 3.1-8b-instant integration via `groq` Python SDK
+- Versioned prompt template at `prompts/ner-extraction-v1.md` with entity type definitions, examples, and confidence scoring guidelines
+- Cross-chunk entity deduplication: merges by (canonical_name, document_id, entity_type), aggregates raw_mentions, takes max confidence
+- `Entity` model with UUID PK, entity_type choices, canonical_name, raw_mentions (JSONField), confidence (0.0–1.0), FK to Document + Chunk
+- Atomic transaction: all entities committed or fully rolled back on failure
+
+**Frontend (Next.js 14)**
+- Home page with feature cards and how-it-works section
+- Upload page: drag-drop file upload, step indicator (Upload → Extract → View), calls backend synchronously
+- Entities page: searchable by document ID, entity type filter, confidence bars, summary stats cards, raw mentions display
+- Graph page: Cytoscape.js visualization with dynamic import (ssr:false), force-directed layout, entity-type colored nodes (PERSON=blue, ORG=red, LOCATION=green, ROLE=yellow), confidence slider, node detail panel
+- Shared Layout with navigation, ErrorBoundary, ErrorMessage, LoadingSpinner components
+- Tailwind CSS styling with custom entity badge classes
+
+**Infrastructure**
+- Frontend Docker multi-stage build (Node 20 Alpine)
+- `frontend` service in docker-compose.yml (port 3000, depends_on app)
+- WhiteNoise 6.6.0 for Django static file serving
+- API client timeout increased to 120s for extraction requests
+- `@types/cytoscape` for TypeScript support
+
+**Dependencies added**
+- Backend: groq 0.9.0, whitenoise 6.6.0
+- Frontend: next 14, react 18, axios 1.6, cytoscape 3.28, tailwindcss 3.3, typescript 5.3, @types/cytoscape
+
+**Tests**
+- 30 NER backend tests: groq_client (7), deduplicator (5), pipeline (6), views (11 — extract/retrieve/graph)
+- 32 ingestion tests continue passing (62 total backend tests)
+
+**Spec**: [`specs/002-ner-pipeline/`](specs/002-ner-pipeline/)
+
+---
+
 ### Added — Sprint 1 · US-01: Document Ingestion Pipeline
 
 **Endpoints**

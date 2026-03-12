@@ -159,7 +159,11 @@ export default function UploadPage() {
               <div>
                 <p className="text-sm font-medium text-green-700">{file.name}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {file.size < 1024
+                    ? `${file.size} B`
+                    : file.size < 1024 * 1024
+                      ? `${(file.size / 1024).toFixed(1)} KB`
+                      : `${(file.size / 1024 / 1024).toFixed(2)} MB`}
                 </p>
                 <button
                   onClick={resetState}

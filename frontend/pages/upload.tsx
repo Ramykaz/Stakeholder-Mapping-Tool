@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
-import { uploadDocument, extractEntities } from '@/lib/api';
+import { uploadDocument, extractEntities, getDocuments, DocumentSummary } from '@/lib/api';
 
 type UploadStep = 'select' | 'uploading' | 'uploaded' | 'extracting' | 'done' | 'error';
 
@@ -71,6 +72,25 @@ export default function UploadPage() {
   const [entitiesCreated, setEntitiesCreated] = useState<number>(() => persisted.current?.entitiesCreated || 0);
   const [error, setError] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [docsLoading, setDocsLoading] = useState(true);
+
+  // Fetch document history on mount and after successful upload/extraction
+  const fetchDocuments = useCallback(async () => {
+    try {
+      setDocsLoading(true);
+      const docs = await getDocuments();
+      setDocuments(docs);
+    } catch {
+      // Silent fail — document list is non-critical
+    } finally {
+      setDocsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
 
   // Persist state on key changes
   const persistState = useCallback((s: UploadStep, docId: string, fName: string, fSize: number, entities: number) => {
@@ -135,6 +155,7 @@ export default function UploadPage() {
       setDocumentId(result.id);
       setStep('uploaded');
       persistState('uploaded', result.id, fileName, fileSize, 0);
+      fetchDocuments();
     } catch (err: any) {
       setError(err.message || 'Upload failed');
       setStep('error');
@@ -150,6 +171,7 @@ export default function UploadPage() {
       setEntitiesCreated(result.entities_created);
       setStep('done');
       persistState('done', documentId, fileName, fileSize, result.entities_created);
+      fetchDocuments();
     } catch (err: any) {
       setError(err.message || 'Entity extraction failed');
       setStep('error');
@@ -375,6 +397,64 @@ export default function UploadPage() {
           </div>
         )}
       </div>
+
+      {/* Recent Documents */}
+      {documents.length > 0 && (
+        <div className="mt-10 max-w-3xl mx-auto animate-fade-in">
+          <h2 className="text-sm font-semibold text-navy-700 uppercase tracking-wider mb-3">Recent Documents</h2>
+          <div className="card !p-0 divide-y divide-gray-100 overflow-hidden">
+            {documents.map((doc) => (
+              <div key={doc.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/80 transition-colors">
+                {/* File icon */}
+                <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-base">
+                  {doc.file_format === 'pdf' ? '📄' : doc.file_format === 'docx' ? '📝' : '📃'}
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-navy-700 truncate">{doc.filename}</p>
+                  <p className="text-xs text-gray-400">
+                    {new Date(doc.upload_timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {doc.chunk_count != null && <span className="ml-2">&middot; {doc.chunk_count} chunks</span>}
+                    {doc.entity_count > 0 && <span className="ml-2">&middot; {doc.entity_count} entities</span>}
+                  </p>
+                </div>
+
+                {/* Status badge */}
+                <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${
+                  doc.processing_status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
+                  doc.processing_status === 'failed' ? 'bg-red-50 text-red-700' :
+                  'bg-amber-50 text-amber-700'
+                }`}>
+                  {doc.processing_status}
+                </span>
+
+                {/* Action links */}
+                <div className="flex-shrink-0 flex gap-1.5">
+                  <Link
+                    href={`/entities?document_id=${doc.id}`}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    title="View entities"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </Link>
+                  <Link
+                    href={`/graph?document_id=${doc.id}`}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    title="View graph"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

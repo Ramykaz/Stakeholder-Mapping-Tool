@@ -135,4 +135,22 @@ export async function getGraphNodes(
   return response.data.nodes || [];
 }
 
+/**
+ * List all uploaded documents (most recent first).
+ */
+export interface DocumentSummary {
+  id: string;
+  filename: string;
+  file_format: string;
+  upload_timestamp: string;
+  processing_status: string;
+  chunk_count: number | null;
+  entity_count: number;
+}
+
+export async function getDocuments(): Promise<DocumentSummary[]> {
+  const response = await apiClient.get('/api/v1/documents/');
+  return response.data;
+}
+
 export default apiClient;

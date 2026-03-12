@@ -297,7 +297,7 @@ stakeholder-analysis-tool/       ← repo root
 
 - [x] T067 [P] Add unit tests for edge cases (backend): Groq returns low confidence entities; Groq returns empty entity list; Chunk has special characters/emoji/mixed language; Very long canonical_name (>255 chars)
 
-- [ ] T068 [P] Run full test suites: Backend: `pytest` (all ner/tests/ must pass); Frontend: `npm test` (all __tests__/ must pass)
+- [x] T068 [P] Run full test suites: Backend: `pytest` (all ner/tests/ must pass); Frontend: `npm test` (all __tests__/ must pass)
 
 - [x] T069 [P] Code cleanup and style: Backend: `ruff check ner/`, `black ner/`; Frontend: `npm run lint`, `npm run format`
 
@@ -320,7 +320,7 @@ stakeholder-analysis-tool/       ← repo root
 
 - [x] T077 [P] Update CHANGELOG.md: add entry for US-02 delivery (NER Pipeline + Entity API + Frontend); describe features, endpoints, dependencies
 
-- [ ] T078 Run full test suite in Docker: `docker compose run --rm app pytest` + `docker compose run --rm frontend npm test`; all tests must pass
+- [x] T078 Run full test suite in Docker: `docker compose run --rm app pytest` + `docker compose run --rm frontend npm test`; all tests must pass
 
 - [ ] T079 Final end-to-end validation: `docker compose up`; use frontend UI to upload document, view entities, view graph; verify no errors; take screenshots for documentation
 

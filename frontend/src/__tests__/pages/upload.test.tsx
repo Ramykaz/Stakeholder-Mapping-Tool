@@ -40,6 +40,7 @@ const mockExtract = extractEntities as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  localStorage.clear();
 });
 
 // ---------------------------------------------------------------------------

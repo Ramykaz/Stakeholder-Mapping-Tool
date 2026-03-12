@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -9,26 +9,85 @@ type UploadStep = 'select' | 'uploading' | 'uploaded' | 'extracting' | 'done' | 
 
 const ACCEPTED_FORMATS = '.pdf,.docx,.txt';
 const MAX_SIZE_MB = 50;
+const STORAGE_KEY = 'sat_upload_state';
 
 const STEPS = ['Upload', 'Extract', 'View'] as const;
+
+// Persistable subset of upload state (no File object — can't serialize that)
+interface PersistedState {
+  step: UploadStep;
+  documentId: string;
+  fileName: string;
+  fileSize: number;
+  entitiesCreated: number;
+  timestamp: number;
+}
+
+const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+function loadPersistedState(): PersistedState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const state: PersistedState = JSON.parse(raw);
+    // Expire after 1 hour
+    if (Date.now() - state.timestamp > MAX_AGE_MS) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedState(state: PersistedState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function clearPersistedState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
 
 export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [step, setStep] = useState<UploadStep>('select');
+  // Restore persisted state on mount
+  const persisted = useRef(loadPersistedState());
+
+  const [step, setStep] = useState<UploadStep>(() => {
+    const p = persisted.current;
+    // Only restore meaningful states (not transient uploading/extracting)
+    if (p && (p.step === 'uploaded' || p.step === 'done')) return p.step;
+    return 'select';
+  });
   const [file, setFile] = useState<File | null>(null);
-  const [documentId, setDocumentId] = useState<string>('');
-  const [entitiesCreated, setEntitiesCreated] = useState<number>(0);
+  const [documentId, setDocumentId] = useState<string>(() => persisted.current?.documentId || '');
+  const [fileName, setFileName] = useState<string>(() => persisted.current?.fileName || '');
+  const [fileSize, setFileSize] = useState<number>(() => persisted.current?.fileSize || 0);
+  const [entitiesCreated, setEntitiesCreated] = useState<number>(() => persisted.current?.entitiesCreated || 0);
   const [error, setError] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
+
+  // Persist state on key changes
+  const persistState = useCallback((s: UploadStep, docId: string, fName: string, fSize: number, entities: number) => {
+    if (s === 'uploaded' || s === 'done') {
+      savePersistedState({ step: s, documentId: docId, fileName: fName, fileSize: fSize, entitiesCreated: entities, timestamp: Date.now() });
+    }
+  }, []);
 
   const resetState = () => {
     setStep('select');
     setFile(null);
+    setFileName('');
+    setFileSize(0);
     setDocumentId('');
     setEntitiesCreated(0);
     setError('');
+    clearPersistedState();
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -54,6 +113,8 @@ export default function UploadPage() {
       return;
     }
     setFile(f);
+    setFileName(f.name);
+    setFileSize(f.size);
     setError('');
   };
 
@@ -73,6 +134,7 @@ export default function UploadPage() {
       const result = await uploadDocument(file);
       setDocumentId(result.id);
       setStep('uploaded');
+      persistState('uploaded', result.id, fileName, fileSize, 0);
     } catch (err: any) {
       setError(err.message || 'Upload failed');
       setStep('error');
@@ -87,6 +149,7 @@ export default function UploadPage() {
       const result = await extractEntities(documentId);
       setEntitiesCreated(result.entities_created);
       setStep('done');
+      persistState('done', documentId, fileName, fileSize, result.entities_created);
     } catch (err: any) {
       setError(err.message || 'Entity extraction failed');
       setStep('error');
@@ -177,15 +240,15 @@ export default function UploadPage() {
               onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
-              onClick={() => !file && fileInputRef.current?.click()}
+              onClick={() => !file && !fileName && fileInputRef.current?.click()}
             >
-              {file ? (
+              {(file || fileName) ? (
                 <div className="animate-fade-in">
                   <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl">
-                    {getFileIcon(file.name)}
+                    {getFileIcon(fileName)}
                   </div>
-                  <p className="text-sm font-semibold text-navy-700">{file.name}</p>
-                  <p className="text-xs text-gray-500 mt-1">{formatFileSize(file.size)}</p>
+                  <p className="text-sm font-semibold text-navy-700">{fileName}</p>
+                  <p className="text-xs text-gray-500 mt-1">{formatFileSize(fileSize)}</p>
                   <button
                     onClick={(e) => { e.stopPropagation(); resetState(); }}
                     className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
@@ -248,7 +311,7 @@ export default function UploadPage() {
               </svg>
             </div>
             <h2 className="text-lg font-semibold text-navy-700 mb-1">Document Uploaded</h2>
-            <p className="text-sm text-gray-500">{file?.name}</p>
+            <p className="text-sm text-gray-500">{fileName}</p>
             <p className="text-xs text-gray-400 font-mono mt-1 mb-6 bg-gray-50 inline-block px-3 py-1 rounded-md">
               {documentId}
             </p>
@@ -279,7 +342,7 @@ export default function UploadPage() {
             <h2 className="text-lg font-semibold text-navy-700 mb-1">Extraction Complete</h2>
             <p className="text-sm text-gray-500 mb-6">
               Found <span className="font-semibold text-navy-700">{entitiesCreated}</span> entit{entitiesCreated === 1 ? 'y' : 'ies'} in{' '}
-              <span className="font-medium">{file?.name}</span>
+              <span className="font-medium">{fileName}</span>
             </p>
 
             <div className="flex gap-3 justify-center">

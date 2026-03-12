@@ -295,11 +295,11 @@ stakeholder-analysis-tool/       ← repo root
 
 - [x] T066 [P] Add comprehensive docstrings and inline comments: Backend: models.py, services/*.py, views.py; Frontend: pages, components, hooks
 
-- [ ] T067 [P] Add unit tests for edge cases (backend): Groq returns low confidence entities; Groq returns empty entity list; Chunk has special characters/emoji/mixed language; Very long canonical_name (>255 chars)
+- [x] T067 [P] Add unit tests for edge cases (backend): Groq returns low confidence entities; Groq returns empty entity list; Chunk has special characters/emoji/mixed language; Very long canonical_name (>255 chars)
 
 - [ ] T068 [P] Run full test suites: Backend: `pytest` (all ner/tests/ must pass); Frontend: `npm test` (all __tests__/ must pass)
 
-- [ ] T069 [P] Code cleanup and style: Backend: `ruff check ner/`, `black ner/`; Frontend: `npm run lint`, `npm run format`
+- [x] T069 [P] Code cleanup and style: Backend: `ruff check ner/`, `black ner/`; Frontend: `npm run lint`, `npm run format`
 
 - [x] T070 [P] Create/complete documentation:
   - `specs/002-ner-pipeline/research.md` (Groq patterns, deduplication, Cytoscape React patterns, Next.js architecture)
@@ -310,9 +310,9 @@ stakeholder-analysis-tool/       ← repo root
 
 - [x] T072 [P] Security hardening: Validate document_id is valid UUID; validate chunk text length before sending to Groq; add rate limiting per IP (optional); add CORS headers if needed
 
-- [ ] T073 [P] Performance optimization: Profile entity extraction (<30 seconds for 50 chunks); profile entity retrieval (<1 second for 1000 entities); profile Cytoscape render (<2 seconds for 100+ nodes); add database indexes if needed
+- [x] T073 [P] Performance optimization: Profile entity extraction (<30 seconds for 50 chunks); profile entity retrieval (<1 second for 1000 entities); profile Cytoscape render (<2 seconds for 100+ nodes); add database indexes if needed
 
-- [ ] T074 [P] Final validation before PR: Verify no NEEDS CLARIFICATION markers; verify all code matches contracts (api.md, frontend.md, prompt.md); verify all stories independently testable and functional; verify constitution gates pass (Docker, Supabase, prompts versioned); verify git history clean
+- [x] T074 [P] Final validation before PR: Verify no NEEDS CLARIFICATION markers; verify all code matches contracts (api.md, frontend.md, prompt.md); verify all stories independently testable and functional; verify constitution gates pass (Docker, Supabase, prompts versioned); verify git history clean
 
 - [x] T075 Create test fixtures / seed data (optional): Django: create sample documents with chunks; Frontend: mock API responses if needed
 

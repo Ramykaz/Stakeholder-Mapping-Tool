@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -117,7 +118,7 @@ export default function GraphPage() {
             </svg>
             <p className="text-gray-500">Enter a document ID above to visualize its stakeholder graph.</p>
             <p className="text-sm text-gray-400 mt-1">
-              Or <a href="/upload" className="text-primary-600 hover:underline">upload a document</a> first.
+              Or <Link href="/upload" className="text-primary-600 hover:underline">upload a document</Link> first.
             </p>
           </div>
         )}
@@ -137,7 +138,7 @@ export default function GraphPage() {
               <div className="card text-center py-10">
                 <p className="text-gray-500">No entities found for this document.</p>
                 <p className="text-sm text-gray-400 mt-1">
-                  Try <a href="/upload" className="text-primary-600 hover:underline">extracting entities</a> first.
+                  Try <Link href="/upload" className="text-primary-600 hover:underline">extracting entities</Link> first.
                 </p>
               </div>
             ) : (

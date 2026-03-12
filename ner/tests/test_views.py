@@ -1,11 +1,8 @@
 """Integration tests for NER API views."""
 
-import pytest
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from uuid import uuid4
 from django.test import TestCase, Client
-from django.urls import reverse
 from ingestion.models import Document, Chunk
 from ner.models import Entity
 

@@ -2,7 +2,6 @@
 
 import json
 import logging
-from typing import Optional
 from groq import Groq
 
 logger = logging.getLogger(__name__)

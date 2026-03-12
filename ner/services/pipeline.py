@@ -42,7 +42,7 @@ def extract_entities_for_document(document_id: str) -> dict:
     try:
         # Get document (404 if not found)
         document = Document.objects.get(id=document_id)
-    except Document.DoesNotExist as e:
+    except Document.DoesNotExist:
         logger.error(f"Document {document_id} not found")
         raise
 

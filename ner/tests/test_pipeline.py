@@ -1,7 +1,7 @@
 """Test suite for entity extraction pipeline."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from uuid import uuid4
 from django.test import TestCase
 from ingestion.models import Document, Chunk

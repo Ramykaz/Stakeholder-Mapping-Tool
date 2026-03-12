@@ -1,8 +1,5 @@
 """Test suite for entity deduplication."""
 
-import pytest
-from unittest.mock import MagicMock
-from uuid import uuid4
 from django.test import TestCase
 from ingestion.models import Document
 from ner.services.deduplicator import deduplicate_entities

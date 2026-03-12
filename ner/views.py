@@ -2,7 +2,6 @@
 
 import logging
 from rest_framework import status
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ingestion.models import Document
@@ -53,7 +52,7 @@ class ExtractEntitiesView(APIView):
         try:
             # Verify document exists
             try:
-                document = Document.objects.get(id=id)
+                Document.objects.get(id=id)
             except Document.DoesNotExist:
                 return Response(
                     {
@@ -103,7 +102,7 @@ class DocumentEntitiesView(APIView):
         try:
             # Verify document exists
             try:
-                document = Document.objects.get(id=id)
+                Document.objects.get(id=id)
             except Document.DoesNotExist:
                 return Response(
                     {
@@ -113,15 +112,42 @@ class DocumentEntitiesView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            # Get entities for document
-            entities = Entity.objects.filter(document_id=id).order_by('-created_at')
+            # Get entities for document with optional filtering
+            entities = Entity.objects.filter(document_id=id)
+
+            # Optional: filter by entity_type
+            entity_type = request.query_params.get('entity_type')
+            if entity_type:
+                entity_type = entity_type.upper()
+                valid_types = [t[0] for t in Entity.ENTITY_TYPES]
+                if entity_type not in valid_types:
+                    return Response(
+                        {
+                            'error': 'invalid_parameter',
+                            'detail': f'entity_type must be one of: {", ".join(valid_types)}',
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                entities = entities.filter(entity_type=entity_type)
+
+            # Optional: filter by confidence_min
+            confidence_min = request.query_params.get('confidence_min')
+            if confidence_min is not None:
+                try:
+                    confidence_min = float(confidence_min)
+                    entities = entities.filter(confidence__gte=confidence_min)
+                except (ValueError, TypeError):
+                    pass  # Ignore invalid confidence_min
+
+            entities = entities.order_by('-created_at')
             serializer = EntitySerializer(entities, many=True)
+            data = serializer.data
 
             return Response(
                 {
                     'document_id': str(id),
-                    'entities': serializer.data,
-                    'total_count': entities.count(),
+                    'entities': data,
+                    'total_count': len(data),
                 },
                 status=status.HTTP_200_OK,
             )
@@ -166,7 +192,7 @@ class GraphNodesView(APIView):
 
             # Verify document exists
             try:
-                document = Document.objects.get(id=document_id)
+                Document.objects.get(id=document_id)
             except Document.DoesNotExist:
                 return Response(
                     {
@@ -177,14 +203,27 @@ class GraphNodesView(APIView):
                 )
 
             # Get entities and serialize as Cytoscape nodes
-            entities = Entity.objects.filter(document_id=document_id).order_by('entity_type', 'canonical_name')
+            entities = Entity.objects.filter(document_id=document_id)
+
+            # Optional: filter by confidence_min
+            confidence_min = request.query_params.get('confidence_min')
+            if confidence_min is not None:
+                try:
+                    confidence_min = float(confidence_min)
+                    entities = entities.filter(confidence__gte=confidence_min)
+                except (ValueError, TypeError):
+                    pass  # Ignore invalid confidence_min
+
+            entities = entities.order_by('entity_type', 'canonical_name')
             serializer = CytoscapeNodeSerializer(entities, many=True)
+            data = serializer.data
 
             return Response(
                 {
                     'document_id': str(document_id),
-                    'nodes': serializer.data,
-                    'total_nodes': entities.count(),
+                    'nodes': data,
+                    'edges': [],
+                    'total_nodes': len(data),
                 },
                 status=status.HTTP_200_OK,
             )

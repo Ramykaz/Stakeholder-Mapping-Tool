@@ -78,7 +78,7 @@ export default function Home() {
             <span className="text-accent-400 text-xs font-semibold uppercase tracking-widest">UNDP SDG AI Lab</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-tight">
-            Stakeholder Analysis
+            <span className="text-accent-400">Stakeholder Analysis</span>
             <span className="block text-accent-400">Tool</span>
           </h1>
           <p className="mt-4 text-white/70 text-base leading-relaxed max-w-lg">

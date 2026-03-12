@@ -150,23 +150,23 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
           {Object.entries(ENTITY_COLORS).map(([type, colors]) => (
             <div key={type} className="flex items-center gap-1.5">
               <span
-                className="inline-block w-3 h-3 rounded-sm border"
+                className="inline-block w-2.5 h-2.5 rounded-full border"
                 style={{ backgroundColor: colors.bg, borderColor: colors.border }}
               />
-              <span className="text-gray-600">{type}</span>
+              <span className="text-gray-500 font-medium">{type}</span>
             </div>
           ))}
         </div>
         <div className="flex gap-2">
           <button
             onClick={handleFitView}
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+            className="btn-ghost text-xs !px-3 !py-1.5"
           >
             Fit View
           </button>
           <button
             onClick={handleResetLayout}
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+            className="btn-ghost text-xs !px-3 !py-1.5"
           >
             Reset Layout
           </button>
@@ -179,11 +179,12 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
         id="cytoscape-container"
         role="img"
         aria-label="Stakeholder entity graph visualization"
+        className="cytoscape-container"
         style={{ width: '100%', height: '600px' }}
       />
 
       {/* Node count */}
-      <p className="text-xs text-gray-500 text-right">
+      <p className="text-xs text-gray-400 text-right font-medium tabular-nums">
         {nodes.length} node{nodes.length !== 1 ? 's' : ''} displayed
       </p>
     </div>

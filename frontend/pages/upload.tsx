@@ -10,6 +10,8 @@ type UploadStep = 'select' | 'uploading' | 'uploaded' | 'extracting' | 'done' | 
 const ACCEPTED_FORMATS = '.pdf,.docx,.txt';
 const MAX_SIZE_MB = 50;
 
+const STEPS = ['Upload', 'Extract', 'View'] as const;
+
 export default function UploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,10 +67,8 @@ export default function UploadPage() {
 
   const handleUpload = async () => {
     if (!file) return;
-
     setStep('uploading');
     setError('');
-
     try {
       const result = await uploadDocument(file);
       setDocumentId(result.id);
@@ -81,10 +81,8 @@ export default function UploadPage() {
 
   const handleExtract = async () => {
     if (!documentId) return;
-
     setStep('extracting');
     setError('');
-
     try {
       const result = await extractEntities(documentId);
       setEntitiesCreated(result.entities_created);
@@ -95,33 +93,61 @@ export default function UploadPage() {
     }
   };
 
+  const stepIndex =
+    step === 'select' || step === 'uploading' ? 0 :
+    step === 'uploaded' || step === 'extracting' ? 1 : 2;
+
+  const formatFileSize = (size: number) => {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / 1024 / 1024).toFixed(2)} MB`;
+  };
+
+  const getFileIcon = (name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') return '📄';
+    if (ext === 'docx') return '📝';
+    return '📃';
+  };
+
   return (
-    <Layout title="Upload Document">
+    <Layout title="Upload Document" subtitle="Upload and process documents for stakeholder extraction">
       <div className="max-w-2xl mx-auto">
-        {/* Step indicator */}
+
+        {/* Progress Steps */}
         <div className="flex items-center justify-center mb-8">
-          {['Upload', 'Extract', 'View'].map((label, i) => {
-            const stepIndex =
-              step === 'select' || step === 'uploading' ? 0 :
-              step === 'uploaded' || step === 'extracting' ? 1 : 2;
-            const isActive = i <= stepIndex && step !== 'error';
-            const isCurrent = i === stepIndex && step !== 'error';
+          {STEPS.map((label, i) => {
+            const isCompleted = i < stepIndex && step !== 'error';
+            const isActive = i === stepIndex && step !== 'error';
+            const isPending = i > stepIndex || step === 'error';
             return (
               <React.Fragment key={label}>
                 {i > 0 && (
-                  <div className={`h-0.5 w-12 mx-2 ${isActive ? 'bg-primary-500' : 'bg-gray-200'}`} />
+                  <div className={`h-px w-16 mx-1 transition-colors duration-300 ${
+                    isCompleted ? 'bg-primary-500' : 'bg-gray-200'
+                  }`} />
                 )}
                 <div className="flex items-center gap-2">
                   <span
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                      isActive
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-gray-200 text-gray-500'
-                    } ${isCurrent ? 'ring-2 ring-primary-300' : ''}`}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 ${
+                      isCompleted
+                        ? 'bg-primary-500 text-white'
+                        : isActive
+                          ? 'bg-primary-500 text-white ring-4 ring-primary-100'
+                          : 'bg-gray-100 text-gray-400 border border-gray-200'
+                    }`}
                   >
-                    {i + 1}
+                    {isCompleted ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      i + 1
+                    )}
                   </span>
-                  <span className={`text-sm font-medium ${isActive ? 'text-primary-700' : 'text-gray-400'}`}>
+                  <span className={`text-sm font-medium ${
+                    isCompleted || isActive ? 'text-navy-700' : 'text-gray-400'
+                  }`}>
                     {label}
                   </span>
                 </div>
@@ -130,89 +156,81 @@ export default function UploadPage() {
           })}
         </div>
 
-        {/* Error state */}
+        {/* Error State */}
         {step === 'error' && (
-          <div className="mb-6">
+          <div className="mb-6 animate-fade-in">
             <ErrorMessage message={error} onRetry={resetState} />
           </div>
         )}
 
-        {/* Step: Select file */}
+        {/* Step: Select File */}
         {(step === 'select' || step === 'error') && (
-          <div
-            className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
-              dragActive
-                ? 'border-primary-500 bg-primary-50'
-                : file
-                  ? 'border-green-300 bg-green-50'
-                  : 'border-gray-300 bg-white hover:border-gray-400'
-            }`}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={handleDrop}
-          >
-            <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
+          <div className="animate-slide-up">
+            <div
+              className={`relative border-2 border-dashed rounded-xl p-10 text-center transition-all duration-200 cursor-pointer ${
+                dragActive
+                  ? 'border-primary-400 bg-primary-50/50'
+                  : file
+                    ? 'border-emerald-300 bg-emerald-50/50'
+                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50'
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={handleDrop}
+              onClick={() => !file && fileInputRef.current?.click()}
+            >
+              {file ? (
+                <div className="animate-fade-in">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl">
+                    {getFileIcon(file.name)}
+                  </div>
+                  <p className="text-sm font-semibold text-navy-700">{file.name}</p>
+                  <p className="text-xs text-gray-500 mt-1">{formatFileSize(file.size)}</p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); resetState(); }}
+                    className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
+                  >
+                    Remove and choose another
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-gray-100 flex items-center justify-center">
+                    <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-medium text-navy-700">
+                    Drop your file here, or <span className="text-primary-500 underline underline-offset-2">browse</span>
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    PDF, DOCX, or TXT &mdash; up to {MAX_SIZE_MB} MB
+                  </p>
+                </div>
+              )}
 
-            {file ? (
-              <div>
-                <p className="text-sm font-medium text-green-700">{file.name}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {file.size < 1024
-                    ? `${file.size} B`
-                    : file.size < 1024 * 1024
-                      ? `${(file.size / 1024).toFixed(1)} KB`
-                      : `${(file.size / 1024 / 1024).toFixed(2)} MB`}
-                </p>
-                <button
-                  onClick={resetState}
-                  className="mt-3 text-xs text-gray-500 hover:text-gray-700 underline"
-                >
-                  Change file
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_FORMATS}
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
+                }}
+              />
+            </div>
+
+            {/* Upload button */}
+            {file && (
+              <div className="mt-5 flex justify-center animate-fade-in">
+                <button onClick={handleUpload} className="btn-primary px-8 py-3 text-sm">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  Upload Document
                 </button>
               </div>
-            ) : (
-              <div>
-                <p className="text-sm text-gray-600 mb-2">
-                  Drag & drop a file here, or click to browse
-                </p>
-                <p className="text-xs text-gray-400">
-                  PDF, DOCX, or TXT — up to {MAX_SIZE_MB} MB
-                </p>
-              </div>
             )}
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPTED_FORMATS}
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleFileSelect(e.target.files[0]);
-              }}
-            />
-
-            {!file && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-4 px-6 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Choose File
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Upload button */}
-        {step === 'select' && file && (
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={handleUpload}
-              className="px-8 py-3 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
-            >
-              Upload Document
-            </button>
           </div>
         )}
 
@@ -223,21 +241,25 @@ export default function UploadPage() {
 
         {/* Uploaded — ready to extract */}
         {step === 'uploaded' && (
-          <div className="card text-center">
-            <div className="inline-flex p-3 rounded-full bg-green-100 mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="card text-center animate-slide-up">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
+              <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Document Uploaded</h2>
-            <p className="text-sm text-gray-500 mb-1">{file?.name}</p>
-            <p className="text-xs text-gray-400 font-mono mb-6">ID: {documentId}</p>
-            <button
-              onClick={handleExtract}
-              className="px-8 py-3 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
-            >
-              Extract Entities
-            </button>
+            <h2 className="text-lg font-semibold text-navy-700 mb-1">Document Uploaded</h2>
+            <p className="text-sm text-gray-500">{file?.name}</p>
+            <p className="text-xs text-gray-400 font-mono mt-1 mb-6 bg-gray-50 inline-block px-3 py-1 rounded-md">
+              {documentId}
+            </p>
+            <div>
+              <button onClick={handleExtract} className="btn-primary px-8 py-3 text-sm">
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Extract Entities
+              </button>
+            </div>
           </div>
         )}
 
@@ -248,36 +270,42 @@ export default function UploadPage() {
 
         {/* Done — entity extraction complete */}
         {step === 'done' && (
-          <div className="card text-center">
-            <div className="inline-flex p-3 rounded-full bg-green-100 mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="card text-center animate-slide-up">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
+              <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Extraction Complete</h2>
-            <p className="text-sm text-gray-600 mb-6">
-              Found <strong>{entitiesCreated}</strong> entit{entitiesCreated === 1 ? 'y' : 'ies'} in{' '}
+            <h2 className="text-lg font-semibold text-navy-700 mb-1">Extraction Complete</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Found <span className="font-semibold text-navy-700">{entitiesCreated}</span> entit{entitiesCreated === 1 ? 'y' : 'ies'} in{' '}
               <span className="font-medium">{file?.name}</span>
             </p>
 
             <div className="flex gap-3 justify-center">
               <button
                 onClick={() => router.push(`/entities?document_id=${documentId}`)}
-                className="px-6 py-2.5 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 transition-colors"
+                className="btn-primary text-sm"
               >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
                 View Entities
               </button>
               <button
                 onClick={() => router.push(`/graph?document_id=${documentId}`)}
-                className="px-6 py-2.5 bg-white text-primary-700 font-medium rounded-lg border border-primary-300 hover:bg-primary-50 transition-colors"
+                className="btn-secondary text-sm"
               >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
                 View Graph
               </button>
             </div>
 
             <button
               onClick={resetState}
-              className="mt-4 text-sm text-gray-500 hover:text-gray-700 underline"
+              className="mt-5 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
             >
               Upload another document
             </button>

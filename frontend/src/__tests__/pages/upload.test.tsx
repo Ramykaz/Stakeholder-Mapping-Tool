@@ -49,16 +49,16 @@ describe('UploadPage', () => {
   it('renders the drop zone and step indicator', () => {
     render(<UploadPage />);
 
-    expect(screen.getByText(/drag & drop/i)).toBeInTheDocument();
+    expect(screen.getByText(/drop your file here/i)).toBeInTheDocument();
     // Step indicator labels (also appear in nav, so use getAllByText)
     expect(screen.getAllByText('Upload').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Extract')).toBeInTheDocument();
     expect(screen.getByText('View')).toBeInTheDocument();
   });
 
-  it('shows a Choose File button', () => {
+  it('shows browse link in drop zone', () => {
     render(<UploadPage />);
-    expect(screen.getByText('Choose File')).toBeInTheDocument();
+    expect(screen.getByText('browse')).toBeInTheDocument();
   });
 
   it('displays selected file name', () => {

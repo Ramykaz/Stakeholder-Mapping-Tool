@@ -2,9 +2,9 @@
 
 const ENTITY_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   PERSON: { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
-  ORGANIZATION: { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
-  LOCATION: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
-  ROLE: { bg: '#fef9c3', border: '#eab308', text: '#854d0e' },
+  ORGANIZATION: { bg: '#ede9fe', border: '#8b5cf6', text: '#5b21b6' },
+  LOCATION: { bg: '#d1fae5', border: '#10b981', text: '#065f46' },
+  ROLE: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
 };
 
 const DEFAULT_COLOR = { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' };
@@ -75,9 +75,9 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
     selector: 'node:selected',
     style: {
       'border-width': 3,
-      'border-color': '#1d4ed8',
-      'overlay-color': '#3b82f6',
-      'overlay-opacity': 0.15,
+      'border-color': '#0468B1',
+      'overlay-color': '#0468B1',
+      'overlay-opacity': 0.12,
     },
   },
   // Edge style (for future co-occurrence edges)
@@ -85,7 +85,7 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
     selector: 'edge',
     style: {
       width: 2,
-      'line-color': '#d1d5db',
+      'line-color': '#e5e7eb',
       'curve-style': 'bezier',
       'target-arrow-shape': 'none',
     },

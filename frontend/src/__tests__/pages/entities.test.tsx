@@ -192,10 +192,10 @@ describe('EntitiesPage', () => {
     render(<EntitiesPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/view as graph/i)).toBeInTheDocument();
+      expect(screen.getByText(/view graph/i)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText(/view as graph/i));
+    fireEvent.click(screen.getByText(/view graph/i));
     expect(mockPush).toHaveBeenCalledWith('/graph?document_id=doc-1');
   });
 });

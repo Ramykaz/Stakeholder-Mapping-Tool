@@ -70,7 +70,7 @@ def deduplicate_entities(
                 canonical_name=canonical_name,
                 raw_mentions=[canonical_name],
                 confidence=confidence,
-                document=document,
+                document_id=document,
             )
             canonical_name_map[key] = entity
             entities_to_create.append(entity)

@@ -22,10 +22,16 @@ class TestExtractEntitiesForDocument(TestCase):
         self.chunk1 = Chunk.objects.create(
             document=self.document,
             text="John Doe works at UNDP.",
+            embedding=[0.0] * 384,
+            chunk_index=0,
+            token_count=6,
         )
         self.chunk2 = Chunk.objects.create(
             document=self.document,
             text="They are located in New York.",
+            embedding=[0.0] * 384,
+            chunk_index=1,
+            token_count=6,
         )
 
     def test_document_not_found(self):
@@ -73,13 +79,13 @@ class TestExtractEntitiesForDocument(TestCase):
         Entity.objects.create(
             entity_type='PERSON',
             canonical_name='Old Person',
-            document_id=self.document.id,
+            document_id=self.document,
             confidence=0.8,
         )
         Entity.objects.create(
             entity_type='ORGANIZATION',
             canonical_name='Old Org',
-            document_id=self.document.id,
+            document_id=self.document,
             confidence=0.8,
         )
 

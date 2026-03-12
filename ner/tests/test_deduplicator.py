@@ -45,14 +45,14 @@ class TestDeduplicateEntities(TestCase):
             canonical_name='John Doe',
             raw_mentions=['John Doe', 'John'],
             confidence=0.85,
-            document=self.document,
+            document_id=self.document,
         )
 
         extracted = [
             {'entity_type': 'PERSON', 'text': 'John Doe', 'confidence': 0.95},
         ]
 
-        existing = Entity.objects.filter(document=self.document)
+        existing = Entity.objects.filter(document_id=self.document.id)
 
         result = deduplicate_entities(extracted, self.document, existing)
 

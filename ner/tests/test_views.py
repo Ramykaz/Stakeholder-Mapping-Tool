@@ -24,6 +24,9 @@ class TestExtractEntitiesView(TestCase):
         self.chunk = Chunk.objects.create(
             document=self.document,
             text="John Doe from UNDP in New York.",
+            embedding=[0.0] * 384,
+            chunk_index=0,
+            token_count=12,
         )
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
@@ -78,7 +81,7 @@ class TestExtractEntitiesView(TestCase):
         Entity.objects.create(
             entity_type='PERSON',
             canonical_name='Old Person',
-            document_id=self.document.id,
+            document_id=self.document,
             confidence=0.7,
         )
 
@@ -112,14 +115,14 @@ class TestDocumentEntitiesView(TestCase):
             canonical_name='John Doe',
             raw_mentions=['John Doe', 'John'],
             confidence=0.95,
-            document=self.document,
+            document_id=self.document,
         )
         Entity.objects.create(
             entity_type='ORGANIZATION',
             canonical_name='UNDP',
             raw_mentions=['UNDP'],
             confidence=0.98,
-            document_id=self.document.id,
+            document_id=self.document,
         )
 
     def test_get_entities_success(self):
@@ -176,7 +179,7 @@ class TestGraphNodesView(TestCase):
             canonical_name='John Doe',
             raw_mentions=['John', 'John Doe'],
             confidence=0.95,
-            document=self.document,
+            document_id=self.document,
         )
 
     def test_get_graph_nodes_success(self):

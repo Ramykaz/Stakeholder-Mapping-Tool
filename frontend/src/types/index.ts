@@ -1,5 +1,4 @@
-"""Type definitions for NER frontend."""
-
+// Type definitions for NER frontend.
 // Entity object from API
 export interface Entity {
   id: string;

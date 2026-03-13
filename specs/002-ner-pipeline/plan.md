@@ -1,0 +1,220 @@
+# Implementation Plan: NER Pipeline + Entity API + Basic Frontend
+
+**Branch**: `002-ner-pipeline` | **Date**: 2026-03-12 | **Spec**: [spec.md](spec.md)
+**Input**: Feature specification from `/specs/002-ner-pipeline/spec.md`
+
+---
+
+## Summary
+
+Build a named entity recognition (NER) pipeline that extracts and deduplicates entities from document chunks ingested in US-01, using the Groq Llama 3 API. The pipeline includes three REST API endpoints (one for triggering extraction, two for retrieving entities and graph data), a Django app (`ner`) with models and services for entity management and Groq integration, and a Next.js frontend scaffold with pages for document upload, entity list view, and Cytoscape.js graph visualization. The frontend runs in a separate Docker container, integrated into the existing docker-compose.yml.
+
+---
+
+## Technical Context
+
+**Language/Version**: Python 3.11 (backend); Node.js 20 LTS (frontend)
+
+**Primary Dependencies**: 
+- **Backend**: Django 4.2, Django REST Framework, groq (Python SDK)
+- **Frontend**: Next.js 14, React 18, Cytoscape.js, axios, TypeScript
+
+**Storage**: Supabase — PostgreSQL 15 + pgvector; new `entities` table with FKs to documents and chunks
+
+**Testing**: pytest, pytest-django (backend); Jest, React Testing Library (frontend)
+
+**Target Platform**: Linux (Docker); Docker Compose with two containers (backend + frontend)
+
+**Project Type**: Web application — REST API backend + Next.js frontend
+
+**Performance Goals**: 
+- Entity extraction within 30 seconds for 50 chunks
+- Entity retrieval within 1 second
+- Cytoscape render time <2 seconds for 100+ nodes
+
+**Constraints**: 
+- Extraction is **synchronous** (waits for completion, returns 201 Created)
+- No automatic retry on Groq API rate limit (fail with HTTP 429)
+- Re-extraction replaces all existing entities (clean slate approach)
+- No authentication (MVP)
+
+**Scale/Scope**: MVP — hundreds to low-thousands documents; 4 entity types (PERSON, ORG, LOCATION, ROLE); frontend on localhost:3000
+
+---
+
+## Constitution Check
+
+✅ **All gates pass**. No violations introduced.
+
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| Docker from Day-1 | ✅ Pass | Frontend containerized; docker-compose integration |
+| Supabase as single source of truth | ✅ Pass | New entities table; no local state |
+| Prompts versioned | ✅ Pass | NER prompt stored in `prompts/ner-extraction-v1.md` |
+| Deterministic builds | ✅ Pass | requirements.txt + package.json pinned |
+| Observability | ✅ Pass | Reuse /health from US-01 |
+| KISS / YAGNI | ✅ Pass | Synchronous, minimal frontend, no background jobs |
+| Tests before PR | ✅ Required | pytest + Jest suites must pass |
+
+---
+
+## Project Structure
+
+### Documentation
+
+```text
+specs/002-ner-pipeline/
+├── spec.md                   # Feature specification (clarified)
+├── plan.md                   # This file
+├── research.md               # Phase 0 (pending)
+├── data-model.md             # Phase 1 (pending)
+├── quickstart.md             # Phase 1 (pending)
+├── contracts/
+│   ├── api.md               # REST API endpoints (202 → 201 Created, synchronous)
+│   ├── frontend.md          # Frontend API client + Cytoscape dynamic import pattern
+│   └── prompt.md            # NER extraction prompt contract
+└── tasks.md                  # Phase 2 (pending)
+```
+
+### Source Code
+
+```text
+stakeholder-analysis-tool/
+├── docker-compose.yml               # UPDATED: add frontend service
+├── requirements.txt                 # UPDATED: add groq SDK
+│
+├── ner/                             # NEW Django app
+│   ├── models.py                    # Entity model
+│   ├── views.py                     # Extract/Get/Graph views (sync extraction)
+│   ├── serializers.py               # EntitySerializer
+│   ├── urls.py                      # Endpoint routes
+│   ├── services/
+│   │   ├── groq_client.py          # Groq API + validation
+│   │   ├── deduplicator.py         # Entity deduplication
+│   │   └── graph_builder.py        # Cytoscape node formatting
+│   ├── migrations/
+│   │   └── 0001_initial.py         # entities table schema
+│   └── tests/ (pytest)
+│
+├── frontend/                        # NEW Next.js app
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── DocumentUpload.tsx
+│   │   │   ├── EntitiesList.tsx
+│   │   │   ├── GraphView.tsx        # Uses dynamic import + ssr:false
+│   │   │   └── ErrorBoundary.tsx
+│   │   ├── pages/
+│   │   ├── services/api.ts          # API client
+│   │   └── types/index.ts           # TypeScript definitions
+│   └── tests/ (Jest)
+│
+├── prompts/
+│   └── ner-extraction-v1.md         # NEW: Versioned NER extraction prompt
+│
+└── stakeholder_analysis/
+    └── settings.py                  # UPDATED: register 'ner' app
+```
+
+---
+
+## Key Clarifications (2026-03-12)
+
+### 1. Synchronous Extraction with 201 Created Response
+
+The `POST /api/v1/documents/{id}/extract-entities/` endpoint:
+- **Processes synchronously** — waits for all entities to be extracted, deduplicated, and stored before returning
+- **Returns HTTP 201 Created** (not 202 Accepted) with response body containing `entities_created` count
+- **Provides immediate feedback** to frontend on how many entities were extracted
+- **Simplifies error handling** — if Groq API fails, returns 429/500 immediately; no polling needed
+
+**Frontend Integration**: Uses synchronous await pattern. After extraction, frontend refetches entities to populate UI:
+```typescript
+const { entities_created } = await extractEntities(docId);
+const updatedEntities = await getEntities(docId); // Show latest automatically
+```
+
+### 2. Cytoscape.js Dynamic Import with `ssr:false`
+
+Cytoscape.js is a DOM library incompatible with server-side rendering. All graph components must use Next.js dynamic import:
+
+```typescript
+const GraphView = dynamic(
+  () => import('@/components/GraphView'),
+  { ssr: false } // CRITICAL: Client-side only
+);
+```
+
+This prevents SSR errors and ensures Cytoscape has access to DOM at render time.
+
+### 3. NER Extraction Prompt Versioning
+
+Per project constitution, all LLM prompts are versioned and stored in the codebase:
+- **Location**: `prompts/ner-extraction-v1.md`
+- **Format**: Markdown template with examples and entity type definitions
+- **Usage**: Loaded by `services/groq_client.py`; sent to Groq API with chunk text
+- **Output**: JSON with entity array (type, text, confidence)
+- **Versioning**: Future improvements → v2, v3 (with changelog)
+
+See `contracts/prompt.md` for full specification.
+
+---
+
+## Phase 0: Research (Pending)
+
+Research questions to resolve:
+1. **Groq API Integration**: Exact API format, error handling, token costs for free tier
+2. **Entity Deduplication**: String similarity algorithms (Levenshtein, fuzzy matching) vs. LLM-based merging
+3. **Cytoscape Integration**: React component patterns, layout algorithms, performance optimization for 100+ nodes
+4. **Next.js Architecture**: Page routing, API client patterns, error state management
+
+---
+
+## Phase 1: Design (Pending)
+
+Deliverables to create:
+1. **research.md** — Answers to Phase 0 questions
+2. **data-model.md** — Entity schema, relationships, constraints
+3. **quickstart.md** — Developer setup guide (docker compose, curl examples)
+
+All contracts already defined:
+- ✅ **contracts/api.md** — 3 endpoints with request/response schemas
+- ✅ **contracts/frontend.md** — API client interface (TypeScript), component patterns
+- ✅ **contracts/prompt.md** — NER extraction prompt specification
+
+---
+
+## Phase 2: Task Decomposition (Pending)
+
+Deferred to `/speckit.tasks` command. Will produce `tasks.md` with:
+- Backend: Models, migrations, views, services, tests
+- Frontend: Components, pages, API client, tests
+- DevOps: Docker configuration, environment setup
+- Documentation: Deployment guide, troubleshooting
+
+---
+
+## Success Metrics (from Spec)
+
+Implementation validated against 8 success criteria:
+- **SC-001**: Extraction <30 seconds for 50 chunks
+- **SC-002**: Retrieval <1 second
+- **SC-003**: Valid Cytoscape format
+- **SC-004**: Frontend loads <3 seconds
+- **SC-005**: Cytoscape renders 100+ nodes <2 seconds
+- **SC-006**: Deduplication accuracy ≥95%
+- **SC-007**: User-friendly error messages
+- **SC-008**: No migration errors; all 4 apps functional
+
+---
+
+## Review Status
+
+- [x] Constitution check: All gates pass
+- [x] API contract: Endpoints defined (201 Created, synchronous)
+- [x] Frontend contract: Client interface + Cytoscape pattern defined
+- [x] Prompt contract: NER extraction spec versioned
+- [ ] Phase 0 research: Pending
+- [ ] Phase 1 design: Pending (research.md, data-model.md, quickstart.md)
+- [ ] Phase 2 tasks: Pending (/speckit.tasks)
+
+**Status**: ✅ Ready for Phase 1 design execution after these clarifications are acknowledged.

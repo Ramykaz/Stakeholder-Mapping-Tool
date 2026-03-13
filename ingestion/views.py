@@ -1,6 +1,7 @@
 """API views for the ingestion app."""
 import logging
 from django.db import connection, OperationalError
+from django.db.models import Count
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
@@ -18,12 +19,23 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 class IngestView(APIView):
     """
-    POST /api/v1/documents/
-
-    Accepts a multipart file upload (PDF, DOCX, or TXT ≤50 MB).
-    Runs the ingestion pipeline synchronously and returns the created Document.
+    POST /api/v1/documents/  — Upload and ingest a document.
+    GET  /api/v1/documents/  — List all uploaded documents (most recent first).
     """
     parser_classes = [MultiPartParser]
+
+    def get(self, request):
+        from ingestion.models import Document
+        docs = (
+            Document.objects
+            .annotate(entity_count=Count('entities'))
+            .order_by('-upload_timestamp')
+        )
+        data = DocumentSerializer(docs, many=True).data
+        # Append entity_count annotation
+        for item, doc in zip(data, docs):
+            item['entity_count'] = doc.entity_count
+        return Response(data, status=status.HTTP_200_OK)
 
     def post(self, request):
         file_obj = request.FILES.get('file')

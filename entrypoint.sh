@@ -1,12 +1,11 @@
 #!/bin/sh
 set -e
 
-echo "Running database migrations..."
-python manage.py migrate --no-input
+# Collect static files (DRF browsable API assets)
+python manage.py collectstatic --noinput 2>/dev/null || true
 
-echo "Starting gunicorn..."
-exec gunicorn stakeholder_analysis.wsgi:application \
-    --bind 0.0.0.0:8000 \
-    --workers 1 \
-    --timeout 120 \
-    --log-level info
+# Run migrations
+python manage.py migrate --noinput
+
+# Start Gunicorn
+exec gunicorn stakeholder_analysis.wsgi:application --bind 0.0.0.0:8000

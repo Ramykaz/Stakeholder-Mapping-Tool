@@ -1,0 +1,117 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== UNDP Base Styles ===== */
+@layer base {
+  body {
+    @apply bg-gray-50 text-navy-700 antialiased;
+    font-family: 'Inter', 'Proxima Nova', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-navy-700 font-semibold tracking-tight;
+  }
+}
+
+/* ===== Component Layer ===== */
+@layer components {
+  /* Entity type badges — refined */
+  .badge-person {
+    @apply bg-blue-50 text-blue-700 border border-blue-200;
+  }
+  .badge-organization {
+    @apply bg-violet-50 text-violet-700 border border-violet-200;
+  }
+  .badge-location {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .badge-role {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+
+  /* Confidence bar */
+  .confidence-bar {
+    @apply h-1.5 rounded-full;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Card system */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200/80 p-6 transition-all duration-200;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  }
+  .card:hover {
+    box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  }
+
+  /* UNDP Primary button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 bg-primary-500 text-white font-medium rounded-lg
+           hover:bg-primary-600 active:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed
+           transition-all duration-150 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary-500/30;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 bg-white text-primary-600 font-medium rounded-lg
+           border border-primary-200 hover:bg-primary-50 active:bg-primary-100
+           disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-primary-500/20;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-4 py-2 text-gray-600 font-medium rounded-lg
+           hover:bg-gray-100 active:bg-gray-200 transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-gray-300/30;
+  }
+
+  /* Input field */
+  .input-field {
+    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-navy-700
+           placeholder:text-gray-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500
+           outline-none transition-all duration-150;
+  }
+
+  /* Stat card for dashboard-style numbers */
+  .stat-card {
+    @apply bg-white rounded-xl border border-gray-200/80 p-5 text-center transition-all duration-200;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+  }
+  .stat-card:hover {
+    @apply border-gray-300;
+    box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* ===== Cytoscape container ===== */
+#cytoscape-container {
+  width: 100%;
+  height: 600px;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.875rem;
+  background: #ffffff;
+  background-image:
+    radial-gradient(circle, #e5e7eb 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ===== Custom scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}

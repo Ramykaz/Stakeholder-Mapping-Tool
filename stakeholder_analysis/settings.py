@@ -8,19 +8,26 @@ from django.core.exceptions import ImproperlyConfigured
 # Required environment variable validation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _require_env(name: str) -> str:
-    value = os.environ.get(name, '').strip()
-    if not value:
+
+import sys
+def _require_env(name: str, default=None, required=True) -> str:
+    value = os.environ.get(name, default)
+    if required and (value is None or str(value).strip() == ''):
         raise ImproperlyConfigured(
             f"Missing required environment variable: {name}. "
             f"Copy .env.example to .env and set this value."
         )
-    return value
+    return str(value).strip() if value is not None else value
 
-
-DATABASE_URL = _require_env('DATABASE_URL')
-DEBUG = _require_env('DEBUG').lower() in ('true', '1', 'yes')
-ALLOWED_HOSTS = [h.strip() for h in _require_env('ALLOWED_HOSTS').split(',') if h.strip()]
+# Only require DATABASE_URL if not running collectstatic (i.e., at runtime)
+if 'collectstatic' in sys.argv:
+    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://dummy:dummy@localhost:5432/dummy')
+    DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes')
+    ALLOWED_HOSTS = ['*']
+else:
+    DATABASE_URL = _require_env('DATABASE_URL')
+    DEBUG = _require_env('DEBUG').lower() in ('true', '1', 'yes')
+    ALLOWED_HOSTS = [h.strip() for h in _require_env('ALLOWED_HOSTS').split(',') if h.strip()]
 
 # GROQ_API_KEY is required by NER/reasoning apps but not by ingestion.
 # Warn at startup if missing; do not block.
@@ -41,6 +48,8 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-insecure-secret-key-change-in-pro
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
+    'django.contrib.staticfiles',  # <-- required for DRF static assets
+    'corsheaders',
     'rest_framework',
     'ingestion',
     'ner',
@@ -49,7 +58,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
 
@@ -97,3 +108,36 @@ LOGGING = {
         'level': 'INFO',
     },
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Templates (required for DRF and admin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+            ],
+        },
+    },
+]
+
+# Static files (CSS, JavaScript, Images)
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORS — allow frontend (localhost:3000) to call backend (localhost:8000)
+# ─────────────────────────────────────────────────────────────────────────────
+
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+]
+CORS_ALLOW_METHODS = ['GET', 'POST', 'OPTIONS']
+CORS_ALLOW_HEADERS = ['content-type', 'authorization', 'x-requested-with']

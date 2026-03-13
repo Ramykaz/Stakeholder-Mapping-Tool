@@ -9,13 +9,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
+# Install CPU-only torch first (saves ~600MB vs default torch with CUDA)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --timeout=300 --retries=5 -r requirements.txt
+RUN pip install --no-cache-dir torch==2.2.2+cpu --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir --timeout=300 --retries=5 -r requirements.txt
 
 # Download spaCy model
 RUN pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 
-# Set HuggingFace cache directory to the mounted models volume
+# ── Bake the embedding model into the image (never lost on restart) ──
+RUN python -c "\
+from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('all-MiniLM-L6-v2').save('/app/models/all-MiniLM-L6-v2')"
 ENV HF_HOME=/app/models
 
 # Copy source code

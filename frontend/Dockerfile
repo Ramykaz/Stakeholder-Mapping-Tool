@@ -12,6 +12,9 @@ RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
 
 COPY . .
 
+# Ensure public exists so stage-2 COPY never fails (Next.js public is optional)
+RUN mkdir -p /app/public
+
 RUN npm run build
 
 # Stage 2: Runtime

@@ -19,6 +19,15 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Node artifacts
+node_modules/
+frontend/node_modules/
+frontend/.next/
+coverage/
+
+# Logs
+*.log*
+
 # Editor / OS
 .vscode/
 .idea/

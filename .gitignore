@@ -229,3 +229,9 @@ out/
 
 # Binary test data
 *.pdf
+
+# Universal local artifacts
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp

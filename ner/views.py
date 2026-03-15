@@ -1,15 +1,34 @@
 """REST API views for NER pipeline."""
 
 import logging
+from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ingestion.models import Document
-from .models import Entity
-from .serializers import EntitySerializer, CytoscapeNodeSerializer
-from .services.pipeline import extract_entities_for_document
+from .models import Entity, NERRun, Relation
+from .serializers import EntitySerializer, CytoscapeNodeSerializer, NERRunSerializer, RelationSerializer
+from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_provider_and_model(request) -> tuple[str, str]:
+    """Resolve and validate provider/model from request payload with settings defaults."""
+    payload = request.data if isinstance(request.data, dict) else {}
+    provider = str(payload.get('provider') or settings.NER_DEFAULT_PROVIDER).strip().lower()
+    model = str(payload.get('model') or '').strip()
+
+    if provider not in settings.NER_PROVIDER_MODEL_ALLOWLIST:
+        raise ValueError(f"Unsupported provider '{provider}'")
+
+    if not model:
+        model = settings.NER_PROVIDER_MODEL_ALLOWLIST[provider][0]
+
+    if model not in settings.NER_PROVIDER_MODEL_ALLOWLIST[provider]:
+        raise ValueError(f"Unsupported model '{model}' for provider '{provider}'")
+
+    return provider, model
 
 
 def handle_groq_error(exception):
@@ -23,7 +42,7 @@ def handle_groq_error(exception):
             },
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
-    logger.error(f"Groq API error: {exception}")
+    logger.error(f"LLM provider error: {exception}")
     return Response(
         {
             'error': 'extraction_failed',
@@ -62,8 +81,11 @@ class ExtractEntitiesView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+            provider, model = _resolve_provider_and_model(request)
+            logger.info(f"[EXTRACTION MODE] Entities-only extraction started for document_id={id}")
+
             # Extract entities (synchronous)
-            result = extract_entities_for_document(id)
+            result = extract_entities_for_document(id, provider=provider, model=model)
             entities_created = result.get('entities_created', 0)
 
             return Response(
@@ -71,17 +93,245 @@ class ExtractEntitiesView(APIView):
                     'status': 'extraction_completed',
                     'document_id': str(id),
                     'entities_created': entities_created,
+                    'run_id': result.get('run_id'),
+                    'provider': result.get('provider', provider),
+                    'model': result.get('model', model),
+                    'tokens_input': result.get('tokens_input'),
+                    'tokens_output': result.get('tokens_output'),
+                    'tokens_cached': result.get('tokens_cached'),
+                    'cost_usd': result.get('cost_usd'),
                     'message': 'Entity extraction completed. Previous entities have been replaced.',
                 },
                 status=status.HTTP_201_CREATED,
             )
 
         except ValueError as e:
-            # Rate limit error
-            return handle_groq_error(e)
+            error_msg = str(e).lower()
+            if 'rate limit' in error_msg or '429' in error_msg:
+                return handle_groq_error(e)
+            return Response(
+                {
+                    'error': 'invalid_parameter',
+                    'detail': str(e),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             logger.error(f"Extraction error: {e}", exc_info=True)
             return handle_groq_error(e)
+
+
+class ExtractEntitiesRelationsView(APIView):
+    """Extract entities AND relations from a document (two-pass extraction).
+    
+    POST /api/v1/documents/{id}/extract-entities-relations/
+    
+    Request body:
+    {
+        "provider": "groq" | "openai",
+        "model": "llama-3.1-8b-instant" | "gpt-4o-mini" | ...
+    }
+    
+    Response (201 Created):
+    {
+        "status": "completed",
+        "document_id": "...",
+        "entities_created": 12,
+        "relations_created": 8,
+        "run_id": "...",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "tokens_input": 3420,
+        "tokens_output": 1280,
+        "tokens_cached": 512,
+        "cost_usd": "0.002340",
+        "duration_seconds": 8.4
+    }
+    """
+
+    def post(self, request, id):
+        """Extract entities and relations for document (synchronous, two-pass)."""
+        try:
+            # Verify document exists
+            try:
+                Document.objects.get(id=id)
+            except Document.DoesNotExist:
+                return Response(
+                    {
+                        'error': 'document_not_found',
+                        'detail': f'Document with ID {id} does not exist',
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            provider, model = _resolve_provider_and_model(request)
+            logger.info(f"[EXTRACTION MODE] Two-pass extraction (entities + relations) started for document_id={id}")
+
+            # Extract entities and relations (synchronous, two-pass)
+            result = extract_relations_for_document(id, provider=provider, model=model)
+
+            return Response(
+                {
+                    'status': 'completed',
+                    'document_id': str(id),
+                    'entities_created': result.get('entities_created', 0),
+                    'relations_created': result.get('relations_created', 0),
+                    'run_id': result.get('run_id'),
+                    'provider': result.get('provider', provider),
+                    'model': result.get('model', model),
+                    'tokens_input': result.get('tokens_input'),
+                    'tokens_output': result.get('tokens_output'),
+                    'tokens_cached': result.get('tokens_cached'),
+                    'cost_usd': result.get('cost_usd'),
+                    'duration_seconds': result.get('duration_seconds'),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except ValueError as e:
+            error_msg = str(e).lower()
+            if 'rate limit' in error_msg or '429' in error_msg:
+                return handle_groq_error(e)
+            return Response(
+                {
+                    'error': 'invalid_parameter',
+                    'detail': str(e),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Relation extraction error: {e}", exc_info=True)
+            return handle_groq_error(e)
+
+
+class ExtractRelationsOnlyView(APIView):
+    """Extract ONLY relations from a document that already has entities extracted.
+
+    POST /api/v1/documents/{id}/extract-relations/
+
+    Request body: {"provider": "openai", "model": "gpt-4o-mini"}
+
+    Response (201 Created):
+    {
+        "status": "completed",
+        "document_id": "...",
+        "relations_created": 13,
+        ...
+    }
+    """
+
+    def post(self, request, id):
+        try:
+            try:
+                Document.objects.get(id=id)
+            except Document.DoesNotExist:
+                return Response(
+                    {'error': 'document_not_found', 'detail': f'Document {id} does not exist'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            provider, model = _resolve_provider_and_model(request)
+            logger.info(f"[EXTRACTION MODE] Relations-only extraction started for document_id={id}")
+
+            result = extract_relations_only_for_document(id, provider=provider, model=model)
+
+            return Response(
+                {
+                    'status': 'completed',
+                    'document_id': str(id),
+                    'relations_created': result.get('relations_created', 0),
+                    'run_id': result.get('run_id'),
+                    'provider': result.get('provider', provider),
+                    'model': result.get('model', model),
+                    'tokens_input': result.get('tokens_input'),
+                    'tokens_output': result.get('tokens_output'),
+                    'tokens_cached': result.get('tokens_cached'),
+                    'cost_usd': result.get('cost_usd'),
+                    'duration_seconds': result.get('duration_seconds'),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except ValueError as e:
+            error_msg = str(e).lower()
+            if 'rate limit' in error_msg or '429' in error_msg:
+                return handle_groq_error(e)
+            return Response(
+                {'error': 'invalid_parameter', 'detail': str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Relations-only extraction error: {e}", exc_info=True)
+            return handle_groq_error(e)
+
+
+class RelationsView(APIView):
+    """Retrieve all relations for a document.
+    
+    GET /api/v1/documents/{id}/relations/
+    
+    Response (200 OK):
+    [
+        {
+            "id": "...",
+            "document_id": "...",
+            "run_id": "...",
+            "source_entity_id": "...",
+            "source_entity_name": "Sarah Chen",
+            "target_entity_id": "...",
+            "target_entity_name": "Apex Corp",
+            "label": "REPORTS_TO",
+            "confidence": 0.87,
+            "created_at": "2026-03-15T..."
+        },
+        ...
+    ]
+    """
+
+    def get(self, request, id):
+        """Get all relations for a document."""
+        try:
+            # Verify document exists
+            try:
+                Document.objects.get(id=id)
+            except Document.DoesNotExist:
+                return Response(
+                    {
+                        'error': 'document_not_found',
+                        'detail': f'Document with ID {id} does not exist',
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Get relations for document with eager loading of related entities
+            relations = Relation.objects.filter(document_id=id).select_related(
+                'source_entity',
+                'target_entity',
+                'run',
+            ).order_by('-created_at')
+
+            # Optional: filter by confidence_min
+            confidence_min = request.query_params.get('confidence_min')
+            if confidence_min is not None:
+                try:
+                    confidence_min = float(confidence_min)
+                    relations = relations.filter(confidence__gte=confidence_min)
+                except (ValueError, TypeError):
+                    pass  # Ignore invalid confidence_min
+
+            serializer = RelationSerializer(relations, many=True)
+            
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error retrieving relations: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'retrieval_failed',
+                    'detail': 'Failed to retrieve relations',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class DocumentEntitiesView(APIView):
@@ -164,20 +414,52 @@ class DocumentEntitiesView(APIView):
 
 
 class GraphNodesView(APIView):
-    """Retrieve entities as Cytoscape.js nodes.
+    """Retrieve entities as Cytoscape.js nodes and relations as edges.
     
     GET /api/v1/graph/?document_id={id}
     
     Response (200 OK):
     {
         "document_id": "...",
-        "nodes": [...],
-        "total_nodes": 5
+        "nodes": [
+            {
+                "data": {
+                    "id": "entity-uuid",
+                    "label": "Sarah Chen",
+                    "entity_type": "PERSON",
+                    "shape": "ellipse",
+                    "confidence": 0.92
+                }
+            },
+            ...
+        ],
+        "edges": [
+            {
+                "data": {
+                    "id": "relation-uuid",
+                    "source": "source-entity-uuid",
+                    "target": "target-entity-uuid",
+                    "label": "REPORTS_TO",
+                    "confidence": 0.87
+                }
+            },
+            ...
+        ],
+        "total_nodes": 5,
+        "total_edges": 3
     }
     """
 
+    # Node shape mapping by entity type
+    SHAPE_MAP = {
+        'PERSON': 'ellipse',
+        'ORGANIZATION': 'rectangle',
+        'LOCATION': 'diamond',
+        'ROLE': 'hexagon',
+    }
+
     def get(self, request):
-        """Get graph nodes for a document."""
+        """Get graph nodes and edges for a document."""
         try:
             # Get document_id from query parameters
             document_id = request.query_params.get('document_id')
@@ -202,38 +484,153 @@ class GraphNodesView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            # Get entities and serialize as Cytoscape nodes
-            entities = Entity.objects.filter(document_id=document_id)
-
             # Optional: filter by confidence_min
             confidence_min = request.query_params.get('confidence_min')
+            confidence_threshold = None
             if confidence_min is not None:
                 try:
-                    confidence_min = float(confidence_min)
-                    entities = entities.filter(confidence__gte=confidence_min)
+                    confidence_threshold = float(confidence_min)
                 except (ValueError, TypeError):
                     pass  # Ignore invalid confidence_min
 
+            # Get entities for nodes
+            entities = Entity.objects.filter(document_id=document_id)
+            if confidence_threshold is not None:
+                entities = entities.filter(confidence__gte=confidence_threshold)
             entities = entities.order_by('entity_type', 'canonical_name')
-            serializer = CytoscapeNodeSerializer(entities, many=True)
-            data = serializer.data
+
+            # Build nodes array with shape mapping
+            nodes = []
+            for entity in entities:
+                nodes.append({
+                    "data": {
+                        "id": str(entity.id),
+                        "label": entity.canonical_name,
+                        "entity_type": entity.entity_type,
+                        "shape": self.SHAPE_MAP.get(entity.entity_type, 'ellipse'),
+                        "confidence": entity.confidence,
+                        "document_id": str(entity.document_id_id),
+                        "chunk_id": str(entity.chunk_id_id) if entity.chunk_id_id else None,
+                        "raw_mentions_count": len(entity.raw_mentions),
+                    }
+                })
+
+            # Get relations for edges (only include if both source and target are in  filtered entities)
+            entity_ids = {str(entity.id) for entity in entities}
+            relations = Relation.objects.filter(document_id=document_id).select_related(
+                'source_entity',
+                'target_entity',
+            )
+            if confidence_threshold is not None:
+                relations = relations.filter(confidence__gte=confidence_threshold)
+
+            # Build edges array
+            edges = []
+            for relation in relations:
+                source_id = str(relation.source_entity.id)
+                target_id = str(relation.target_entity.id)
+                
+                # Only include edge if both entities are in the filtered node set
+                if source_id in entity_ids and target_id in entity_ids:
+                    edges.append({
+                        "data": {
+                            "id": str(relation.id),
+                            "source": source_id,
+                            "target": target_id,
+                            "label": relation.label,
+                            "confidence": relation.confidence,
+                        }
+                    })
 
             return Response(
                 {
                     'document_id': str(document_id),
-                    'nodes': data,
-                    'edges': [],
-                    'total_nodes': len(data),
+                    'nodes': nodes,
+                    'edges': edges,
+                    'total_nodes': len(nodes),
+                    'total_edges': len(edges),
                 },
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            logger.error(f"Error retrieving graph nodes: {e}", exc_info=True)
+            logger.error(f"Error retrieving graph: {e}", exc_info=True)
             return Response(
                 {
                     'error': 'retrieval_failed',
-                    'detail': 'Failed to retrieve graph nodes',
+                    'detail': 'Failed to retrieve graph',
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class DocumentRunsView(APIView):
+    """Retrieve all NER extraction runs for a document."""
+
+    def get(self, request, id):
+        """Get provider/model usage history for a document."""
+        try:
+            try:
+                Document.objects.get(id=id)
+            except Document.DoesNotExist:
+                return Response(
+                    {
+                        'error': 'document_not_found',
+                        'detail': f'Document with ID {id} does not exist',
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            runs = NERRun.objects.filter(document_id=id).order_by('-created_at')
+            serializer = NERRunSerializer(runs, many=True)
+
+            return Response(
+                {
+                    'document_id': str(id),
+                    'runs': serializer.data,
+                    'total_count': len(serializer.data),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving run history: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'retrieval_failed',
+                    'detail': 'Failed to retrieve run history',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ExtractionProgressView(APIView):
+    """Lightweight polling endpoint for chunk-level extraction progress.
+
+    GET /api/v1/documents/{id}/extraction-progress/
+
+    Response:
+    {
+        "in_progress": true,
+        "current": 5,
+        "total": 34
+    }
+
+    Returns {"in_progress": false, "current": 0, "total": 0} when no extraction
+    is currently running for the given document.
+    """
+
+    def get(self, request, id):
+        progress = _extraction_progress.get(str(id))
+        if progress is None:
+            return Response(
+                {'in_progress': False, 'current': 0, 'total': 0},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {
+                'in_progress': True,
+                'current': progress['current'],
+                'total': progress['total'],
+            },
+            status=status.HTTP_200_OK,
+        )

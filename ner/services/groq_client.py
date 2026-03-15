@@ -2,9 +2,50 @@
 
 import json
 import logging
+import re
 from groq import Groq
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    """Extract the first complete {...} JSON object from text (handles nested braces)."""
+    start = text.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _repair_common_json_issues(s: str) -> str:
+    """Fix common LLM JSON mistakes (trailing commas before ] or })."""
+    # Trailing comma before ] or }
+    s = re.sub(r',\s*([}\]])', r'\1', s)
+    return s
+
+
+def _parse_entities_response(response_text: str) -> dict:
+    """Parse Groq response into {entities: [...]}. Returns dict or raises JSONDecodeError."""
+    raw = response_text.strip()
+    # Try direct parse first
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    # Extract first JSON object (avoids "Extra data" when model returns JSON + explanation)
+    obj_str = _extract_first_json_object(raw)
+    if not obj_str:
+        raise json.JSONDecodeError("No JSON object found", raw, 0)
+    # Repair trailing commas etc. then parse
+    repaired = _repair_common_json_issues(obj_str)
+    return json.loads(repaired)
 
 
 def load_ner_prompt() -> str:
@@ -46,7 +87,11 @@ Return ONLY a valid JSON object with this structure:
 """
 
 
-def extract_entities_from_chunk(chunk_text: str, groq_api_key: str) -> dict:
+def extract_entities_from_chunk(
+    chunk_text: str,
+    groq_api_key: str,
+    model: str = "llama-3.1-8b-instant",
+) -> dict:
     """Extract entities from a text chunk using Groq Llama 3.
 
     Args:
@@ -68,7 +113,7 @@ def extract_entities_from_chunk(chunk_text: str, groq_api_key: str) -> dict:
         prompt = load_ner_prompt()
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=model,
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": f"Extract entities from:\n\n{chunk_text}"},
@@ -77,28 +122,26 @@ def extract_entities_from_chunk(chunk_text: str, groq_api_key: str) -> dict:
             max_tokens=1024,
         )
 
-        # Parse JSON response
+        # Parse JSON response (LLM often returns extra text or malformed JSON)
         response_text = response.choices[0].message.content.strip()
-        
-        # Try to extract JSON from response
         try:
-            result = json.loads(response_text)
-        except json.JSONDecodeError:
-            # Try to find JSON within the response
-            import re
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
-                logger.warning(f"Invalid JSON from Groq: {response_text}")
-                return {"entities": []}
+            result = _parse_entities_response(response_text)
+        except json.JSONDecodeError as e:
+            logger.warning("Groq returned invalid JSON for chunk: %s. Response snippet: %.200s", e, response_text)
+            return {"entities": []}
 
         # Validate response structure
         if not isinstance(result, dict) or "entities" not in result:
-            logger.warning(f"Invalid response structure: {result}")
+            logger.warning("Invalid response structure from Groq: %s", result)
             return {"entities": []}
 
-        return result
+        return {
+            "entities": result.get("entities", []),
+            "tokens_input": getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0,
+            "tokens_output": getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0,
+            "tokens_cached": 0,
+            "cost_usd": 0.0,
+        }
 
     except Exception as e:
         # Check for rate limit error

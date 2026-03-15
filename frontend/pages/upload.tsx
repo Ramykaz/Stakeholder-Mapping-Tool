@@ -4,7 +4,10 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
-import { uploadDocument, extractEntities, getDocuments, DocumentSummary } from '@/lib/api';
+import { uploadDocument, extractEntities, extractEntitiesRelations, extractRelations, getDocuments, deleteDocument, getExtractionProgress, DocumentSummary } from '@/lib/api';
+
+const GROQ_DEFAULT_MODEL = 'llama-3.1-8b-instant';
+const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'] as const;
 
 type UploadStep = 'select' | 'uploading' | 'uploaded' | 'extracting' | 'done' | 'error';
 
@@ -22,6 +25,15 @@ interface PersistedState {
   fileSize: number;
   entitiesCreated: number;
   timestamp: number;
+}
+
+interface ExtractionMetadata {
+  provider?: string;
+  model?: string;
+  tokens_input?: number;
+  tokens_output?: number;
+  tokens_cached?: number;
+  cost_usd?: string;
 }
 
 const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
@@ -70,10 +82,19 @@ export default function UploadPage() {
   const [fileName, setFileName] = useState<string>(() => persisted.current?.fileName || '');
   const [fileSize, setFileSize] = useState<number>(() => persisted.current?.fileSize || 0);
   const [entitiesCreated, setEntitiesCreated] = useState<number>(() => persisted.current?.entitiesCreated || 0);
+  const [relationsCreated, setRelationsCreated] = useState<number>(0);
+  const [extractionMode, setExtractionMode] = useState<'entities' | 'entities-relations'>('entities');
   const [error, setError] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [provider, setProvider] = useState<'groq' | 'openai'>('groq');
+  const [openaiModel, setOpenaiModel] = useState<(typeof OPENAI_MODELS)[number]>('gpt-5-mini');
+  const [extractionMeta, setExtractionMeta] = useState<ExtractionMetadata | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [rowExtractingId, setRowExtractingId] = useState<string | null>(null);
+  const [rowExtractMode, setRowExtractMode] = useState<'entities' | 'relations' | 'entities-relations' | null>(null);
+  const [chunkProgress, setChunkProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Fetch document history on mount and after successful upload/extraction
   const fetchDocuments = useCallback(async () => {
@@ -106,6 +127,8 @@ export default function UploadPage() {
     setFileSize(0);
     setDocumentId('');
     setEntitiesCreated(0);
+    setRelationsCreated(0);
+    setExtractionMeta(null);
     setError('');
     clearPersistedState();
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -162,19 +185,100 @@ export default function UploadPage() {
     }
   };
 
-  const handleExtract = async () => {
+  const handleExtract = async (mode?: string) => {
     if (!documentId) return;
+    const activeMode = mode ?? extractionMode;
     setStep('extracting');
     setError('');
+    setChunkProgress(null);
+
+    // Poll for chunk progress every 1.5 s while extraction runs in parallel
+    const progressInterval = setInterval(async () => {
+      try {
+        const p = await getExtractionProgress(documentId);
+        if (p.in_progress && p.total > 0) {
+          setChunkProgress({ current: p.current, total: p.total });
+        }
+      } catch { /* silent */ }
+    }, 1500);
+
     try {
-      const result = await extractEntities(documentId);
-      setEntitiesCreated(result.entities_created);
+      const model = provider === 'openai' ? openaiModel : GROQ_DEFAULT_MODEL;
+      if (activeMode === 'entities-relations') {
+        // Extract both entities and relations
+        const result = await extractEntitiesRelations(documentId, { provider, model });
+        clearInterval(progressInterval);
+        setChunkProgress(null);
+        setEntitiesCreated(result.entities_created);
+        setRelationsCreated(result.relations_created);
+        setExtractionMeta({
+          provider: result.provider || provider,
+          model: result.model || model,
+          tokens_input: result.tokens_input,
+          tokens_output: result.tokens_output,
+          tokens_cached: result.tokens_cached,
+          cost_usd: result.cost_usd,
+        });
+      } else {
+        // Extract entities only
+        const result = await extractEntities(documentId, { provider, model });
+        clearInterval(progressInterval);
+        setChunkProgress(null);
+        setEntitiesCreated(result.entities_created);
+        setRelationsCreated(0);
+        setExtractionMeta({
+          provider: result.provider || provider,
+          model: result.model || model,
+          tokens_input: result.tokens_input,
+          tokens_output: result.tokens_output,
+          tokens_cached: result.tokens_cached,
+          cost_usd: result.cost_usd,
+        });
+      }
       setStep('done');
-      persistState('done', documentId, fileName, fileSize, result.entities_created);
+      persistState('done', documentId, fileName, fileSize, entitiesCreated);
       fetchDocuments();
     } catch (err: any) {
+      clearInterval(progressInterval);
+      setChunkProgress(null);
       setError(err.message || 'Entity extraction failed');
       setStep('error');
+    }
+  };
+
+  const handleDelete = async (docId: string) => {
+    if (!window.confirm('Delete this document and all its extracted data? This cannot be undone.')) return;
+    setDeletingId(docId);
+    try {
+      await deleteDocument(docId);
+      // If deleting the currently-loaded document, reset the upload flow
+      if (docId === documentId) resetState();
+      await fetchDocuments();
+    } catch (err: any) {
+      alert(err.message || 'Delete failed. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleRowExtract = async (docId: string, mode: 'entities' | 'relations' | 'entities-relations') => {
+    setRowExtractingId(docId);
+    setRowExtractMode(mode);
+    try {
+      const model = provider === 'openai' ? openaiModel : GROQ_DEFAULT_MODEL;
+      if (mode === 'entities') {
+        await extractEntities(docId, { provider, model });
+      } else if (mode === 'relations') {
+        await extractRelations(docId, { provider, model });
+      } else {
+        await extractEntitiesRelations(docId, { provider, model });
+      }
+      await fetchDocuments();
+    } catch (err: any) {
+      alert(err.message || 'Extraction failed. Please try again.');
+    } finally {
+      setRowExtractingId(null);
+      setRowExtractMode(null);
     }
   };
 
@@ -337,20 +441,91 @@ export default function UploadPage() {
             <p className="text-xs text-gray-400 font-mono mt-1 mb-6 bg-gray-50 inline-block px-3 py-1 rounded-md">
               {documentId}
             </p>
-            <div>
-              <button onClick={handleExtract} className="btn-primary px-8 py-3 text-sm">
+            <div className="max-w-md mx-auto mb-5 text-left">
+              <label htmlFor="provider-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">Provider</label>
+              <select
+                id="provider-select"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as 'groq' | 'openai')}
+                className="mt-1 mb-3 input-field"
+              >
+                <option value="groq">Groq</option>
+                <option value="openai">OpenAI</option>
+              </select>
+
+              {provider === 'openai' && (
+                <>
+                  <label htmlFor="openai-model-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">OpenAI Model</label>
+                  <select
+                    id="openai-model-select"
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value as (typeof OPENAI_MODELS)[number])}
+                    className="mt-1 input-field"
+                  >
+                    {OPENAI_MODELS.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => {
+                  setExtractionMode('entities');
+                  handleExtract('entities');
+                }}
+                className="btn-secondary text-sm"
+              >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 Extract Entities
               </button>
+              <button
+                onClick={() => {
+                  setExtractionMode('entities-relations');
+                  handleExtract('entities-relations');
+                }}
+                className="btn-primary text-sm"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Extract Entities + Relations
+              </button>
             </div>
+            <button
+              onClick={resetState}
+              className="mt-4 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
+            >
+              &larr; Upload a different document
+            </button>
           </div>
         )}
 
         {/* Extracting spinner */}
         {step === 'extracting' && (
-          <LoadingSpinner message="Extracting entities with Groq Llama 3... This may take a moment." size="lg" />
+          <div className="animate-slide-up">
+            <LoadingSpinner message={`Extracting ${extractionMode === 'entities-relations' ? 'entities and relations' : 'entities'} with ${provider === 'openai' ? `OpenAI ${openaiModel}` : 'Groq llama-3.1-8b-instant'}...`} size="lg" />
+            {chunkProgress && chunkProgress.total > 0 && (
+              <div className="mt-4 text-center">
+                <p className="text-sm text-gray-500">
+                  Chunk{' '}
+                  <span className="font-semibold text-navy-700">{chunkProgress.current}</span>
+                  {' '}of{' '}
+                  <span className="font-semibold text-navy-700">{chunkProgress.total}</span>
+                  {' '}processed
+                </p>
+                <div className="mt-2 max-w-xs mx-auto h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary-500 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.round((chunkProgress.current / chunkProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Done — entity extraction complete */}
@@ -363,9 +538,25 @@ export default function UploadPage() {
             </div>
             <h2 className="text-lg font-semibold text-navy-700 mb-1">Extraction Complete</h2>
             <p className="text-sm text-gray-500 mb-6">
-              Found <span className="font-semibold text-navy-700">{entitiesCreated}</span> entit{entitiesCreated === 1 ? 'y' : 'ies'} in{' '}
-              <span className="font-medium">{fileName}</span>
+              Found <span className="font-semibold text-navy-700">{entitiesCreated}</span> entit{entitiesCreated === 1 ? 'y' : 'ies'}
+              {relationsCreated > 0 && (
+                <> and <span className="font-semibold text-navy-700">{relationsCreated}</span> relation{relationsCreated === 1 ? '' : 's'}</>
+              )}
+              {' '}in <span className="font-medium">{fileName}</span>
             </p>
+
+            {extractionMeta && (
+              <div className="max-w-md mx-auto mb-6 text-left border border-gray-200 rounded-lg p-4 bg-gray-50">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Run Metadata</p>
+                <p className="text-sm text-gray-700"><span className="font-medium">Provider:</span> {extractionMeta.provider || 'N/A'}</p>
+                <p className="text-sm text-gray-700"><span className="font-medium">Model:</span> {extractionMeta.model || 'N/A'}</p>
+                <p className="text-sm text-gray-700"><span className="font-medium">Input tokens:</span> {extractionMeta.tokens_input ?? 'N/A'}</p>
+                <p className="text-sm text-gray-700"><span className="font-medium">Output tokens:</span> {extractionMeta.tokens_output ?? 'N/A'}</p>
+                <p className="text-sm text-gray-700"><span className="font-medium">Cached tokens:</span> {extractionMeta.tokens_cached ?? 'N/A'}</p>
+                <p className="text-sm text-gray-700"><span className="font-medium">Cost (USD):</span> {extractionMeta.cost_usd ?? 'N/A'}</p>
+                <p className="text-xs text-gray-500 mt-2">If usage is unavailable from the provider, token and cost fields display <span className="font-medium">N/A</span>.</p>
+              </div>
+            )}
 
             <div className="flex gap-3 justify-center">
               <button
@@ -401,7 +592,31 @@ export default function UploadPage() {
       {/* Recent Documents */}
       {documents.length > 0 && (
         <div className="mt-10 max-w-3xl mx-auto animate-fade-in">
-          <h2 className="text-sm font-semibold text-navy-700 uppercase tracking-wider mb-3">Recent Documents</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-navy-700 uppercase tracking-wider">Recent Documents</h2>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Extract using:</span>
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value as 'groq' | 'openai')}
+                className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+              >
+                <option value="groq">Groq</option>
+                <option value="openai">OpenAI</option>
+              </select>
+              {provider === 'openai' && (
+                <select
+                  value={openaiModel}
+                  onChange={(e) => setOpenaiModel(e.target.value as (typeof OPENAI_MODELS)[number])}
+                  className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                >
+                  {OPENAI_MODELS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
           <div className="card !p-0 divide-y divide-gray-100 overflow-hidden">
             {documents.map((doc) => (
               <div key={doc.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/80 transition-colors">
@@ -417,7 +632,19 @@ export default function UploadPage() {
                     {new Date(doc.upload_timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     {doc.chunk_count != null && <span className="ml-2">&middot; {doc.chunk_count} chunks</span>}
                     {doc.entity_count > 0 && <span className="ml-2">&middot; {doc.entity_count} entities</span>}
+                    {doc.relation_count != null && doc.relation_count > 0 && <span className="ml-2">&middot; {doc.relation_count} relations</span>}
                   </p>
+                  {doc.last_run && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      <span className="font-medium text-gray-500">{doc.last_run.model}</span>
+                      {doc.last_run.duration_seconds != null && (
+                        <span className="ml-2">&middot; {doc.last_run.duration_seconds < 60
+                          ? `${doc.last_run.duration_seconds.toFixed(1)}s`
+                          : `${Math.floor(doc.last_run.duration_seconds / 60)}m ${Math.round(doc.last_run.duration_seconds % 60)}s`
+                        }</span>
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 {/* Status badge */}
@@ -428,6 +655,46 @@ export default function UploadPage() {
                 }`}>
                   {doc.processing_status}
                 </span>
+
+                {/* Inline extract actions */}
+                {doc.processing_status === 'completed' && rowExtractingId !== doc.id && (
+                  <div className="flex-shrink-0 flex gap-1">
+                    {doc.entity_count === 0 && (
+                      <>
+                        <button
+                          onClick={() => handleRowExtract(doc.id, 'entities')}
+                          className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors whitespace-nowrap"
+                        >
+                          Entities
+                        </button>
+                        <button
+                          onClick={() => handleRowExtract(doc.id, 'entities-relations')}
+                          className="text-xs px-2 py-1 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 transition-colors whitespace-nowrap"
+                        >
+                          Entities + Relations
+                        </button>
+                      </>
+                    )}
+                    {doc.entity_count > 0 && (!doc.relation_count || doc.relation_count === 0) && (
+                      <button
+                        onClick={() => handleRowExtract(doc.id, 'relations')}
+                        className="text-xs px-2 py-1 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 transition-colors whitespace-nowrap"
+                      >
+                        Extract Relations
+                      </button>
+                    )}
+                  </div>
+                )}
+                {rowExtractingId === doc.id && (
+                  <div className="flex-shrink-0 flex items-center gap-1.5 text-xs text-gray-500">
+                    <svg className="w-3.5 h-3.5 animate-spin flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span className="whitespace-nowrap">
+                      {rowExtractMode === 'relations' ? 'Extracting relations...' : 'Extracting...'}
+                    </span>
+                  </div>
+                )}
 
                 {/* Action links */}
                 <div className="flex-shrink-0 flex gap-1.5">
@@ -449,6 +716,22 @@ export default function UploadPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                     </svg>
                   </Link>
+                  <button
+                    onClick={() => handleDelete(doc.id)}
+                    disabled={deletingId === doc.id}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+                    title="Delete document"
+                  >
+                    {deletingId === doc.id ? (
+                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               </div>
             ))}

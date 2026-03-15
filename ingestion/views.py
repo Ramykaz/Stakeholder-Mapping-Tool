@@ -26,15 +26,29 @@ class IngestView(APIView):
 
     def get(self, request):
         from ingestion.models import Document
+        from django.db.models import Prefetch
+        from ner.models import NERRun
         docs = (
             Document.objects
-            .annotate(entity_count=Count('entities'))
+            .annotate(entity_count=Count('entities', distinct=True))
+            .annotate(relation_count=Count('relations', distinct=True))
+            .prefetch_related(
+                Prefetch('ner_runs', queryset=NERRun.objects.order_by('-created_at'), to_attr='_latest_ner_runs')
+            )
             .order_by('-upload_timestamp')
         )
         data = DocumentSerializer(docs, many=True).data
-        # Append entity_count annotation
+        # Append entity_count, relation_count and last NER run metadata
         for item, doc in zip(data, docs):
             item['entity_count'] = doc.entity_count
+            item['relation_count'] = doc.relation_count
+            last_run = doc._latest_ner_runs[0] if doc._latest_ner_runs else None
+            item['last_run'] = {
+                'provider': last_run.provider,
+                'model': last_run.model,
+                'duration_seconds': last_run.duration_seconds,
+                'run_at': last_run.created_at.isoformat(),
+            } if last_run else None
         return Response(data, status=status.HTTP_200_OK)
 
     def post(self, request):
@@ -77,6 +91,24 @@ class IngestView(APIView):
 
         serializer = DocumentSerializer(document)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class DocumentDetailView(APIView):
+    """
+    DELETE /api/v1/documents/{id}/  — Delete a document and all its associated data.
+    """
+
+    def delete(self, request, id):
+        from ingestion.models import Document
+        try:
+            doc = Document.objects.get(id=id)
+        except Document.DoesNotExist:
+            return Response(
+                {'error': 'document_not_found', 'detail': f'Document {id} does not exist'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        doc.delete()  # cascades to Chunk, Entity, NERRun
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class HealthView(APIView):

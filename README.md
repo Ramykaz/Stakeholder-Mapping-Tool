@@ -1,6 +1,17 @@
 # Stakeholder Analysis Tool
 
-AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, extracts named entities, builds knowledge graphs, and supports RAG-based reasoning over stakeholder networks.
+AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, extracts named entities and relationships, builds knowledge graphs, and supports RAG-based reasoning over stakeholder networks.
+
+## Features
+
+- **Document Ingestion**: Upload PDF, DOCX, or TXT files (up to 50MB)
+- **Entity Extraction**: Extract PERSON, ORGANIZATION, LOCATION, and ROLE entities using LLMs (Groq/OpenAI)
+- **Relation Extraction**: Identify directional relationships between entities (e.g., REPORTS_TO, EMPLOYS, MANAGES)
+- **Knowledge Graph Visualization**: Interactive graph with entity nodes (shape-coded by type) and labeled relation edges
+- **Dual Extraction Modes**:
+  - **Entities Only**: Extract and deduplicate named entities
+  - **Entities + Relations**: Two-pass extraction for entities and their relationships
+- **Provider Flexibility**: Choose between Groq (Llama 3) or OpenAI (GPT-4o/GPT-5) models
 
 ## Tech Stack
 
@@ -24,6 +35,7 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 | `DEBUG` | Yes | `True` for development, `False` for production |
 | `ALLOWED_HOSTS` | Yes | Comma-separated list (e.g. `localhost,127.0.0.1`) |
 | `GROQ_API_KEY` | Recommended | Groq API key (used by NER/reasoning apps) |
+| `OPENAI_API_KEY` | Optional | OpenAI API key (required only when OpenAI provider is selected for NER) |
 
 ## Local Setup
 
@@ -34,6 +46,7 @@ git clone <repo-url>
 cd stakeholder-analysis-tool
 cp .env.example .env
 # Edit .env and fill in DATABASE_URL, DEBUG, ALLOWED_HOSTS, GROQ_API_KEY
+# Add OPENAI_API_KEY if you plan to run NER with OpenAI models
 ```
 
 ### 2. Enable pgvector on Supabase
@@ -67,24 +80,53 @@ curl http://localhost:8000/health
 # → {"status": "healthy", "database": "connected"}
 ```
 
-## Ingest a Document
+## Extract Entities and Relations
+
+### Extract Entities Only
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/documents/ \
-  -F "file=@/path/to/document.pdf"
-# → HTTP 201 with document id and chunk_count
+curl -X POST "http://localhost:8000/api/v1/documents/{document_id}/extract-entities/" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "groq", "model": "llama-3.1-8b-instant"}'
+# → HTTP 201 with entities_created, tokens, cost_usd
 ```
 
-Accepted formats: `.pdf`, `.docx`, `.txt` (max 50 MB).
+### Extract Entities + Relations (Two-Pass)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/{document_id}/extract-entities-relations/" \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "groq", "model": "llama-3.1-8b-instant"}'
+# → HTTP 201 with entities_created, relations_created, tokens, cost_usd
+```
+
+### View Relations
+
+```bash
+curl "http://localhost:8000/api/v1/documents/{document_id}/relations/"
+# → HTTP 200 with array of relation triplets (source, target, label, confidence)
+```
+
+### View Knowledge Graph
+
+```bash
+curl "http://localhost:8000/api/v1/graph/?document_id={document_id}&confidence_min=0.7"
+# → HTTP 200 with nodes (entities) and edges (relations) in Cytoscape.js format
+```
 
 ## API Reference
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/documents/` | POST | Upload and ingest a document |
+| `/api/v1/documents/{id}/extract-entities/` | POST | Extract entities only |
+| `/api/v1/documents/{id}/extract-entities-relations/` | POST | Extract entities and relations (two-pass) |
+| `/api/v1/documents/{id}/entities/` | GET | List entities for a document |
+| `/api/v1/documents/{id}/relations/` | GET | List relations for a document |
+| `/api/v1/graph/` | GET | Get knowledge graph (nodes + edges) |
 | `/health` | GET | Service liveness and DB connectivity |
 
-Full contract: [`specs/001-doc-ingestion-pipeline/contracts/api.md`](specs/001-doc-ingestion-pipeline/contracts/api.md)
+Full contract: [`specs/001-doc-ingestion-pipeline/contracts/api.md`](specs/001-doc-ingestion-pipeline/contracts/api.md), [`specs/004-entity-relation-extraction/contracts/`](specs/004-entity-relation-extraction/contracts/)
 
 ## Running Tests
 

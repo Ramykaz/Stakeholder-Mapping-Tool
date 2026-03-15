@@ -4,8 +4,8 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
-import { getEntities } from '@/lib/api';
-import { Entity } from '@/types';
+import { getEntities, getDocumentRuns } from '@/lib/api';
+import { Entity, NERRun } from '@/types';
 
 const ENTITY_TYPES = ['ALL', 'PERSON', 'ORGANIZATION', 'LOCATION', 'ROLE'] as const;
 
@@ -62,6 +62,7 @@ export default function EntitiesPage() {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [inputDocId, setInputDocId] = useState('');
   const [activeDocId, setActiveDocId] = useState('');
+  const [runs, setRuns] = useState<NERRun[]>([]);
 
   useEffect(() => {
     if (document_id && typeof document_id === 'string') {
@@ -76,11 +77,16 @@ export default function EntitiesPage() {
     setError('');
     try {
       const filters = filterType !== 'ALL' ? { entity_type: filterType } : undefined;
-      const data = await getEntities(docId, filters);
-      setEntities(data);
+      const [entityData, runData] = await Promise.all([
+        getEntities(docId, filters),
+        getDocumentRuns(docId),
+      ]);
+      setEntities(entityData);
+      setRuns(runData as NERRun[]);
     } catch (err: any) {
       setError(err.message || 'Failed to load entities');
       setEntities([]);
+      setRuns([]);
     } finally {
       setLoading(false);
     }
@@ -160,6 +166,37 @@ export default function EntitiesPage() {
         {/* Results */}
         {activeDocId && !loading && !error && (
           <div className="animate-fade-in">
+            <div className="card mb-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-navy-700 uppercase tracking-wider">Extraction Runs</h2>
+                <span className="text-xs text-gray-500">{runs.length} run{runs.length === 1 ? '' : 's'}</span>
+              </div>
+
+              {runs.length === 0 ? (
+                <p className="text-sm text-gray-500">No extraction runs recorded for this document yet. Start an extraction from Upload to compare LLM providers and models here.</p>
+              ) : (
+                <div className="space-y-2">
+                  {runs.map((run) => (
+                    <div key={run.id} className="border border-gray-200 rounded-lg px-3 py-2.5 bg-gray-50">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700">
+                        <span><span className="font-medium">Provider:</span> {run.provider}</span>
+                        <span><span className="font-medium">Model:</span> {run.model}</span>
+                        <span><span className="font-medium">Status:</span> {run.status}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+                        <span>Input: {run.tokens_input ?? 0}</span>
+                        <span>Output: {run.tokens_output ?? 0}</span>
+                        <span>Cached: {run.tokens_cached ?? 0}</span>
+                        <span>Cost: {run.cost_usd ?? '0.000000'} USD</span>
+                        <span>Created: {new Date(run.created_at).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">This run is stored independently, so re-running extraction does not overwrite previous provider/model results.</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Summary Stats */}
             {totalEntities > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">

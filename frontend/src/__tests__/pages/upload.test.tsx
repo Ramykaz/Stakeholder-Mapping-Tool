@@ -31,6 +31,7 @@ jest.mock('next/link', () => {
 jest.mock('@/lib/api', () => ({
   uploadDocument: jest.fn(),
   extractEntities: jest.fn(),
+  getDocuments: jest.fn(() => new Promise(() => {})),
 }));
 
 import { uploadDocument, extractEntities } from '@/lib/api';
@@ -125,7 +126,15 @@ describe('UploadPage', () => {
 
   it('completes full upload→extract flow and navigates', async () => {
     mockUpload.mockResolvedValueOnce({ id: 'doc-456' });
-    mockExtract.mockResolvedValueOnce({ entities_created: 12 });
+    mockExtract.mockResolvedValueOnce({
+      entities_created: 12,
+      provider: 'groq',
+      model: 'llama-3.1-8b-instant',
+      tokens_input: 120,
+      tokens_output: 44,
+      tokens_cached: 0,
+      cost_usd: '0.0000',
+    });
 
     render(<UploadPage />);
 
@@ -146,8 +155,14 @@ describe('UploadPage', () => {
       expect(screen.getByText('Extraction Complete')).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/12/)).toBeInTheDocument();
-    expect(mockExtract).toHaveBeenCalledWith('doc-456');
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(mockExtract).toHaveBeenCalledWith('doc-456', {
+      provider: 'groq',
+      model: 'llama-3.1-8b-instant',
+    });
+    expect(screen.getByText('Run Metadata')).toBeInTheDocument();
+    const metadataPanel = screen.getByText('Run Metadata').closest('div');
+    expect(metadataPanel).toHaveTextContent('Provider: groq');
 
     // Navigate to entities view
     fireEvent.click(screen.getByText('View Entities'));
@@ -191,5 +206,47 @@ describe('UploadPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Entity extraction failed')).toBeInTheDocument();
     });
+  });
+
+  it('uses selected OpenAI provider/model for extraction', async () => {
+    mockUpload.mockResolvedValueOnce({ id: 'doc-openai' });
+    mockExtract.mockResolvedValueOnce({
+      entities_created: 5,
+      provider: 'openai',
+      model: 'gpt-5-nano',
+      tokens_input: 400,
+      tokens_output: 60,
+      tokens_cached: 100,
+      cost_usd: '0.0001',
+    });
+
+    render(<UploadPage />);
+
+    const file = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload Document' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Extract Entities' })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'openai' } });
+    fireEvent.change(screen.getByLabelText('OpenAI Model'), { target: { value: 'gpt-5-nano' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Extract Entities' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Extraction Complete')).toBeInTheDocument();
+    });
+
+    expect(mockExtract).toHaveBeenCalledWith('doc-openai', {
+      provider: 'openai',
+      model: 'gpt-5-nano',
+    });
+    expect(screen.getByText(/Model:/)).toBeInTheDocument();
+    expect(screen.getByText(/gpt-5-nano/i)).toBeInTheDocument();
+    expect(screen.getByText(/Cost \(USD\):/)).toBeInTheDocument();
   });
 });

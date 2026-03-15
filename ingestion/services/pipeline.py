@@ -5,6 +5,7 @@ Coordinates: extract → chunk → embed → atomic DB write.
 Document record persists on failure (status='failed'); Chunk records do not.
 """
 import logging
+import time
 from django.db import transaction
 
 from ingestion.models import Document, Chunk
@@ -50,28 +51,34 @@ def ingest_document(file_obj, filename: str, file_format: str) -> Document:
         file_format=file_format,
         processing_status=Document.STATUS_PENDING,
     )
-    logger.info("Created document %s (filename=%s)", document.id, filename)
+    logger.info("[INGEST] START  document=%s filename=%s", document.id, filename)
+    _t_ingest_start = time.perf_counter()
 
     try:
         # Step 1: Extract text (may raise ExtractionError).
+        _t0 = time.perf_counter()
         text = extract_text(file_obj, file_format)
+        logger.info("[INGEST] step=extract_text  chars=%d  duration=%.2fs", len(text), time.perf_counter() - _t0)
 
         # Step 2: Chunk the text.
+        _t0 = time.perf_counter()
         chunks_text = chunk_text(text)
         if not chunks_text:
             raise ExtractionError(
                 "No extractable text found in the uploaded document."
             )
-
-        logger.info("Document %s: %d chunks produced", document.id, len(chunks_text))
+        logger.info("[INGEST] step=chunk_text  chunks=%d  duration=%.2fs", len(chunks_text), time.perf_counter() - _t0)
 
         # Step 3: Embed all chunks.
+        _t0 = time.perf_counter()
         try:
             embeddings = embed_chunks(chunks_text)
         except EmbeddingError as exc:
             raise IngestionError(f"Embedding generation failed: {exc}") from exc
+        logger.info("[INGEST] step=embed_chunks  chunks=%d  duration=%.2fs", len(chunks_text), time.perf_counter() - _t0)
 
         # Step 4: Atomic storage — all chunks or none.
+        _t0 = time.perf_counter()
         try:
             with transaction.atomic():
                 chunk_objects = [
@@ -92,6 +99,7 @@ def ingest_document(file_obj, filename: str, file_format: str) -> Document:
 
         except Exception as exc:
             raise IngestionError(f"Storage failed: {exc}") from exc
+        logger.info("[INGEST] step=db_write  chunks=%d  duration=%.2fs", len(chunks_text), time.perf_counter() - _t0)
 
     except ExtractionError:
         _mark_failed(document)
@@ -106,8 +114,8 @@ def ingest_document(file_obj, filename: str, file_format: str) -> Document:
         raise IngestionError(f"Unexpected ingestion error: {exc}") from exc
 
     logger.info(
-        "Document %s ingested successfully (%d chunks).",
-        document.id, document.chunk_count,
+        "[INGEST] DONE  document=%s  chunks=%d  total=%.2fs",
+        document.id, document.chunk_count, time.perf_counter() - _t_ingest_start,
     )
     return document
 

@@ -5,7 +5,7 @@ from unittest.mock import patch
 from uuid import uuid4
 from django.test import TestCase
 from ingestion.models import Document, Chunk
-from ner.models import Entity
+from ner.models import Entity, NERRun
 from ner.services.pipeline import extract_entities_for_document
 
 
@@ -42,7 +42,7 @@ class TestExtractEntitiesForDocument(TestCase):
             extract_entities_for_document(str(non_existent_id))
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
-    @patch('ner.services.pipeline.extract_entities_from_chunk')
+    @patch('ner.services.pipeline._extract_chunk_entities')
     def test_extract_entities_success(self, mock_extract):
         """Test successful extraction for document with chunks."""
         # Mock Groq responses
@@ -72,7 +72,7 @@ class TestExtractEntitiesForDocument(TestCase):
             extract_entities_for_document(str(self.document.id))
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
-    @patch('ner.services.pipeline.extract_entities_from_chunk')
+    @patch('ner.services.pipeline._extract_chunk_entities')
     def test_clean_slate_replacement(self, mock_extract):
         """Test that extraction replaces all existing entities."""
         # Create existing entities
@@ -104,7 +104,7 @@ class TestExtractEntitiesForDocument(TestCase):
         assert Entity.objects.filter(document_id=self.document.id).count() == 1
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
-    @patch('ner.services.pipeline.extract_entities_from_chunk')
+    @patch('ner.services.pipeline._extract_chunk_entities')
     def test_rate_limit_error(self, mock_extract):
         """Test handling of rate limit errors."""
         mock_extract.side_effect = ValueError("API rate limit exceeded")
@@ -115,8 +115,51 @@ class TestExtractEntitiesForDocument(TestCase):
         # Ensure no entities were persisted
         assert Entity.objects.filter(document_id=self.document.id).count() == 0
 
+    @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-openai-key'})
+    @patch('ner.services.pipeline.get_provider')
+    def test_openai_provider_dispatch(self, mock_get_provider):
+        """OpenAI provider should route through OpenAI client path."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.extract_entities.side_effect = [
+            {'entities': [{'entity_type': 'PERSON', 'text': 'Jane', 'confidence': 0.9}], 'tokens_input': 10, 'tokens_output': 3, 'tokens_cached': 0},
+            {'entities': [], 'tokens_input': 2, 'tokens_output': 1, 'tokens_cached': 0},
+        ]
+
+        result = extract_entities_for_document(
+            str(self.document.id),
+            provider='openai',
+            model='gpt-5-mini',
+        )
+
+        assert result['entities_created'] == 1
+        assert result['provider'] == 'openai'
+        assert result['model'] == 'gpt-5-mini'
+
+    @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-openai-key'})
+    @patch('ner.services.pipeline.get_provider')
+    def test_openai_output_uses_existing_entity_schema(self, mock_get_provider):
+        """OpenAI extraction output should map into the existing Entity schema."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.extract_entities.side_effect = [
+            {'entities': [{'entity_type': 'ORGANIZATION', 'text': 'UNDP', 'confidence': 0.88}]},
+            {'entities': []},
+        ]
+
+        result = extract_entities_for_document(
+            str(self.document.id),
+            provider='openai',
+            model='gpt-5-mini',
+        )
+
+        created = Entity.objects.filter(document_id=self.document.id).first()
+        assert result['entities_created'] == 1
+        assert created is not None
+        assert created.entity_type == 'ORGANIZATION'
+        assert created.canonical_name == 'UNDP'
+        assert 0.0 <= created.confidence <= 1.0
+
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
-    @patch('ner.services.pipeline.extract_entities_from_chunk')
+    @patch('ner.services.pipeline._extract_chunk_entities')
     def test_no_chunks(self, mock_extract):
         """Test document with no chunks."""
         doc_no_chunks = Document.objects.create(
@@ -128,3 +171,23 @@ class TestExtractEntitiesForDocument(TestCase):
         result = extract_entities_for_document(str(doc_no_chunks.id))
 
         assert result['entities_created'] == 0
+
+    @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
+    @patch('ner.services.pipeline._extract_chunk_entities')
+    def test_multiple_runs_are_preserved_in_history(self, mock_extract):
+        """Each extraction should create a distinct NERRun record for the same document."""
+        mock_extract.side_effect = [
+            {'entities': [{'entity_type': 'PERSON', 'text': 'Alice', 'confidence': 0.9}]},
+            {'entities': []},
+            {'entities': [{'entity_type': 'ORGANIZATION', 'text': 'UNDP', 'confidence': 0.95}]},
+            {'entities': []},
+        ]
+
+        first = extract_entities_for_document(str(self.document.id), provider='groq', model='llama-3.1-8b-instant')
+        second = extract_entities_for_document(str(self.document.id), provider='groq', model='llama-3.1-8b-instant')
+
+        runs = NERRun.objects.filter(document_id=self.document.id).order_by('created_at')
+        assert runs.count() == 2
+        assert first['run_id'] != second['run_id']
+        assert runs[0].status == NERRun.STATUS_COMPLETED
+        assert runs[1].status == NERRun.STATUS_COMPLETED

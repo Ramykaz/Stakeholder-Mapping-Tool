@@ -13,6 +13,7 @@ import apiClient, {
   extractEntities,
   getEntities,
   getGraphNodes,
+  getDocumentRuns,
 } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -154,6 +155,19 @@ describe('extractEntities', () => {
     );
     expect(result.entities_created).toBe(8);
   });
+
+  it('passes provider/model options when supplied', async () => {
+    (mockedAxios.post as jest.Mock).mockResolvedValueOnce({
+      data: { entities_created: 3, provider: 'openai', model: 'gpt-5-mini' },
+    });
+
+    await extractEntities('doc-999', { provider: 'openai', model: 'gpt-5-mini' });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/api/v1/documents/doc-999/extract-entities/',
+      { provider: 'openai', model: 'gpt-5-mini' },
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -219,5 +233,25 @@ describe('getGraphNodes', () => {
     );
     expect(result).toHaveLength(1);
     expect(result[0].label).toBe('UNDP');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test: getDocumentRuns
+// ---------------------------------------------------------------------------
+describe('getDocumentRuns', () => {
+  it('fetches run history for a document', async () => {
+    const runs = [
+      { id: 'run-1', provider: 'openai', model: 'gpt-5-mini' },
+    ];
+    (mockedAxios.get as jest.Mock).mockResolvedValueOnce({
+      data: { runs, total_count: 1 },
+    });
+
+    const result = await getDocumentRuns('doc-222');
+
+    expect(mockedAxios.get).toHaveBeenCalledWith('/api/v1/documents/doc-222/runs/');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('run-1');
   });
 });

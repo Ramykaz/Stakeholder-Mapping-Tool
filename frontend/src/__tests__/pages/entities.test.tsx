@@ -38,11 +38,13 @@ jest.mock('next/link', () => {
 
 jest.mock('@/lib/api', () => ({
   getEntities: jest.fn(),
+  getDocumentRuns: jest.fn().mockResolvedValue([]),
 }));
 
-import { getEntities } from '@/lib/api';
+import { getEntities, getDocumentRuns } from '@/lib/api';
 
 const mockGetEntities = getEntities as jest.Mock;
+const mockGetDocumentRuns = getDocumentRuns as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -104,6 +106,7 @@ describe('EntitiesPage', () => {
   it('loads and displays entities from query param', async () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -114,11 +117,13 @@ describe('EntitiesPage', () => {
     expect(screen.getByText('UNDP')).toBeInTheDocument();
     expect(screen.getByText('New York')).toBeInTheDocument();
     expect(mockGetEntities).toHaveBeenCalledWith('doc-1', undefined);
+    expect(mockGetDocumentRuns).toHaveBeenCalledWith('doc-1');
   });
 
   it('shows entity type summary cards', async () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -135,6 +140,7 @@ describe('EntitiesPage', () => {
   it('renders filter buttons for entity types', async () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValue(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValue([]);
 
     render(<EntitiesPage />);
 
@@ -151,6 +157,7 @@ describe('EntitiesPage', () => {
 
   it('loads entities when submitting document ID form', async () => {
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -166,6 +173,7 @@ describe('EntitiesPage', () => {
   it('shows error message on API failure', async () => {
     mockQuery = { document_id: 'doc-bad' };
     mockGetEntities.mockRejectedValueOnce(new Error('Failed to load entities'));
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -177,6 +185,7 @@ describe('EntitiesPage', () => {
   it('shows empty table message when no entities found', async () => {
     mockQuery = { document_id: 'doc-empty' };
     mockGetEntities.mockResolvedValueOnce([]);
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -188,6 +197,7 @@ describe('EntitiesPage', () => {
   it('shows View as Graph button when entities exist', async () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -197,5 +207,36 @@ describe('EntitiesPage', () => {
 
     fireEvent.click(screen.getByText(/view graph/i));
     expect(mockPush).toHaveBeenCalledWith('/graph?document_id=doc-1');
+  });
+
+  it('renders run history metadata when available', async () => {
+    mockQuery = { document_id: 'doc-1' };
+    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValueOnce([
+      {
+        id: 'run-1',
+        document_id: 'doc-1',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        status: 'completed',
+        tokens_input: 500,
+        tokens_output: 80,
+        tokens_cached: 120,
+        cost_usd: '0.000246',
+        created_at: '2026-03-14T00:00:00Z',
+      },
+    ]);
+
+    render(<EntitiesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Extraction Runs')).toBeInTheDocument();
+    });
+
+    const providerLabel = screen.getByText('Provider:');
+    const metadataRow = providerLabel.closest('div');
+    expect(metadataRow).toHaveTextContent('Provider: openai');
+    expect(metadataRow).toHaveTextContent('Model: gpt-5-mini');
+    expect(screen.getByText(/Cost:\s*0.000246\s*USD/i)).toBeInTheDocument();
   });
 });

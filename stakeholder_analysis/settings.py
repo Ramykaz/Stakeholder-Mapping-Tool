@@ -37,6 +37,23 @@ if not GROQ_API_KEY:
         "GROQ_API_KEY is not set. NER and reasoning features will not function."
     )
 
+# OPENAI_API_KEY is optional until OpenAI provider is selected at runtime.
+# Warn at startup if missing; provider-specific requests should validate this.
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
+if not OPENAI_API_KEY:
+    logging.getLogger(__name__).warning(
+        "OPENAI_API_KEY is not set. OpenAI-backed NER runs will fail if selected."
+    )
+
+# Allowed providers and model choices for NER extraction runs.
+NER_PROVIDER_MODEL_ALLOWLIST = {
+    'groq': ['llama-3.1-8b-instant'],
+    'openai': ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'],
+}
+
+NER_DEFAULT_PROVIDER = 'groq'
+NER_DEFAULT_MODEL = 'llama-3.1-8b-instant'
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Core settings
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,5 +156,5 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ]
-CORS_ALLOW_METHODS = ['GET', 'POST', 'OPTIONS']
-CORS_ALLOW_HEADERS = ['content-type', 'authorization', 'x-requested-with']
+CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
+CORS_ALLOW_HEADERS = ['accept', 'authorization', 'content-type', 'x-requested-with']

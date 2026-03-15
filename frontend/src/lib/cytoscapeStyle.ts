@@ -29,6 +29,7 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'text-max-width': '80px',
       'border-width': 2,
       'overlay-padding': '4px',
+      shape: 'data(shape)' as any,
     },
   },
   // PERSON nodes
@@ -47,7 +48,6 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'background-color': ENTITY_COLORS.ORGANIZATION.bg,
       'border-color': ENTITY_COLORS.ORGANIZATION.border,
       color: ENTITY_COLORS.ORGANIZATION.text,
-      shape: 'round-rectangle',
     },
   },
   // LOCATION nodes
@@ -57,7 +57,6 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'background-color': ENTITY_COLORS.LOCATION.bg,
       'border-color': ENTITY_COLORS.LOCATION.border,
       color: ENTITY_COLORS.LOCATION.text,
-      shape: 'diamond',
     },
   },
   // ROLE nodes
@@ -67,7 +66,6 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'background-color': ENTITY_COLORS.ROLE.bg,
       'border-color': ENTITY_COLORS.ROLE.border,
       color: ENTITY_COLORS.ROLE.text,
-      shape: 'hexagon',
     },
   },
   // Selected node
@@ -80,14 +78,25 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'overlay-opacity': 0.12,
     },
   },
-  // Edge style (for future co-occurrence edges)
+  // Edge style (directional with labels)
   {
     selector: 'edge',
     style: {
       width: 2,
-      'line-color': '#e5e7eb',
+      'line-color': '#9ca3af',
       'curve-style': 'bezier',
-      'target-arrow-shape': 'none',
+      'target-arrow-shape': 'triangle',
+      'target-arrow-color': '#9ca3af',
+      label: 'data(label)',
+      'font-size': '9px',
+      'text-rotation': 'autorotate',
+      'text-margin-y': -8,
+      'text-background-color': '#ffffff',
+      'text-background-opacity': 0.85,
+      'text-background-padding': '2px',
+      'text-background-shape': 'roundrectangle',
+      color: '#4b5563',
+      'font-weight': '600' as any,
     },
   },
 ];

@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import cytoscape, { Core, Layouts } from 'cytoscape';
 import { cytoscapeStylesheet, ENTITY_COLORS } from '@/lib/cytoscapeStyle';
-import { CytoscapeNode } from '@/types';
+import { CytoscapeNode, CytoscapeEdge } from '@/types';
 
 interface GraphVisualizationProps {
   nodes: CytoscapeNode[];
+  edges?: CytoscapeEdge[];
   onNodeClick?: (node: CytoscapeNode) => void;
+  fontSize?: number;
 }
 
-function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps) {
+function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11 }: GraphVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const layoutRef = useRef<Layouts | null>(null);
@@ -38,7 +40,7 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
     destroyCy();
 
     // Convert API nodes to Cytoscape elements
-    const elements = nodes.map((node) => ({
+    const nodeElements = nodes.map((node) => ({
       data: {
         id: node.id,
         label: node.label,
@@ -47,8 +49,22 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
         document_id: node.data.document_id,
         chunk_id: node.data.chunk_id,
         raw_mentions_count: node.data.raw_mentions_count,
+        shape: node.data.shape || 'ellipse',
       },
     }));
+
+    // Convert API edges to Cytoscape elements
+    const edgeElements = (edges || []).map((edge, idx) => ({
+      data: {
+        id: edge.id || `edge-${idx}`,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label,
+        confidence: edge.confidence,
+      },
+    }));
+
+    const elements = [...nodeElements, ...edgeElements];
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -106,7 +122,7 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
         } catch { /* ignore */ }
       }
     });
-  }, [nodes, destroyCy]);
+  }, [nodes, edges, destroyCy]);
 
   useEffect(() => {
     initGraph();
@@ -114,6 +130,15 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
       destroyCy();
     };
   }, [initGraph, destroyCy]);
+
+  // Live font size update — no graph reinit needed
+  useEffect(() => {
+    if (!cyRef.current || cyRef.current.destroyed()) return;
+    cyRef.current.style()
+      .selector('node').style('font-size', `${fontSize}px`)
+      .selector('edge').style('font-size', `${Math.max(7, fontSize - 2)}px`)
+      .update();
+  }, [fontSize]);
 
   const handleFitView = () => {
     cyRef.current?.fit(undefined, 40);
@@ -185,7 +210,7 @@ function GraphVisualizationInner({ nodes, onNodeClick }: GraphVisualizationProps
 
       {/* Node count */}
       <p className="text-xs text-gray-400 text-right font-medium tabular-nums">
-        {nodes.length} node{nodes.length !== 1 ? 's' : ''} displayed
+        {nodes.length} node{nodes.length !== 1 ? 's' : ''} • {edges.length} edge{edges.length !== 1 ? 's' : ''}
       </p>
     </div>
   );

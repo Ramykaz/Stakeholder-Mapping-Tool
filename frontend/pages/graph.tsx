@@ -6,7 +6,7 @@ import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
 import { getGraphNodes } from '@/lib/api';
-import { CytoscapeNode } from '@/types';
+import { CytoscapeNode, CytoscapeEdge } from '@/types';
 
 const GraphVisualization = dynamic(
   () => import('@/components/GraphVisualization'),
@@ -25,12 +25,14 @@ export default function GraphPage() {
   const { document_id } = router.query;
 
   const [nodes, setNodes] = useState<CytoscapeNode[]>([]);
+  const [edges, setEdges] = useState<CytoscapeEdge[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [inputDocId, setInputDocId] = useState('');
   const [activeDocId, setActiveDocId] = useState('');
   const [selectedNode, setSelectedNode] = useState<CytoscapeNode | null>(null);
   const [confidenceMin, setConfidenceMin] = useState<number>(0);
+  const [labelSize, setLabelSize] = useState<number>(11);
 
   useEffect(() => {
     if (document_id && typeof document_id === 'string') {
@@ -46,10 +48,12 @@ export default function GraphPage() {
     setSelectedNode(null);
     try {
       const data = await getGraphNodes(docId, confidenceMin > 0 ? confidenceMin : undefined);
-      setNodes(data);
+      setNodes(data.nodes || []);
+      setEdges(data.edges || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load graph data');
       setNodes([]);
+      setEdges([]);
     } finally {
       setLoading(false);
     }
@@ -103,7 +107,7 @@ export default function GraphPage() {
           </form>
 
           {activeDocId && (
-            <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-4 py-2">
+            <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-lg px-4 py-2">
               <label className="text-xs font-medium text-gray-500 whitespace-nowrap">
                 Min confidence
               </label>
@@ -118,6 +122,22 @@ export default function GraphPage() {
               />
               <span className="text-xs font-semibold text-navy-700 tabular-nums w-8">
                 {Math.round(confidenceMin * 100)}%
+              </span>
+              <div className="w-px h-4 bg-gray-200" />
+              <label className="text-xs font-medium text-gray-500 whitespace-nowrap">
+                Label size
+              </label>
+              <input
+                type="range"
+                min={7}
+                max={20}
+                step={1}
+                value={labelSize}
+                onChange={(e) => setLabelSize(Number(e.target.value))}
+                className="w-20 accent-primary-500"
+              />
+              <span className="text-xs font-semibold text-navy-700 tabular-nums w-6">
+                {labelSize}
               </span>
             </div>
           )}
@@ -158,7 +178,7 @@ export default function GraphPage() {
               <div className="flex gap-5">
                 {/* Graph area */}
                 <div className="flex-1 min-w-0">
-                  <GraphVisualization nodes={nodes} onNodeClick={handleNodeClick} />
+                  <GraphVisualization nodes={nodes} edges={edges} onNodeClick={handleNodeClick} fontSize={labelSize} />
                 </div>
 
                 {/* Node detail sidebar */}

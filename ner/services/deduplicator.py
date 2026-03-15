@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 def deduplicate_entities(
     extracted_entities: List[dict],
     document,
+    run=None,
     existing_entities: QuerySet = None,
 ) -> List[Entity]:
     """
@@ -43,8 +44,9 @@ def deduplicate_entities(
     # Process extracted entities
     for extracted in extracted_entities:
         entity_type = extracted.get("entity_type", "").upper()
-        canonical_name = extracted.get("text", "").strip()
+        canonical_name = extracted.get("text", "").strip().replace("\x00", "")
         confidence = float(extracted.get("confidence", 0.5))
+        chunk_id = extracted.get("chunk_id")  # Get chunk_id from extracted entity
 
         if not canonical_name or not entity_type:
             logger.warning(f"Skipping invalid entity: {extracted}")
@@ -71,6 +73,8 @@ def deduplicate_entities(
                 raw_mentions=[canonical_name],
                 confidence=confidence,
                 document_id=document,
+                run=run,
+                chunk_id=chunk_id,  # Set chunk_id
             )
             canonical_name_map[key] = entity
             entities_to_create.append(entity)

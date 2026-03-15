@@ -232,7 +232,7 @@ class TestPipelineEdgeCases(TestCase):
         )
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
-    @patch('ner.services.pipeline.extract_entities_from_chunk')
+    @patch('ner.services.pipeline._extract_chunk_entities')
     def test_all_chunks_return_empty_entities(self, mock_extract):
         """Every chunk returns zero entities."""
         Chunk.objects.create(
@@ -258,7 +258,7 @@ class TestPipelineEdgeCases(TestCase):
         assert Entity.objects.filter(document_id=self.document.id).count() == 0
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
-    @patch('ner.services.pipeline.extract_entities_from_chunk')
+    @patch('ner.services.pipeline._extract_chunk_entities')
     def test_single_chunk_with_many_entities(self, mock_extract):
         """One chunk returns many entities (stress test dedup path)."""
         Chunk.objects.create(

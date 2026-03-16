@@ -50,7 +50,7 @@ describe('apiClient initialisation', () => {
     expect(axios.create).toHaveBeenCalledWith(
       expect.objectContaining({
         baseURL: expect.any(String),
-        timeout: 120000,
+        timeout: 600000,
       }),
     );
   });
@@ -217,10 +217,21 @@ describe('getEntities', () => {
 describe('getGraphNodes', () => {
   it('fetches Cytoscape nodes for a document', async () => {
     const nodes = [
-      { id: 'n1', label: 'UNDP', data: { entity_type: 'ORGANIZATION' } },
+      {
+        data: {
+          id: 'n1',
+          label: 'UNDP',
+          entity_type: 'ORGANIZATION',
+          confidence: 0.95,
+          document_id: 'doc-111',
+          chunk_id: null,
+          raw_mentions_count: 1,
+          shape: 'round-rectangle',
+        },
+      },
     ];
     (mockedAxios.get as jest.Mock).mockResolvedValueOnce({
-      data: { nodes, total_nodes: 1 },
+      data: { nodes, edges: [], total_nodes: 1 },
     });
 
     const result = await getGraphNodes('doc-111');
@@ -231,8 +242,8 @@ describe('getGraphNodes', () => {
         params: expect.objectContaining({ document_id: 'doc-111' }),
       }),
     );
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe('UNDP');
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0].label).toBe('UNDP');
   });
 });
 

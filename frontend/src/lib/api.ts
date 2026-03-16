@@ -87,6 +87,11 @@ export async function extractEntities(
   status?: string;
   document_id?: string;
   entities_created: number;
+  total_chunks?: number;
+  processed_chunks?: number;
+  rate_limited_chunks?: number;
+  skipped_chunks?: number;
+  partial?: boolean;
   run_id?: string;
   provider?: string;
   model?: string;

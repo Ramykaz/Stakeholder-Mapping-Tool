@@ -87,6 +87,18 @@ class ExtractEntitiesView(APIView):
             # Extract entities (synchronous)
             result = extract_entities_for_document(id, provider=provider, model=model)
             entities_created = result.get('entities_created', 0)
+            total_chunks = result.get('total_chunks', 0)
+            processed_chunks = result.get('processed_chunks', 0)
+            rate_limited_chunks = result.get('rate_limited_chunks', 0)
+            skipped_chunks = result.get('skipped_chunks', 0)
+
+            partial = rate_limited_chunks > 0 or skipped_chunks > 0
+            message = 'Entity extraction completed. Previous entities have been replaced.'
+            if partial:
+                message = (
+                    'Entity extraction completed with partial results. '
+                    'Some chunks were skipped due to rate limits or parse issues.'
+                )
 
             return Response(
                 {
@@ -100,7 +112,12 @@ class ExtractEntitiesView(APIView):
                     'tokens_output': result.get('tokens_output'),
                     'tokens_cached': result.get('tokens_cached'),
                     'cost_usd': result.get('cost_usd'),
-                    'message': 'Entity extraction completed. Previous entities have been replaced.',
+                    'total_chunks': total_chunks,
+                    'processed_chunks': processed_chunks,
+                    'rate_limited_chunks': rate_limited_chunks,
+                    'skipped_chunks': skipped_chunks,
+                    'partial': partial,
+                    'message': message,
                 },
                 status=status.HTTP_201_CREATED,
             )

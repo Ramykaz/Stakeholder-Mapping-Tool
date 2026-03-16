@@ -59,13 +59,13 @@ def extract_entities_for_document(
     3. Get all chunks for the document
     4. For each chunk: extract entities via Groq → deduplicate
     5. Bulk create Entity records in atomic transaction
-    6. Return {entities_created: int}
+    6. Return extraction summary
     
     Args:
         document_id: UUID of the document.
     
     Returns:
-        Dictionary: {entities_created: int}
+        Dictionary containing entity count, run metadata, and chunk processing stats.
     
     Raises:
         Document.DoesNotExist: If document not found.
@@ -110,13 +110,21 @@ def extract_entities_for_document(
         logger.info("[NER] step=load_chunks  chunks=%d  duration=%.2fs", len(chunks), perf_counter() - _t0)
         if not chunks:
             logger.warning(f"No chunks found for document {document_id}")
-            return {"entities_created": 0}
+            return {
+                "entities_created": 0,
+                "total_chunks": 0,
+                "processed_chunks": 0,
+                "rate_limited_chunks": 0,
+                "skipped_chunks": 0,
+            }
 
         _extraction_progress[str(document_id)] = {"current": 0, "total": len(chunks)}
 
         # Extract entities from each chunk
         all_extracted_entities = []
         chunk_count = 0
+        rate_limited_chunks = 0
+        skipped_chunks = 0
         tokens_input_total = 0
         tokens_output_total = 0
         tokens_cached_total = 0
@@ -150,10 +158,11 @@ def extract_entities_for_document(
                     chunk_count, len(chunks), len(entities), tok_in, tok_out, _chunk_duration, chunk.id,
                 )
             except ValueError as e:
-                # Re-raise rate limit errors
                 if "rate limit" in str(e).lower():
-                    logger.error(f"Rate limit hit on chunk {chunk.id}: {e}")
-                    raise
+                    rate_limited_chunks += 1
+                    logger.warning(f"Rate limit hit on chunk {chunk.id}; skipping and continuing")
+                    continue
+                skipped_chunks += 1
                 logger.warning(f"Skipping chunk {chunk.id}: {e}")
             except Exception as e:
                 logger.error(f"Error extracting from chunk {chunk.id}: {e}")
@@ -209,6 +218,10 @@ def extract_entities_for_document(
 
         return {
             "entities_created": entities_created,
+            "total_chunks": len(chunks),
+            "processed_chunks": chunk_count,
+            "rate_limited_chunks": rate_limited_chunks,
+            "skipped_chunks": skipped_chunks,
             "run_id": str(run.id),
             "provider": run.provider,
             "model": run.model,

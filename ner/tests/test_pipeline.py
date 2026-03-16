@@ -106,11 +106,16 @@ class TestExtractEntitiesForDocument(TestCase):
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
     @patch('ner.services.pipeline._extract_chunk_entities')
     def test_rate_limit_error(self, mock_extract):
-        """Test handling of rate limit errors."""
+        """Rate-limited chunks are skipped and reported."""
         mock_extract.side_effect = ValueError("API rate limit exceeded")
 
-        with pytest.raises(ValueError, match="rate limit"):
-            extract_entities_for_document(str(self.document.id))
+        result = extract_entities_for_document(str(self.document.id))
+
+        assert result['entities_created'] == 0
+        assert result['total_chunks'] == 2
+        assert result['processed_chunks'] == 0
+        assert result['rate_limited_chunks'] == 2
+        assert result['skipped_chunks'] == 0
 
         # Ensure no entities were persisted
         assert Entity.objects.filter(document_id=self.document.id).count() == 0

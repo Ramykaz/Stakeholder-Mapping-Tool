@@ -60,15 +60,18 @@ class TestExtractEntitiesView(TestCase):
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
     @patch('ner.services.pipeline._extract_chunk_entities')
     def test_extract_entities_groq_rate_limit(self, mock_extract):
-        """Test rate limit error returns 429."""
+        """Test rate limit returns partial-success response."""
         mock_extract.side_effect = ValueError("API rate limit exceeded")
 
         url = f'/api/v1/documents/{self.document.id}/extract-entities/'
         response = self.client.post(url)
 
-        assert response.status_code == 429
+        assert response.status_code == 201
         data = response.json()
-        assert data['error'] == 'rate_limited'
+        assert data['status'] == 'extraction_completed'
+        assert data['partial'] is True
+        assert data['rate_limited_chunks'] == 1
+        assert data['entities_created'] == 0
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
     @patch('ner.services.pipeline._extract_chunk_entities')

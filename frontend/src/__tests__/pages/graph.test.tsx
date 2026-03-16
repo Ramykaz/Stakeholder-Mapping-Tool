@@ -115,7 +115,7 @@ describe('GraphPage', () => {
 
   it('loads and displays graph nodes from query param', async () => {
     mockQuery = { document_id: 'doc-1' };
-    mockGetGraphNodes.mockResolvedValueOnce(SAMPLE_NODES);
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: [] });
 
     render(<GraphPage />);
 
@@ -155,7 +155,7 @@ describe('GraphPage', () => {
 
   it('shows empty state when no nodes returned', async () => {
     mockQuery = { document_id: 'doc-empty' };
-    mockGetGraphNodes.mockResolvedValueOnce([]);
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: [], edges: [] });
 
     render(<GraphPage />);
 
@@ -166,7 +166,7 @@ describe('GraphPage', () => {
 
   it('shows node detail panel on node click', async () => {
     mockQuery = { document_id: 'doc-1' };
-    mockGetGraphNodes.mockResolvedValueOnce(SAMPLE_NODES);
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: [] });
 
     render(<GraphPage />);
 
@@ -186,7 +186,7 @@ describe('GraphPage', () => {
 
   it('shows confidence filter when document is loaded', async () => {
     mockQuery = { document_id: 'doc-1' };
-    mockGetGraphNodes.mockResolvedValueOnce(SAMPLE_NODES);
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: [] });
 
     render(<GraphPage />);
 

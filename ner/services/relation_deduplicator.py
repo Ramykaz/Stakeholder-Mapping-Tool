@@ -2,6 +2,7 @@
 
 import logging
 from typing import List
+from django.db.models import Model
 from ner.models import Relation
 
 logger = logging.getLogger(__name__)
@@ -74,15 +75,28 @@ def deduplicate_relations(
     
     # Build Relation objects
     relations_to_create = []
+    document_obj = document if isinstance(document, Model) else None
+    document_fk_id = getattr(document, 'id', document)
+    run_obj = run if isinstance(run, Model) else None
+    run_fk_id = getattr(run, 'id', run)
+
     for rel_data in dedup_map.values():
-        relation = Relation(
-            document_id=document,
-            run=run,
-            source_entity_id=rel_data["source_entity_id"],
-            target_entity_id=rel_data["target_entity_id"],
-            label=rel_data["label"],
-            confidence=rel_data["confidence"],
-        )
+        relation_kwargs = {
+            "source_entity_id": rel_data["source_entity_id"],
+            "target_entity_id": rel_data["target_entity_id"],
+            "label": rel_data["label"],
+            "confidence": rel_data["confidence"],
+        }
+        if document_obj is not None:
+            relation_kwargs['document_id'] = document_obj
+        else:
+            relation_kwargs['document_id_id'] = document_fk_id
+        if run_obj is not None:
+            relation_kwargs['run'] = run_obj
+        else:
+            relation_kwargs['run_id'] = run_fk_id
+
+        relation = Relation(**relation_kwargs)
         relations_to_create.append(relation)
     
     logger.info(

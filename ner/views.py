@@ -520,6 +520,8 @@ class GraphNodesView(APIView):
             nodes = []
             for entity in entities:
                 nodes.append({
+                    "id": str(entity.id),
+                    "label": entity.canonical_name,
                     "data": {
                         "id": str(entity.id),
                         "label": entity.canonical_name,

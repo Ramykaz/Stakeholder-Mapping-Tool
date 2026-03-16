@@ -33,6 +33,6 @@ COPY --from=builder /app/next.config.js ./
 EXPOSE 3000
 
 ENV NODE_ENV=production
-ENV NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 
 CMD ["npm", "start"]

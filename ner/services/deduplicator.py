@@ -30,6 +30,12 @@ def deduplicate_entities(
     Returns:
         List of Entity objects ready for bulk_create or update.
     """
+    # Backward compatibility: older call sites passed (extracted, document, existing_entities)
+    # as the 3rd positional argument.
+    if existing_entities is None and isinstance(run, QuerySet):
+        existing_entities = run
+        run = None
+
     entities_to_create = []
     canonical_name_map = {}
 
@@ -67,13 +73,14 @@ def deduplicate_entities(
             entity.confidence = max(entity.confidence, confidence)
         else:
             # Create new entity
+            is_valid_run = run is not None and run.__class__.__name__ == 'NERRun'
             entity = Entity(
                 entity_type=entity_type,
                 canonical_name=canonical_name,
                 raw_mentions=[canonical_name],
                 confidence=confidence,
                 document_id=document,
-                run=run,
+                run=run if is_valid_run else None,
                 chunk_id=chunk_id,  # Set chunk_id
             )
             canonical_name_map[key] = entity

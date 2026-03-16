@@ -129,14 +129,26 @@ def extract_relations_from_chunk(
 Return your response as JSON only, with no additional text."""
         
         # Call provider (Groq or OpenAI)
-        response = provider_client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": user_message},
-            ],
-            max_completion_tokens=4096,
-        )
+        try:
+            response = provider_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                max_completion_tokens=4096,
+            )
+        except TypeError as token_err:
+            if "max_completion_tokens" not in str(token_err):
+                raise
+            response = provider_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                max_tokens=4096,
+            )
         
         response_text = response.choices[0].message.content.strip()
         
@@ -238,7 +250,7 @@ def validate_relations(
             continue
         
         # Validation gate 5: Confidence threshold
-        if confidence < 0.1:
+        if confidence < 0.5:
             logger.debug("Discarding low-confidence relation (%.2f): %s → %s", confidence, source_name, target_name)
             continue
         

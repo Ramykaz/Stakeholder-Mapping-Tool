@@ -14,7 +14,9 @@ from ner.services.deduplicator import deduplicate_entities
 from ner.services.relation_deduplicator import deduplicate_relations
 from ner.services.relation_extractor import extract_relations_from_chunk
 from ner.services.costing import calculate_openai_cost_usd
+from ner.services.taxonomy import get_active_entity_labels, get_active_relationship_types
 from ner.services.provider_factory import ProviderConfig, get_provider, validate_provider_config
+from ner.services.provider_interface import JointExtractionRequest, RelationshipTypeInput
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,97 @@ def _extract_chunk_entities(chunk_text: str, provider_config: ProviderConfig) ->
         },
     )
     return provider.extract_entities(chunk_text)
+
+
+def _extract_chunk_joint(
+    chunk_text: str,
+    provider_config: ProviderConfig,
+    concept_note: str | None,
+    entity_labels: list[str],
+    relationship_types: list[dict],
+) -> dict:
+    provider = get_provider(
+        provider_config,
+        {
+            'groq': os.environ.get('GROQ_API_KEY', ''),
+            'openai': os.environ.get('OPENAI_API_KEY', ''),
+            'azure_openai': os.environ.get('AZURE_OPENAI_API_KEY', ''),
+            'gemini': os.environ.get('GEMINI_API_KEY', ''),
+        },
+    )
+
+    rel_inputs = [
+        RelationshipTypeInput(name=str(item.get('name', '')), directional=bool(item.get('directional', True)))
+        for item in relationship_types
+        if str(item.get('name', '')).strip()
+    ]
+    payload = JointExtractionRequest(
+        chunk_text=chunk_text,
+        concept_note=concept_note,
+        entity_labels=entity_labels,
+        relationship_types=rel_inputs,
+        model=provider_config.model,
+    )
+    return provider.extract_joint(payload)
+
+
+def _normalize_text(value: str | None) -> str:
+    return (value or '').strip().lower()
+
+
+def _normalize_joint_entities(raw_entities: list, chunk: Chunk) -> list[dict]:
+    normalized = []
+    for entity in raw_entities or []:
+        if not isinstance(entity, dict):
+            continue
+        text = str(entity.get('text') or entity.get('name') or '').strip()
+        if not text:
+            continue
+        label = str(entity.get('entity_type') or entity.get('label') or '').strip().upper()
+        if not label:
+            continue
+        confidence = entity.get('confidence', 0.5)
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+        normalized.append(
+            {
+                'entity_type': label,
+                'text': text,
+                'confidence': confidence,
+                'chunk_id': chunk,
+            }
+        )
+    return normalized
+
+
+def _normalize_joint_relationships(raw_relationships: list) -> list[dict]:
+    normalized = []
+    for rel in raw_relationships or []:
+        if not isinstance(rel, dict):
+            continue
+        source_text = str(rel.get('source_text') or rel.get('source_entity') or rel.get('source') or '').strip()
+        target_text = str(rel.get('target_text') or rel.get('target_entity') or rel.get('target') or '').strip()
+        rel_type = str(rel.get('type') or rel.get('label') or rel.get('relation') or '').strip()
+        if not source_text or not target_text or not rel_type:
+            continue
+        confidence = rel.get('confidence', 0.5)
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+        normalized.append(
+            {
+                'source_text': source_text,
+                'target_text': target_text,
+                'type': rel_type,
+                'confidence': confidence,
+            }
+        )
+    return normalized
 
 
 def extract_entities_for_document(
@@ -238,41 +331,7 @@ def extract_relations_for_document(
     provider: str | None = None,
     model: str | None = None,
 ) -> dict:
-    """
-    Extract entities AND relations from all chunks of a document (two-pass extraction).
-    
-    Process:
-    1. Get document by ID (404 if not found)
-    2. Delete all existing entities and relations (clean slate)
-    3. FIRST PASS: Extract entities from all chunks → deduplicate → save
-    4. SECOND PASS: For each chunk, extract relations using entities in that chunk
-    5. Deduplicate relations across chunks → save
-    6. Return {entities_created: int, relations_created: int, ...}
-    
-    Args:
-        document_id: UUID of the document
-        provider: Provider name ('groq' or 'openai')
-        model: Model name
-    
-    Returns:
-        Dictionary: {
-            entities_created: int,
-            relations_created: int,
-            run_id: str,
-            provider: str,
-            model: str,
-            tokens_input: int,
-            tokens_output: int,
-            tokens_cached: int,
-            cost_usd: str,
-            duration_seconds: float,
-        }
-    
-    Raises:
-        Document.DoesNotExist: If document not found
-        ValueError: If API rate-limited or returns invalid data
-        RuntimeError: If extraction fails
-    """
+    """Extract entities and relations in one provider call per chunk."""
     provider_config = _resolve_provider_config(provider, model)
 
     try:
@@ -283,8 +342,29 @@ def extract_relations_for_document(
 
     _t_total_start = perf_counter()
     logger.info(
-        "[NER+REL] START  document=%s  provider=%s  model=%s",
+        "[NER+REL-JOINT] START  document=%s  provider=%s  model=%s",
         document_id, provider_config.provider, provider_config.model,
+    )
+
+    active_entity_labels = get_active_entity_labels()
+    active_relationship_types = get_active_relationship_types()
+    if not active_entity_labels:
+        logger.error(
+            "[NER+REL-JOINT] taxonomy_error  document=%s  reason=no_active_entity_labels  remediation=activate_at_least_one_entity_label",
+            document_id,
+        )
+        raise ValueError("No active entity labels configured. Activate at least one entity label.")
+    if not active_relationship_types:
+        logger.error(
+            "[NER+REL-JOINT] taxonomy_error  document=%s  reason=no_active_relationship_types  remediation=activate_at_least_one_relationship_type",
+            document_id,
+        )
+        raise ValueError("No active relationship types configured. Activate at least one relationship type.")
+
+    logger.info(
+        "[NER+REL-JOINT] taxonomy_loaded  entity_labels=%d  relationship_types=%d",
+        len(active_entity_labels),
+        len(active_relationship_types),
     )
 
     with transaction.atomic():
@@ -305,14 +385,14 @@ def extract_relations_for_document(
         deleted_entities, _ = Entity.objects.filter(document_id=document_id).delete()
         deleted_relations, _ = Relation.objects.filter(document_id=document_id).delete()
         logger.info(
-            "[NER+REL] step=delete_existing  entities=%d  relations=%d  duration=%.2fs",
+            "[NER+REL-JOINT] step=delete_existing  entities=%d  relations=%d  duration=%.2fs",
             deleted_entities, deleted_relations, perf_counter() - _t0,
         )
 
         # Get all chunks
         _t0 = perf_counter()
         chunks = list(Chunk.objects.filter(document_id=document_id).order_by('id'))
-        logger.info("[NER+REL] step=load_chunks  chunks=%d  duration=%.2fs", len(chunks), perf_counter() - _t0)
+        logger.info("[NER+REL-JOINT] step=load_chunks  chunks=%d  duration=%.2fs", len(chunks), perf_counter() - _t0)
         if not chunks:
             logger.warning(f"No chunks found for document {document_id}")
             run.status = NERRun.STATUS_COMPLETED
@@ -330,35 +410,34 @@ def extract_relations_for_document(
                 "duration_seconds": 0.0,
             }
 
-        _extraction_progress[str(document_id)] = {"current": 0, "total": len(chunks) * 2}  # 2 passes
+        _extraction_progress[str(document_id)] = {"current": 0, "total": len(chunks)}
 
-        # ===== FIRST PASS: ENTITY EXTRACTION =====
-        logger.info("[NER+REL] === FIRST PASS: ENTITY EXTRACTION ===")
+        # Joint extraction per chunk (single provider call)
         all_extracted_entities = []
+        all_extracted_relations = []
         chunk_count = 0
         tokens_input_total = 0
         tokens_output_total = 0
         tokens_cached_total = 0
 
-        provider_instance = get_provider(
-            provider_config,
-            {
-                'groq': os.environ.get('GROQ_API_KEY', ''),
-                'openai': os.environ.get('OPENAI_API_KEY', ''),
-            },
-        )
-
-        _t_entities_start = perf_counter()
+        _t_joint_start = perf_counter()
         for chunk in chunks:
             try:
                 if chunk_count > 0 and provider_config.provider == 'groq':
                     time.sleep(2.5)
-                
+
                 _t_chunk = perf_counter()
-                chunk_data = provider_instance.extract_entities(chunk.text)
+                chunk_data = _extract_chunk_joint(
+                    chunk.text,
+                    provider_config,
+                    concept_note=None,
+                    entity_labels=active_entity_labels,
+                    relationship_types=active_relationship_types,
+                )
                 _chunk_duration = perf_counter() - _t_chunk
-                
-                entities = chunk_data.get("entities", [])
+
+                entities = _normalize_joint_entities(chunk_data.get("entities", []), chunk)
+                relations = _normalize_joint_relationships(chunk_data.get("relationships", []))
                 tok_in = int(chunk_data.get("tokens_input", 0) or 0)
                 tok_out = int(chunk_data.get("tokens_output", 0) or 0)
                 tok_cached = int(chunk_data.get("tokens_cached", 0) or 0)
@@ -366,41 +445,69 @@ def extract_relations_for_document(
                 tokens_output_total += tok_out
                 tokens_cached_total += tok_cached
 
-                for entity in entities:
-                    entity["chunk_id"] = chunk
-                    all_extracted_entities.append(entity)
+                all_extracted_entities.extend(entities)
+                all_extracted_relations.extend(relations)
 
                 chunk_count += 1
                 _extraction_progress[str(document_id)]["current"] = chunk_count
                 logger.info(
-                    "[NER+REL] ENTITIES chunk=%d/%d  entities=%d  tok_in=%d  tok_out=%d  duration=%.2fs",
-                    chunk_count, len(chunks), len(entities), tok_in, tok_out, _chunk_duration,
+                    "[NER+REL-JOINT] chunk=%d/%d  entities=%d  relations=%d  tok_in=%d  tok_out=%d  duration=%.2fs",
+                    chunk_count, len(chunks), len(entities), len(relations), tok_in, tok_out, _chunk_duration,
                 )
             except ValueError as e:
                 if "rate limit" in str(e).lower():
-                    logger.error(f"Rate limit hit on entity extraction chunk {chunk.id}: {e}")
+                    logger.error(f"Rate limit hit on joint extraction chunk {chunk.id}: {e}")
                     raise
-                logger.warning(f"Skipping entity extraction for chunk {chunk.id}: {e}")
+                logger.warning(f"Skipping joint extraction for chunk {chunk.id}: {e}")
             except Exception as e:
-                logger.error(f"Error extracting entities from chunk {chunk.id}: {e}")
+                logger.error(f"Error extracting joint payload from chunk {chunk.id}: {e}")
                 raise
 
+        _extraction_progress.pop(str(document_id), None)
         logger.info(
-            "[NER+REL] step=entity_extraction_done  chunks=%d  entities_raw=%d  duration=%.2fs",
-            chunk_count, len(all_extracted_entities), perf_counter() - _t_entities_start,
+            "[NER+REL-JOINT] step=chunk_extraction_done  chunks=%d  entities_raw=%d  relations_raw=%d  duration=%.2fs",
+            chunk_count,
+            len(all_extracted_entities),
+            len(all_extracted_relations),
+            perf_counter() - _t_joint_start,
         )
 
-        # Deduplicate and save entities
+        linked_entity_names = {
+            _normalize_text(item.get('source_text'))
+            for item in all_extracted_relations
+            if _normalize_text(item.get('source_text'))
+        }
+        linked_entity_names.update(
+            {
+                _normalize_text(item.get('target_text'))
+                for item in all_extracted_relations
+                if _normalize_text(item.get('target_text'))
+            }
+        )
+
+        linked_entities_only = [
+            entity
+            for entity in all_extracted_entities
+            if _normalize_text(entity.get('text')) in linked_entity_names
+        ]
+        logger.info(
+            "[NER+REL-JOINT] step=linked_entity_filter  raw_entities=%d  linked_entities=%d  linked_names=%d",
+            len(all_extracted_entities),
+            len(linked_entities_only),
+            len(linked_entity_names),
+        )
+
+        # Deduplicate and save only entities participating in at least one relationship
         _t0 = perf_counter()
         entities_to_create = deduplicate_entities(
-            all_extracted_entities,
+            linked_entities_only,
             document,
             run=run,
             existing_entities=Entity.objects.none(),
         )
         logger.info(
-            "[NER+REL] step=entity_deduplicate  in=%d  out=%d  duration=%.2fs",
-            len(all_extracted_entities), len(entities_to_create), perf_counter() - _t0,
+            "[NER+REL-JOINT] step=entity_deduplicate  in=%d  out=%d  duration=%.2fs",
+            len(linked_entities_only), len(entities_to_create), perf_counter() - _t0,
         )
 
         _t0 = perf_counter()
@@ -409,117 +516,39 @@ def extract_relations_for_document(
             entities_created = len(created_entities)
         else:
             entities_created = 0
-        logger.info("[NER+REL] step=entity_bulk_create  entities=%d  duration=%.2fs", entities_created, perf_counter() - _t0)
+        logger.info("[NER+REL-JOINT] step=entity_bulk_create  entities=%d  duration=%.2fs", entities_created, perf_counter() - _t0)
 
-        # ===== SECOND PASS: RELATION EXTRACTION =====
-        logger.info("[NER+REL] === SECOND PASS: RELATION EXTRACTION ===")
-        
         if entities_created < 2:
-            logger.info("[NER+REL] Skipping relation extraction: fewer than 2 entities found")
             relations_created = 0
+            logger.info("[NER+REL-JOINT] Skipping relation persistence: fewer than 2 linked entities")
         else:
-            all_extracted_relations = []
-            
-            # Get provider client for relation extraction
-            if provider_config.provider == 'groq':
-                from groq import Groq
-                provider_client = Groq(api_key=os.environ.get('GROQ_API_KEY', ''))
-            else:  # openai
-                from openai import OpenAI
-                provider_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
-            
-            _t_relations_start = perf_counter()
-            chunk_count = 0
-            logger.info(f"[NER+REL] Starting relation extraction loop, chunks={len(chunks)}")
-            for chunk in chunks:
-                logger.info(f"[NER+REL] Processing chunk {chunk_count + 1}/{len(chunks)}, chunk.id={chunk.id}")
-                try:
-                    if chunk_count > 0 and provider_config.provider == 'groq':
-                        time.sleep(2.5)
-                    
-                    # Get entities that were found in this chunk
-                    entities_in_chunk = Entity.objects.filter(
-                        document_id=document,
-                        chunk_id=chunk.id,
-                        run=run,
-                    )
-                    
-                    entities_count = entities_in_chunk.count()
-                    logger.info(
-                        "[NER+REL] RELATIONS chunk=%d/%d  chunk_id=%s  entities_found=%d",
-                        chunk_count + 1, len(chunks), chunk.id, entities_count,
-                    )
-                    
-                    if entities_count < 2:
-                        logger.info(
-                            "[NER+REL] RELATIONS chunk=%d/%d  skipped (need >=2 entities, found %d)",
-                            chunk_count + 1, len(chunks), entities_count,
-                        )
-                        chunk_count += 1
-                        _extraction_progress[str(document_id)]["current"] = len(chunks) + chunk_count
-                        continue
-                    
-                    _t_chunk = perf_counter()
-                    chunk_relations = extract_relations_from_chunk(
-                        chunk.text,
-                        list(entities_in_chunk),
-                        provider_client,
-                        provider_config.model,
-                    )
-                    _chunk_duration = perf_counter() - _t_chunk
-                    
-                    relations = chunk_relations.get("relations", [])
-                    tok_in = int(chunk_relations.get("tokens_input", 0) or 0)
-                    tok_out = int(chunk_relations.get("tokens_output", 0) or 0)
-                    tok_cached = int(chunk_relations.get("tokens_cached", 0) or 0)
-                    tokens_input_total += tok_in
-                    tokens_output_total += tok_out
-                    tokens_cached_total += tok_cached
-                    
-                    all_extracted_relations.extend(relations)
-                    
-                    chunk_count += 1
-                    _extraction_progress[str(document_id)]["current"] = len(chunks) + chunk_count
-                    logger.info(
-                        "[NER+REL] RELATIONS chunk=%d/%d  relations=%d  tok_in=%d  tok_out=%d  duration=%.2fs",
-                        chunk_count, len(chunks), len(relations), tok_in, tok_out, _chunk_duration,
-                    )
-                except ValueError as e:
-                    if "rate limit" in str(e).lower():
-                        logger.error(f"Rate limit hit on relation extraction chunk {chunk.id}: {e}")
-                        raise
-                    logger.warning(f"Skipping relation extraction for chunk {chunk.id}: {e}")
-                except Exception as e:
-                    logger.error(f"Error extracting relations from chunk {chunk.id}: {e}")
-                    raise
+            entity_by_name = {
+                _normalize_text(entity.canonical_name): entity
+                for entity in Entity.objects.filter(document_id=document, run=run)
+            }
+            relation_inputs = []
+            for rel in all_extracted_relations:
+                source = entity_by_name.get(_normalize_text(rel.get('source_text')))
+                target = entity_by_name.get(_normalize_text(rel.get('target_text')))
+                if not source or not target:
+                    continue
+                if source.id == target.id:
+                    continue
+                relation_inputs.append(
+                    {
+                        'source_entity_id': source.id,
+                        'target_entity_id': target.id,
+                        'label': str(rel.get('type', '')).strip(),
+                        'confidence': rel.get('confidence', 0.5),
+                    }
+                )
 
-            _extraction_progress.pop(str(document_id), None)
-            logger.info(
-                "[NER+REL] step=relation_extraction_done  chunks=%d  relations_raw=%d  duration=%.2fs",
-                chunk_count, len(all_extracted_relations), perf_counter() - _t_relations_start,
-            )
-
-            # Deduplicate and save relations
             _t0 = perf_counter()
-            relations_to_create = deduplicate_relations(
-                all_extracted_relations,
-                document,
-                run,
-            )
+            relations_to_create = deduplicate_relations(relation_inputs, document, run)
             logger.info(
-                "[NER+REL] step=relation_deduplicate  in=%d  out=%d  duration=%.2fs",
-                len(all_extracted_relations), len(relations_to_create), perf_counter() - _t0,
+                "[NER+REL-JOINT] step=relation_deduplicate  in=%d  out=%d  duration=%.2fs",
+                len(relation_inputs), len(relations_to_create), perf_counter() - _t0,
             )
-            
-            # Log sample relations
-            if relations_to_create:
-                sample_size = min(5, len(relations_to_create))
-                sample_relations = []
-                for rel in relations_to_create[:sample_size]:
-                    sample_relations.append(
-                        f"{rel.source_entity.canonical_name} --[{rel.label}]--> {rel.target_entity.canonical_name} ({rel.confidence:.2f})"
-                    )
-                logger.info(f"[NER+REL] Sample relations (first {sample_size}): {'; '.join(sample_relations)}")
 
             _t0 = perf_counter()
             if relations_to_create:
@@ -527,7 +556,11 @@ def extract_relations_for_document(
                 relations_created = len(created_relations)
             else:
                 relations_created = 0
-            logger.info("[NER+REL] step=relation_bulk_create  relations=%d  duration=%.2fs", relations_created, perf_counter() - _t0)
+            logger.info(
+                "[NER+REL-JOINT] step=relation_bulk_create  relations=%d  duration=%.2fs",
+                relations_created,
+                perf_counter() - _t0,
+            )
 
         # Update run with final stats
         run.status = NERRun.STATUS_COMPLETED
@@ -553,7 +586,7 @@ def extract_relations_for_document(
         ])
 
         logger.info(
-            "[NER+REL] DONE  document=%s  entities=%d  relations=%d  tok_in=%d  tok_out=%d  cost_usd=%s  total=%.2fs",
+            "[NER+REL-JOINT] DONE  document=%s  entities=%d  relations=%d  tok_in=%d  tok_out=%d  cost_usd=%s  total=%.2fs",
             document_id, entities_created, relations_created,
             tokens_input_total, tokens_output_total, run.cost_usd, perf_counter() - _t_total_start,
         )
@@ -668,7 +701,7 @@ def extract_relations_only_for_document(
             from groq import Groq
             provider_client = Groq(api_key=os.environ.get('GROQ_API_KEY', ''))
         else:
-            from openai import OpenAI
+            OpenAI = __import__('openai', fromlist=['OpenAI']).OpenAI
             provider_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
 
         _extraction_progress[str(document_id)] = {"current": 0, "total": len(chunks)}

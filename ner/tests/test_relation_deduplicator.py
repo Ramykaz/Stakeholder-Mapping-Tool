@@ -6,6 +6,9 @@ from unittest.mock import MagicMock
 from ner.services.relation_deduplicator import deduplicate_relations
 
 
+pytestmark = pytest.mark.django_db
+
+
 def test_deduplicate_relations_keeps_highest_confidence():
     """Test that deduplication keeps the instance with highest confidence."""
     document = MagicMock(id="doc-id")

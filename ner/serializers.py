@@ -1,7 +1,7 @@
-"""Serializers for Entity model and Cytoscape graph data."""
+"""Serializers for NER entities, runs, relations, and taxonomy models."""
 
 from rest_framework import serializers
-from .models import Entity, NERRun, Relation
+from .models import Entity, NERRun, Relation, EntityLabel, RelationshipType
 
 
 class EntitySerializer(serializers.ModelSerializer):
@@ -92,3 +92,41 @@ class RelationSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = fields
+
+
+class EntityLabelSerializer(serializers.ModelSerializer):
+    """Serialize configurable entity labels for admin taxonomy management."""
+
+    class Meta:
+        model = EntityLabel
+        fields = [
+            'id',
+            'name',
+            'description',
+            'node_shape',
+            'color',
+            'active',
+            'display_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class RelationshipTypeSerializer(serializers.ModelSerializer):
+    """Serialize configurable relationship types for admin taxonomy management."""
+
+    class Meta:
+        model = RelationshipType
+        fields = [
+            'id',
+            'name',
+            'description',
+            'directional',
+            'color',
+            'active',
+            'display_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

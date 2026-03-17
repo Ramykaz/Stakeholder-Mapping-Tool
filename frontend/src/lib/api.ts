@@ -9,12 +9,94 @@ import axios, {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
+export type ProviderName = 'groq' | 'openai' | 'azure_openai' | 'gemini';
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  email: string;
+  is_admin: boolean;
+}
+
+export interface EntityLabelConfig {
+  id: string;
+  name: string;
+  description: string;
+  node_shape: string;
+  color: string;
+  active: boolean;
+  display_order: number;
+}
+
+export interface RelationshipTypeConfig {
+  id: string;
+  name: string;
+  description: string;
+  directional: boolean;
+  color: string;
+  active: boolean;
+  display_order: number;
+}
+
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 600000, // 10 minutes — NER extraction over many chunks can take several minutes
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+const AUTH_TOKEN_KEY = 'sat.auth.token';
+const AUTH_USER_KEY = 'sat.auth.user';
+
+function isBrowser(): boolean {
+  return typeof window !== 'undefined';
+}
+
+export function getStoredAuthToken(): string | null {
+  if (!isBrowser()) {
+    return null;
+  }
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function getStoredAuthUser(): AuthUser | null {
+  if (!isBrowser()) {
+    return null;
+  }
+  const raw = window.localStorage.getItem(AUTH_USER_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredAuth(token: string, user: AuthUser): void {
+  if (!isBrowser()) {
+    return;
+  }
+  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+}
+
+export function clearStoredAuth(): void {
+  if (!isBrowser()) {
+    return;
+  }
+  window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  window.localStorage.removeItem(AUTH_USER_KEY);
+}
+
+apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = getStoredAuthToken();
+  if (token) {
+    config.headers.Authorization = `Token ${token}`;
+  }
+  return config;
 });
 
 // Error interceptor
@@ -82,7 +164,7 @@ export async function uploadDocument(file: File): Promise<{
  */
 export async function extractEntities(
   documentId: string,
-  options?: { provider?: 'groq' | 'openai'; model?: string }
+  options?: { provider?: ProviderName; model?: string }
 ): Promise<{
   status?: string;
   document_id?: string;
@@ -224,7 +306,7 @@ export async function getDocuments(): Promise<DocumentSummary[]> {
  */
 export async function extractEntitiesRelations(
   documentId: string,
-  options?: { provider?: 'groq' | 'openai'; model?: string }
+  options?: { provider?: ProviderName; model?: string }
 ): Promise<{
   status?: string;
   document_id?: string;
@@ -255,7 +337,7 @@ export async function extractEntitiesRelations(
  */
 export async function extractRelations(
   documentId: string,
-  options?: { provider?: 'groq' | 'openai'; model?: string }
+  options?: { provider?: ProviderName; model?: string }
 ): Promise<{
   status?: string;
   document_id?: string;
@@ -312,6 +394,93 @@ export async function getExtractionProgress(
 export async function getDocumentRuns(documentId: string): Promise<NERRunSummary[]> {
   const response = await apiClient.get(`/api/v1/documents/${documentId}/runs/`);
   return response.data.runs || [];
+}
+
+export async function getEntityLabels(): Promise<EntityLabelConfig[]> {
+  const response = await apiClient.get('/api/v1/admin/entity-labels/');
+  return response.data || [];
+}
+
+export async function createEntityLabel(payload: Omit<EntityLabelConfig, 'id'>): Promise<EntityLabelConfig> {
+  const response = await apiClient.post('/api/v1/admin/entity-labels/', payload);
+  return response.data;
+}
+
+export async function updateEntityLabel(
+  id: string,
+  payload: Partial<Omit<EntityLabelConfig, 'id'>>
+): Promise<EntityLabelConfig> {
+  const response = await apiClient.patch(`/api/v1/admin/entity-labels/${id}/`, payload);
+  return response.data;
+}
+
+export async function deleteEntityLabel(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/admin/entity-labels/${id}/`);
+}
+
+export async function getRelationshipTypes(): Promise<RelationshipTypeConfig[]> {
+  const response = await apiClient.get('/api/v1/admin/relationship-types/');
+  return response.data || [];
+}
+
+export async function createRelationshipType(
+  payload: Omit<RelationshipTypeConfig, 'id'>
+): Promise<RelationshipTypeConfig> {
+  const response = await apiClient.post('/api/v1/admin/relationship-types/', payload);
+  return response.data;
+}
+
+export async function updateRelationshipType(
+  id: string,
+  payload: Partial<Omit<RelationshipTypeConfig, 'id'>>
+): Promise<RelationshipTypeConfig> {
+  const response = await apiClient.patch(`/api/v1/admin/relationship-types/${id}/`, payload);
+  return response.data;
+}
+
+export async function deleteRelationshipType(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/admin/relationship-types/${id}/`);
+}
+
+export async function registerUser(payload: {
+  username: string;
+  email?: string;
+  password: string;
+}): Promise<{ token: string; user: AuthUser }> {
+  const response = await apiClient.post('/api/v1/auth/register/', payload);
+  const data = response.data as { token: string; user: AuthUser };
+  setStoredAuth(data.token, data.user);
+  return data;
+}
+
+export async function loginUser(payload: {
+  username: string;
+  password: string;
+}): Promise<{ token: string; user: AuthUser }> {
+  const response = await apiClient.post('/api/v1/auth/login/', payload);
+  const data = response.data as { token: string; user: AuthUser };
+  setStoredAuth(data.token, data.user);
+  return data;
+}
+
+export async function getCurrentUser(): Promise<AuthUser> {
+  const response = await apiClient.get('/api/v1/auth/me/');
+  const data = response.data as { user: AuthUser };
+  if (data.user) {
+    const token = getStoredAuthToken();
+    if (token) {
+      setStoredAuth(token, data.user);
+    }
+  }
+  return data.user;
+}
+
+export async function logoutUser(): Promise<void> {
+  try {
+    await apiClient.post('/api/v1/auth/logout/', {});
+  } finally {
+    clearStoredAuth();
+  }
 }
 
 export default apiClient;

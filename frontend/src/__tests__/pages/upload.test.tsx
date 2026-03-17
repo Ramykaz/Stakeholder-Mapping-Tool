@@ -31,13 +31,16 @@ jest.mock('next/link', () => {
 jest.mock('@/lib/api', () => ({
   uploadDocument: jest.fn(),
   extractEntities: jest.fn(),
+  extractEntitiesRelations: jest.fn(),
   getDocuments: jest.fn(() => new Promise(() => {})),
 }));
 
-import { uploadDocument, extractEntities } from '@/lib/api';
+import { uploadDocument, extractEntities, extractEntitiesRelations, getDocuments } from '@/lib/api';
 
 const mockUpload = uploadDocument as jest.Mock;
 const mockExtract = extractEntities as jest.Mock;
+const mockExtractEntitiesRelations = extractEntitiesRelations as jest.Mock;
+const mockGetDocuments = getDocuments as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -248,5 +251,89 @@ describe('UploadPage', () => {
     expect(screen.getByText(/Model:/)).toBeInTheDocument();
     expect(screen.getByText(/gpt-5-nano/i)).toBeInTheDocument();
     expect(screen.getByText(/Cost \(USD\):/)).toBeInTheDocument();
+  });
+
+  it('shows "Extract Entities + Relations" button after upload success', async () => {
+    mockUpload.mockResolvedValueOnce({
+      id: 'doc-er-1',
+      filename: 'test.pdf',
+      file_format: 'pdf',
+      upload_timestamp: '2026-03-12T00:00:00Z',
+      processing_status: 'completed',
+      chunk_count: 3,
+    });
+
+    render(<UploadPage />);
+
+    const file = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload Document' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Extract Entities + Relations' })).toBeInTheDocument();
+    });
+  });
+
+  it('shows completion summary with both entity and relation counts for joint extraction', async () => {
+    mockUpload.mockResolvedValueOnce({ id: 'doc-er-2' });
+    mockExtractEntitiesRelations.mockResolvedValueOnce({
+      entities_created: 7,
+      relations_created: 4,
+      provider: 'groq',
+      model: 'llama-3.1-8b-instant',
+      tokens_input: 220,
+      tokens_output: 80,
+      tokens_cached: 0,
+      cost_usd: '0.0000',
+    });
+
+    render(<UploadPage />);
+
+    const file = new File(['content'], 'joint.pdf', { type: 'application/pdf' });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload Document' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Extract Entities + Relations' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Extract Entities + Relations' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Extraction Complete')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Found/i)).toBeInTheDocument();
+    expect(screen.getByText(/7/)).toBeInTheDocument();
+    expect(screen.getByText(/4/)).toBeInTheDocument();
+    expect(mockExtractEntitiesRelations).toHaveBeenCalledWith('doc-er-2', {
+      provider: 'groq',
+      model: 'llama-3.1-8b-instant',
+    });
+  });
+
+  it('shows relation metadata in Recent Documents when available', async () => {
+    mockGetDocuments.mockResolvedValueOnce([
+      {
+        id: 'doc-list-1',
+        filename: 'relations.pdf',
+        file_format: 'pdf',
+        upload_timestamp: '2026-03-12T00:00:00Z',
+        processing_status: 'completed',
+        chunk_count: 5,
+        entity_count: 9,
+        relation_count: 3,
+      },
+    ]);
+
+    render(<UploadPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Recent Documents')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/3 relations/i)).toBeInTheDocument();
   });
 });

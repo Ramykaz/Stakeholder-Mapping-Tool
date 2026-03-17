@@ -40,11 +40,16 @@ jest.mock('next/link', () => {
 // Mock next/dynamic — render a simple div instead of Cytoscape
 jest.mock('next/dynamic', () => {
   return (_importFn: any, _opts?: any) => {
-    const MockGraphVisualization = ({ nodes, onNodeClick }: any) => (
+    const MockGraphVisualization = ({ nodes, edges = [], onNodeClick }: any) => (
       <div data-testid="graph-visualization">
         {nodes.map((n: any) => (
           <div key={n.id} data-testid={`node-${n.id}`} onClick={() => onNodeClick?.(n)}>
-            {n.label}
+            {n.label}::{n.data.shape || 'none'}
+          </div>
+        ))}
+        {edges.map((e: any) => (
+          <div key={e.id} data-testid={`edge-${e.id}`}>
+            {e.label}
           </div>
         ))}
       </div>
@@ -64,6 +69,7 @@ const mockGetGraphNodes = getGraphNodes as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetGraphNodes.mockReset();
   mockQuery = {};
 });
 
@@ -97,6 +103,16 @@ const SAMPLE_NODES = [
   },
 ];
 
+const SAMPLE_EDGES = [
+  {
+    id: 'r1',
+    source: 'n2',
+    target: 'n1',
+    label: 'WORKS_AT',
+    confidence: 0.9,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -123,13 +139,13 @@ describe('GraphPage', () => {
       expect(screen.getByTestId('graph-visualization')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('UNDP')).toBeInTheDocument();
-    expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+    expect(screen.getByTestId('node-n1')).toHaveTextContent('UNDP');
+    expect(screen.getByTestId('node-n2')).toHaveTextContent('Alice Smith');
     expect(mockGetGraphNodes).toHaveBeenCalledWith('doc-1', undefined);
   });
 
   it('loads nodes when submitting document ID form', async () => {
-    mockGetGraphNodes.mockResolvedValueOnce(SAMPLE_NODES);
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: [] });
 
     render(<GraphPage />);
 
@@ -193,5 +209,74 @@ describe('GraphPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/min confidence/i)).toBeInTheDocument();
     });
+  });
+
+  it('renders relation edge labels when edges are returned', async () => {
+    mockQuery = { document_id: 'doc-1' };
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: SAMPLE_EDGES });
+
+    render(<GraphPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edge-r1')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('WORKS_AT')).toBeInTheDocument();
+  });
+
+  it('passes node shapes from API payload to graph component', async () => {
+    const shapedNodes = [
+      {
+        ...SAMPLE_NODES[0],
+        data: { ...SAMPLE_NODES[0].data, shape: 'rectangle' },
+      },
+      {
+        ...SAMPLE_NODES[1],
+        data: { ...SAMPLE_NODES[1].data, shape: 'ellipse' },
+      },
+    ];
+    mockQuery = { document_id: 'doc-1' };
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: shapedNodes, edges: [] });
+
+    render(<GraphPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('UNDP::rectangle')).toBeInTheDocument();
+      expect(screen.getByText('Alice Smith::ellipse')).toBeInTheDocument();
+    });
+  });
+
+  it('refetches graph data with confidence threshold when slider changes', async () => {
+    mockQuery = { document_id: 'doc-1' };
+    mockGetGraphNodes
+      .mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: SAMPLE_EDGES })
+      .mockResolvedValueOnce({ nodes: SAMPLE_NODES, edges: SAMPLE_EDGES });
+
+    render(<GraphPage />);
+
+    await waitFor(() => {
+      expect(mockGetGraphNodes).toHaveBeenCalledWith('doc-1', undefined);
+    });
+
+    const slider = screen.getAllByRole('slider')[0];
+    fireEvent.change(slider, { target: { value: '70' } });
+
+    await waitFor(() => {
+      expect(mockGetGraphNodes).toHaveBeenCalledWith('doc-1', 0.7);
+    });
+  });
+
+  it('remains compatible when API returns nodes with no edges field', async () => {
+    mockQuery = { document_id: 'doc-compat' };
+    mockGetGraphNodes.mockResolvedValueOnce({ nodes: SAMPLE_NODES });
+
+    render(<GraphPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('graph-visualization')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('UNDP::none')).toBeInTheDocument();
+    expect(screen.queryByTestId('edge-r1')).not.toBeInTheDocument();
   });
 });

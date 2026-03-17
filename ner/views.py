@@ -2,15 +2,117 @@
 
 import logging
 from django.conf import settings
+from django.shortcuts import get_object_or_404
 from rest_framework import status
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ingestion.models import Document
-from .models import Entity, NERRun, Relation
-from .serializers import EntitySerializer, CytoscapeNodeSerializer, NERRunSerializer, RelationSerializer
+from .models import Entity, NERRun, Relation, EntityLabel, RelationshipType
+from .serializers import (
+    EntitySerializer,
+    CytoscapeNodeSerializer,
+    NERRunSerializer,
+    RelationSerializer,
+    EntityLabelSerializer,
+    RelationshipTypeSerializer,
+)
 from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress
+from .services.provider_runtime import ProviderConfigError
 
 logger = logging.getLogger(__name__)
+
+
+class EntityLabelAdminView(APIView):
+    """Admin-only list/create endpoint for entity labels."""
+
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        queryset = EntityLabel.objects.all().order_by('display_order', 'name')
+        serializer = EntityLabelSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = EntityLabelSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class EntityLabelAdminDetailView(APIView):
+    """Admin-only patch/delete endpoint for entity labels."""
+
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, id):
+        obj = get_object_or_404(EntityLabel, id=id)
+        serializer = EntityLabelSerializer(obj, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, id):
+        obj = get_object_or_404(EntityLabel, id=id)
+        in_use = Entity.objects.filter(entity_type__iexact=obj.name).exists()
+        if in_use:
+            return Response(
+                {
+                    'error': 'entity_label_in_use',
+                    'detail': 'This label is referenced by historical extraction data. Deactivate it instead.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RelationshipTypeAdminView(APIView):
+    """Admin-only list/create endpoint for relationship types."""
+
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        queryset = RelationshipType.objects.all().order_by('display_order', 'name')
+        serializer = RelationshipTypeSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = RelationshipTypeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RelationshipTypeAdminDetailView(APIView):
+    """Admin-only patch/delete endpoint for relationship types."""
+
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, id):
+        obj = get_object_or_404(RelationshipType, id=id)
+        serializer = RelationshipTypeSerializer(obj, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, id):
+        obj = get_object_or_404(RelationshipType, id=id)
+        in_use = Relation.objects.filter(label__iexact=obj.name).exists()
+        if in_use:
+            return Response(
+                {
+                    'error': 'relationship_type_in_use',
+                    'detail': 'This relationship type is referenced by historical extraction data. Deactivate it instead.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def _resolve_provider_and_model(request) -> tuple[str, str]:
@@ -34,6 +136,23 @@ def _resolve_provider_and_model(request) -> tuple[str, str]:
 def handle_groq_error(exception):
     """Convert Groq exceptions to DRF responses."""
     error_msg = str(exception).lower()
+    if isinstance(exception, ProviderConfigError) or 'api_key' in error_msg or 'credential' in error_msg:
+        provider = getattr(exception, 'provider', None)
+        provider_name = str(provider or 'selected provider')
+        return Response(
+            {
+                'error': {
+                    'code': 'PROVIDER_CONFIG_ERROR',
+                    'message': f'{provider_name} credentials are missing or invalid.',
+                    'detail': str(exception),
+                    'remediation': [
+                        'Provide valid credentials for selected provider',
+                        'Or choose another configured provider',
+                    ],
+                }
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if "rate limit" in error_msg or "429" in str(exception):
         return Response(
             {
@@ -139,7 +258,7 @@ class ExtractEntitiesView(APIView):
 
 
 class ExtractEntitiesRelationsView(APIView):
-    """Extract entities AND relations from a document (two-pass extraction).
+    """Extract entities AND relations from a document (single-call per chunk).
     
     POST /api/v1/documents/{id}/extract-entities-relations/
     
@@ -167,7 +286,7 @@ class ExtractEntitiesRelationsView(APIView):
     """
 
     def post(self, request, id):
-        """Extract entities and relations for document (synchronous, two-pass)."""
+        """Extract entities and relations for document (synchronous, joint extraction)."""
         try:
             # Verify document exists
             try:
@@ -182,9 +301,9 @@ class ExtractEntitiesRelationsView(APIView):
                 )
 
             provider, model = _resolve_provider_and_model(request)
-            logger.info(f"[EXTRACTION MODE] Two-pass extraction (entities + relations) started for document_id={id}")
+            logger.info(f"[EXTRACTION MODE] Joint extraction (entities + relations) started for document_id={id}")
 
-            # Extract entities and relations (synchronous, two-pass)
+            # Extract entities and relations (synchronous, one call per chunk)
             result = extract_relations_for_document(id, provider=provider, model=model)
 
             return Response(

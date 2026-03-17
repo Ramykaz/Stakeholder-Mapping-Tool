@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
+import { getStoredAuthToken } from '@/lib/api';
 
 const features = [
   {
@@ -60,6 +61,12 @@ const steps = [
 ];
 
 export default function Home() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    setIsAuthenticated(!!getStoredAuthToken());
+  }, []);
+
   return (
     <Layout>
       {/* Hero Section */}
@@ -85,12 +92,18 @@ export default function Home() {
             Upload documents, extract named entities with AI, and visualize stakeholder networks — powered by Groq Llama&nbsp;3 and pgvector embeddings.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link href="/upload" className="btn-primary !bg-accent-500 hover:!bg-accent-600 !text-navy-900 !font-semibold">
-              Get Started
-              <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
+            {isAuthenticated ? (
+              <Link href="/upload" className="btn-primary !bg-accent-500 hover:!bg-accent-600 !text-navy-900 !font-semibold">
+                Get Started
+                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </Link>
+            ) : (
+              <Link href="/login" className="btn-primary !bg-accent-500 hover:!bg-accent-600 !text-navy-900 !font-semibold">
+                Login
+              </Link>
+            )}
             <Link href="/graph" className="btn-ghost !text-white/80 hover:!text-white hover:!bg-white/10">
               View Demo Graph
             </Link>

@@ -91,6 +91,9 @@ def extract_entities_from_chunk(
     chunk_text: str,
     groq_api_key: str,
     model: str = "llama-3.1-8b-instant",
+    concept_note: str | None = None,
+    entity_labels: list[str] | None = None,
+    relationship_types: list[dict] | None = None,
 ) -> dict:
     """Extract entities from a text chunk using Groq Llama 3.
 
@@ -112,11 +115,25 @@ def extract_entities_from_chunk(
         client = Groq(api_key=groq_api_key)
         prompt = load_ner_prompt()
 
+        runtime_context_parts = []
+        if concept_note:
+            runtime_context_parts.append(f"Concept note context:\n{concept_note}")
+        if entity_labels:
+            runtime_context_parts.append(f"Allowed entity labels: {', '.join(entity_labels)}")
+        if relationship_types:
+            rel_type_names = [str(item.get('name', '')).strip() for item in relationship_types if item.get('name')]
+            if rel_type_names:
+                runtime_context_parts.append(f"Allowed relationship types: {', '.join(rel_type_names)}")
+
+        user_content = f"Extract entities and relationships from:\n\n{chunk_text}"
+        if runtime_context_parts:
+            user_content = f"{user_content}\n\nRuntime constraints:\n" + "\n".join(runtime_context_parts)
+
         response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": f"Extract entities from:\n\n{chunk_text}"},
+                {"role": "user", "content": user_content},
             ],
             temperature=0.0,  # Deterministic output
             max_tokens=1024,
@@ -137,6 +154,7 @@ def extract_entities_from_chunk(
 
         return {
             "entities": result.get("entities", []),
+            "relationships": result.get("relationships", []),
             "tokens_input": getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0,
             "tokens_output": getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0,
             "tokens_cached": 0,

@@ -7,6 +7,23 @@ Follows [Conventional Commits](https://www.conventionalcommits.org/) and [Semant
 
 ## [Unreleased]
 
+### Added — Sprint 2 · US-05: Multi-Provider Joint Extraction + Admin Taxonomy
+
+**Extraction Pipeline**
+- Joint extraction now runs one provider call per chunk and returns entities + relationships in one pass.
+- Added provider abstraction support across Groq, OpenAI, Azure OpenAI, and Gemini.
+- Enforced explicit provider configuration errors with remediation guidance and no silent fallback.
+- Persistence now keeps only graph-connected entities and canonicalizes non-directional relation duplicates.
+
+**Taxonomy + Admin**
+- Added configurable `EntityLabel` and `RelationshipType` models with active/display-order controls.
+- Added admin-only taxonomy CRUD APIs and `/admin` frontend management UI.
+- Hard delete is blocked for taxonomy rows already referenced by historical extraction data; deactivation is supported.
+
+**Migrations and Quality**
+- Added migrations `0008` (taxonomy tables), `0009` (default taxonomy seed), and `0010` (case-insensitive relation dedup).
+- Backend validation in rebuilt container passes (`109` tests).
+
 ### Added — Sprint 2 · US-02: NER Pipeline + Entity API + Frontend
 
 **Endpoints**

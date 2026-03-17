@@ -11,7 +11,8 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 - **Dual Extraction Modes**:
   - **Entities Only**: Extract and deduplicate named entities
   - **Entities + Relations**: Two-pass extraction for entities and their relationships
-- **Provider Flexibility**: Choose between Groq (Llama 3) or OpenAI (GPT-4o/GPT-5) models
+- **Provider Flexibility**: Shared provider abstraction supports Groq, OpenAI, Azure OpenAI, and Gemini model paths
+- **Authentication + Roles**: User registration/login with token auth; admin-only taxonomy management
 
 ## Tech Stack
 
@@ -36,6 +37,12 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 | `ALLOWED_HOSTS` | Yes | Comma-separated list (e.g. `localhost,127.0.0.1`) |
 | `GROQ_API_KEY` | Recommended | Groq API key (used by NER/reasoning apps) |
 | `OPENAI_API_KEY` | Optional | OpenAI API key (required only when OpenAI provider is selected for NER) |
+| `AZURE_OPENAI_ENDPOINT` | Optional | Azure OpenAI endpoint URL (required when Azure provider is selected) |
+| `AZURE_OPENAI_DEPLOYMENT` | Optional | Azure OpenAI deployment name (required when Azure provider is selected) |
+| `AZURE_OPENAI_API_KEY` | Optional | Azure OpenAI API key (runtime required for Azure extraction calls) |
+| `GEMINI_API_KEY` | Optional | Gemini API key (required only when Gemini provider is selected for NER) |
+| `ADMIN_EMAIL_DOMAIN` | Optional | Domain required for auto-admin eligibility (default: `undp.org`) |
+| `ADMIN_AUTO_ADMIN_EMAILS` | Optional | Comma-separated allowlist for auto-admin registration emails |
 
 ## Local Setup
 
@@ -47,6 +54,7 @@ cd stakeholder-analysis-tool
 cp .env.example .env
 # Edit .env and fill in DATABASE_URL, DEBUG, ALLOWED_HOSTS, GROQ_API_KEY
 # Add OPENAI_API_KEY if you plan to run NER with OpenAI models
+# Add Azure/Gemini variables if you plan to run those provider paths
 ```
 
 ### 2. Enable pgvector on Supabase
@@ -119,12 +127,24 @@ curl "http://localhost:8000/api/v1/graph/?document_id={document_id}&confidence_m
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/documents/` | POST | Upload and ingest a document |
+| `/api/v1/auth/register/` | POST | Register user account and return auth token |
+| `/api/v1/auth/login/` | POST | Login and return auth token |
+| `/api/v1/auth/logout/` | POST | Logout and invalidate current token |
+| `/api/v1/auth/me/` | GET | Get authenticated user profile and role |
 | `/api/v1/documents/{id}/extract-entities/` | POST | Extract entities only |
 | `/api/v1/documents/{id}/extract-entities-relations/` | POST | Extract entities and relations (two-pass) |
 | `/api/v1/documents/{id}/entities/` | GET | List entities for a document |
 | `/api/v1/documents/{id}/relations/` | GET | List relations for a document |
 | `/api/v1/graph/` | GET | Get knowledge graph (nodes + edges) |
 | `/health` | GET | Service liveness and DB connectivity |
+
+### Role model
+
+- Regular users: can use upload/extraction/graph workflows
+- Admin users (`is_staff=true`): can additionally access `/admin` taxonomy management and related `/api/v1/admin/*` APIs
+- Registration is open to both UNDP and non-UNDP users
+- Auto-admin on registration happens only when email is both in `ADMIN_AUTO_ADMIN_EMAILS` and under `@ADMIN_EMAIL_DOMAIN`
+- Non-admin users are blocked from taxonomy mutation endpoints with authorization errors
 
 Full contract: [`specs/001-doc-ingestion-pipeline/contracts/api.md`](specs/001-doc-ingestion-pipeline/contracts/api.md), [`specs/004-entity-relation-extraction/contracts/`](specs/004-entity-relation-extraction/contracts/)
 

@@ -45,14 +45,49 @@ if not OPENAI_API_KEY:
         "OPENAI_API_KEY is not set. OpenAI-backed NER runs will fail if selected."
     )
 
+# Azure OpenAI is optional until selected at runtime. Endpoint/deployment are
+# expected for configuration readiness, while API key may be provisioned later.
+AZURE_OPENAI_ENDPOINT = os.environ.get('AZURE_OPENAI_ENDPOINT', '').strip()
+AZURE_OPENAI_DEPLOYMENT = os.environ.get('AZURE_OPENAI_DEPLOYMENT', '').strip()
+AZURE_OPENAI_API_KEY = os.environ.get('AZURE_OPENAI_API_KEY', '').strip()
+if AZURE_OPENAI_ENDPOINT and not AZURE_OPENAI_DEPLOYMENT:
+    logging.getLogger(__name__).warning(
+        "AZURE_OPENAI_ENDPOINT is set but AZURE_OPENAI_DEPLOYMENT is missing. "
+        "Azure-backed NER runs will fail if selected."
+    )
+if AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT and not AZURE_OPENAI_API_KEY:
+    logging.getLogger(__name__).warning(
+        "Azure OpenAI endpoint/deployment configured without AZURE_OPENAI_API_KEY. "
+        "Azure-backed NER runs will fail if selected until key is provided."
+    )
+
+# Gemini is optional until selected at runtime.
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
+if not GEMINI_API_KEY:
+    logging.getLogger(__name__).warning(
+        "GEMINI_API_KEY is not set. Gemini-backed NER runs will fail if selected."
+    )
+
 # Allowed providers and model choices for NER extraction runs.
 NER_PROVIDER_MODEL_ALLOWLIST = {
     'groq': ['llama-3.1-8b-instant'],
     'openai': ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'],
+    'azure_openai': ['gpt-5-mini'],
+    'gemini': ['gemini-1.5-pro', 'gemini-1.5-flash'],
 }
 
 NER_DEFAULT_PROVIDER = 'groq'
 NER_DEFAULT_MODEL = 'llama-3.1-8b-instant'
+
+# Registration-based admin assignment:
+# - registration is open to all users
+# - auto-admin applies only to allowlisted emails within this domain
+ADMIN_EMAIL_DOMAIN = os.environ.get('ADMIN_EMAIL_DOMAIN', 'undp.org').strip().lower()
+ADMIN_AUTO_ADMIN_EMAILS = [
+    email.strip().lower()
+    for email in os.environ.get('ADMIN_AUTO_ADMIN_EMAILS', '').split(',')
+    if email.strip()
+]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Core settings
@@ -68,6 +103,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',  # <-- required for DRF static assets
     'corsheaders',
     'rest_framework',
+    'rest_framework.authtoken',
     'ingestion',
     'ner',
     'reasoning',
@@ -158,3 +194,10 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = ['accept', 'authorization', 'content-type', 'x-requested-with']
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+}

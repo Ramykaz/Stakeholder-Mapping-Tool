@@ -91,15 +91,15 @@
 
 **Frontend Tests for User Story 2**:
 
-- [ ] T032 [P] [US2] Update graph.test.tsx in frontend/src/__tests__/ to test edge rendering with labels
-- [ ] T033 [P] [US2] Add test for node shape mapping (verify PERSON=ellipse, ORG=rectangle, etc.) in graph.test.tsx
-- [ ] T034 [P] [US2] Add test for confidence filtering on edges in graph.test.tsx
-- [ ] T035 [P] [US2] Add test for backward compatibility (entity-only documents render with no edges) in graph.test.tsx
+- [x] T032 [P] [US2] Update graph.test.tsx in frontend/src/__tests__/ to test edge rendering with labels
+- [x] T033 [P] [US2] Add test for node shape mapping (verify PERSON=ellipse, ORG=rectangle, etc.) in graph.test.tsx
+- [x] T034 [P] [US2] Add test for confidence filtering on edges in graph.test.tsx
+- [x] T035 [P] [US2] Add test for backward compatibility (entity-only documents render with no edges) in graph.test.tsx
 
 **Backend Tests for User Story 2**:
 
-- [ ] T036 [P] [US2] Create test_graph_edges.py in graph/tests/ to test graph endpoint returns edges array for documents with relations
-- [ ] T037 [P] [US2] Add test for graph endpoint backward compatibility (no edges array for entity-only documents) in test_graph_edges.py
+- [x] T036 [P] [US2] Create test_graph_edges.py in ner/tests/ to test graph endpoint returns edges array for documents with relations
+- [x] T037 [P] [US2] Add test for graph endpoint backward compatibility (no edges array for entity-only documents) in ner/tests/test_graph_edges.py
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - extraction + graph rendering complete
 
@@ -123,9 +123,9 @@
 
 **Frontend Tests for User Story 3**:
 
-- [ ] T045 [P] [US3] Update upload.test.tsx in frontend/src/__tests__/ to test "Extract Entities + Relations" button appears
-- [ ] T046 [P] [US3] Add test for extraction completion screen showing both entity and relation counts in upload.test.tsx
-- [ ] T047 [P] [US3] Add test for Recent Documents showing relation metadata in upload.test.tsx
+- [x] T045 [P] [US3] Update upload.test.tsx in frontend/src/__tests__/ to test "Extract Entities + Relations" button appears
+- [x] T046 [P] [US3] Add test for extraction completion screen showing both entity and relation counts in upload.test.tsx
+- [x] T047 [P] [US3] Add test for Recent Documents showing relation metadata in upload.test.tsx
 
 **Checkpoint**: All P1 user stories (1, 2, 3) should now be independently functional - full extraction + graph + UI flow works
 
@@ -161,7 +161,7 @@
 - [x] T055 [P] Apply migration 0006_add_relations to local database via docker compose exec app python manage.py migrate
 - [x] T056 [P] Validate quickstart.md instructions work end-to-end (upload → extract relations → view graph)
 - [x] T057 [P] Run pytest on backend (ensure all new tests pass, no regressions in existing tests)
-- [ ] T058 [P] Run Jest on frontend (ensure all new tests pass, no regressions in existing tests)
+- [x] T058 [P] Run Jest on frontend (ensure all new tests pass, no regressions in existing tests)
 - [x] T059 Code review and cleanup: remove debug logging, ensure consistent error handling across views
 - [x] T060 [P] Update README.md with "Extract Entities + Relations" feature description
 - [x] T061 Performance validation: test extraction time is ≤2× entity-only time for same document/provider

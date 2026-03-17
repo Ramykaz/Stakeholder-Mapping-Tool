@@ -228,6 +228,13 @@ When in doubt — run the pipeline.
 
 ## Documentation
 
+### Documentation
+
+- `docs/PROJECT_REQUIREMENTS.md` — client requirements and full feature scope
+- `docs/NLP_APPROACH.md` — technical decisions for extraction, deduplication, and LLM providers
+
+Every new spec must be read against `docs/PROJECT_REQUIREMENTS.md` before implementation begins.
+
 ### Changelog
 `CHANGELOG.md` updated on every sprint review.
 Follows Conventional Commits + Semantic Versioning.

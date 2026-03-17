@@ -3,7 +3,9 @@
 from decimal import Decimal
 from uuid import uuid4
 from django.db import models
+from django.db.models import F
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.db.models.functions import Lower
 from ingestion.models import Document, Chunk
 
 
@@ -139,10 +141,10 @@ class Relation(models.Model):
     class Meta:
         db_table = 'relations'
         indexes = [
-            models.Index(fields=['document_id']),
-            models.Index(fields=['source_entity']),
-            models.Index(fields=['target_entity']),
-            models.Index(fields=['run']),
+            models.Index(fields=['document_id'], name='relations_document_id_idx'),
+            models.Index(fields=['source_entity'], name='relations_source_entity_idx'),
+            models.Index(fields=['target_entity'], name='relations_target_entity_idx'),
+            models.Index(fields=['run'], name='relations_run_id_idx'),
         ]
         constraints = [
             models.CheckConstraint(
@@ -150,10 +152,71 @@ class Relation(models.Model):
                 name='no_self_loops',
             ),
             models.UniqueConstraint(
-                fields=['document_id', 'source_entity', 'target_entity', 'label'],
-                name='relations_dedup_idx',
+                Lower('label'),
+                F('document_id'),
+                F('source_entity'),
+                F('target_entity'),
+                name='relations_dedup_label_ci_idx',
             ),
         ]
 
     def __str__(self):
         return f"{self.source_entity} → {self.label} → {self.target_entity}"
+
+
+class EntityLabel(models.Model):
+    """Configurable entity taxonomy used for extraction and graph display."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    name = models.CharField(max_length=64)
+    description = models.TextField(blank=True, default='')
+    node_shape = models.CharField(max_length=32)
+    color = models.CharField(max_length=32)
+    active = models.BooleanField(default=True, db_index=True)
+    display_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_entity_label'
+        indexes = [
+            models.Index(fields=['active', 'display_order'], name='ner_entity__active_0cc10f_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'),
+                name='ner_entity_label_name_ci_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class RelationshipType(models.Model):
+    """Configurable relationship taxonomy used by joint extraction."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    name = models.CharField(max_length=64)
+    description = models.TextField(blank=True, default='')
+    directional = models.BooleanField(default=True)
+    color = models.CharField(max_length=32)
+    active = models.BooleanField(default=True, db_index=True)
+    display_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_relationship_type'
+        indexes = [
+            models.Index(fields=['active', 'display_order'], name='ner_relatio_active_c1ad63_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'),
+                name='ner_relationship_type_name_ci_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name

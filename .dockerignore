@@ -18,6 +18,10 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+.venv/
+venv/
+build/
+dist/
 
 # Node artifacts
 node_modules/

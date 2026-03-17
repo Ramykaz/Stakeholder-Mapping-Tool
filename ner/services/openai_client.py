@@ -90,13 +90,13 @@ def _normalize_message_content(content) -> str:
 _REASONING_MODELS = {'gpt-5-mini', 'gpt-5-nano', 'o1', 'o3-mini'}
 
 
-def _create_openai_completion(client: OpenAI, model: str, prompt: str, chunk_text: str, max_completion_tokens: int):
+def _create_openai_completion(client: OpenAI, model: str, prompt: str, user_message: str, max_completion_tokens: int):
     """Create one OpenAI chat completion call with consistent request options."""
     kwargs: dict = {
         'model': model,
         'messages': [
             {'role': 'system', 'content': prompt},
-            {'role': 'user', 'content': f'Extract entities from:\n\n{chunk_text}'},
+            {'role': 'user', 'content': user_message},
         ],
         'response_format': {'type': 'json_object'},
         'max_completion_tokens': max_completion_tokens,
@@ -106,7 +106,14 @@ def _create_openai_completion(client: OpenAI, model: str, prompt: str, chunk_tex
     return client.chat.completions.create(**kwargs)
 
 
-def extract_entities_from_chunk(chunk_text: str, openai_api_key: str, model: str) -> dict:
+def extract_entities_from_chunk(
+    chunk_text: str,
+    openai_api_key: str,
+    model: str,
+    concept_note: str | None = None,
+    entity_labels: list[str] | None = None,
+    relationship_types: list[dict] | None = None,
+) -> dict:
     """Extract entities from text using OpenAI and return Groq-compatible output shape."""
     if not chunk_text or not chunk_text.strip():
         return {"entities": [], "tokens_input": 0, "tokens_output": 0, "tokens_cached": 0}
@@ -121,13 +128,27 @@ def extract_entities_from_chunk(chunk_text: str, openai_api_key: str, model: str
         prompt = load_ner_prompt()
         logger.info("[OPENAI] step=1_client_and_prompt  duration=%.3fs", perf_counter() - _t)
 
+        runtime_context_parts = []
+        if concept_note:
+            runtime_context_parts.append(f"Concept note context:\n{concept_note}")
+        if entity_labels:
+            runtime_context_parts.append(f"Allowed entity labels: {', '.join(entity_labels)}")
+        if relationship_types:
+            rel_type_names = [str(item.get('name', '')).strip() for item in relationship_types if item.get('name')]
+            if rel_type_names:
+                runtime_context_parts.append(f"Allowed relationship types: {', '.join(rel_type_names)}")
+
+        user_message = f'Extract entities and relationships from:\n\n{chunk_text}'
+        if runtime_context_parts:
+            user_message = f"{user_message}\n\nRuntime constraints:\n" + "\n".join(runtime_context_parts)
+
         # ── 2. HTTP request to OpenAI ────────────────────────────────────────
         logger.info(
             "[OPENAI] step=2_sending_request  model=%s  chunk_chars=%d  max_tokens=%d",
             model, len(chunk_text), OPENAI_MAX_COMPLETION_TOKENS,
         )
         _t = perf_counter()
-        response = _create_openai_completion(client, model, prompt, chunk_text, OPENAI_MAX_COMPLETION_TOKENS)
+        response = _create_openai_completion(client, model, prompt, user_message, OPENAI_MAX_COMPLETION_TOKENS)
         _api_dur = perf_counter() - _t
         usage = getattr(response, 'usage', None)
         tok_in = getattr(usage, 'prompt_tokens', 0) if usage else 0
@@ -169,6 +190,7 @@ def extract_entities_from_chunk(chunk_text: str, openai_api_key: str, model: str
 
         return {
             "entities": parsed.get("entities", []),
+            "relationships": parsed.get("relationships", []),
             "tokens_input": int(tok_in or 0),
             "tokens_output": int(tok_out or 0),
             "tokens_cached": int(tokens_cached or 0),

@@ -3,7 +3,7 @@
 import logging
 from typing import List
 from django.db.models import Model
-from ner.models import Relation
+from ner.models import Relation, RelationshipType
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,10 @@ def deduplicate_relations(
         List of Relation objects ready for bulk_create
     """
     dedup_map = {}  # key: (source_id, normalized_label, target_id) -> best relation
+    directional_by_label = {
+        str(row['name']).strip().lower(): bool(row['directional'])
+        for row in RelationshipType.objects.values('name', 'directional')
+    }
     
     for rel_data in extracted_relations:
         source_id = rel_data["source_entity_id"]
@@ -42,8 +46,17 @@ def deduplicate_relations(
         # Normalize label for deduplication (lowercase + trim)
         normalized_label = label.strip().lower()
         
-        # Composite key
-        key = (source_id, normalized_label, target_id)
+        is_directional = directional_by_label.get(normalized_label, True)
+        if is_directional:
+            key_source_id = source_id
+            key_target_id = target_id
+        else:
+            ordered = sorted([source_id, target_id], key=lambda item: str(item))
+            key_source_id = ordered[0]
+            key_target_id = ordered[1]
+
+        # Composite key (canonical for non-directional labels)
+        key = (key_source_id, normalized_label, key_target_id)
         
         if key in dedup_map:
             # Duplicate found - keep higher confidence
@@ -54,8 +67,8 @@ def deduplicate_relations(
                     source_id, label, target_id, existing_confidence, confidence,
                 )
                 dedup_map[key] = {
-                    "source_entity_id": source_id,
-                    "target_entity_id": target_id,
+                    "source_entity_id": key_source_id,
+                    "target_entity_id": key_target_id,
                     "label": label,  # Keep original case from best instance
                     "confidence": confidence,
                 }
@@ -67,8 +80,8 @@ def deduplicate_relations(
         else:
             # New unique relation
             dedup_map[key] = {
-                "source_entity_id": source_id,
-                "target_entity_id": target_id,
+                "source_entity_id": key_source_id,
+                "target_entity_id": key_target_id,
                 "label": label,
                 "confidence": confidence,
             }

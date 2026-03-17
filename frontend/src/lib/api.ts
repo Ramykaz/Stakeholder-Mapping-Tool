@@ -38,6 +38,22 @@ export interface RelationshipTypeConfig {
   display_order: number;
 }
 
+export interface EntityReviewCandidate {
+  id: string;
+  document: string;
+  left_entity: string;
+  left_entity_name: string;
+  right_entity: string;
+  right_entity_name: string;
+  entity_type: string;
+  similarity_score: number;
+  status: 'pending' | 'merged' | 'kept_separate' | 'resolved_stale';
+  resolved_by: number | null;
+  resolved_by_username: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 600000, // 10 minutes — NER extraction over many chunks can take several minutes
@@ -394,6 +410,23 @@ export async function getExtractionProgress(
 export async function getDocumentRuns(documentId: string): Promise<NERRunSummary[]> {
   const response = await apiClient.get(`/api/v1/documents/${documentId}/runs/`);
   return response.data.runs || [];
+}
+
+export async function getEntityReviewCandidates(documentId: string): Promise<EntityReviewCandidate[]> {
+  const response = await apiClient.get(`/api/v1/documents/${documentId}/entities/review-candidates/`);
+  return response.data.candidates || [];
+}
+
+export async function resolveEntityReviewCandidate(
+  documentId: string,
+  candidateId: string,
+  payload: { action: 'merge' | 'keep_separate'; target_entity_id?: string }
+): Promise<{ status: string; action: string; candidate_id: string }> {
+  const response = await apiClient.post(
+    `/api/v1/documents/${documentId}/entities/review-candidates/${candidateId}/resolve/`,
+    payload
+  );
+  return response.data;
 }
 
 export async function getEntityLabels(): Promise<EntityLabelConfig[]> {

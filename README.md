@@ -13,6 +13,7 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
   - **Entities + Relations**: Two-pass extraction for entities and their relationships
 - **Provider Flexibility**: Shared provider abstraction supports Groq, OpenAI, Azure OpenAI, and Gemini model paths
 - **Authentication + Roles**: User registration/login with token auth; admin-only taxonomy management
+- **Entity Deduplication + Aliases (US-06)**: Save-time exact/acronym/fuzzy dedup, alias tracking, and review workflow for borderline matches
 
 ## Tech Stack
 
@@ -155,6 +156,15 @@ docker compose run --rm app pytest --tb=short
 ```
 
 Tests use mocked embeddings — no model weights or Groq API key required in CI.
+
+## US-06 Dedup Configuration Notes
+
+- Fuzzy dedup uses RapidFuzz (`token_sort_ratio` + `partial_ratio`) in backend persistence.
+- Default thresholds:
+  - auto-merge: similarity `>= 0.85`
+  - review required: `0.70 <= similarity < 0.85`
+- Acronym expansion is database-driven via `AcronymMap` seed data (UNDP, WHO, SDG, UNICEF, FAO, etc.).
+- Cross-type entities are never merged (e.g., same text but different `entity_type`).
 
 ## Project Structure
 

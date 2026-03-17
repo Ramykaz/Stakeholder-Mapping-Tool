@@ -7,6 +7,26 @@ Follows [Conventional Commits](https://www.conventionalcommits.org/) and [Semant
 
 ## [Unreleased]
 
+### Added — Sprint 2 · US-06: Entity Deduplication + Alias Review Workflow
+
+**Backend dedup + models**
+- Added save-time 3-level dedup flow (exact normalized match, acronym expansion, same-type fuzzy match) in `ner/services/entity_dedup_service.py` and integrated it into extraction pipeline persistence.
+- Extended `Entity` with `normalized_name`, `needs_review`, `mention_count_dedup`, and `parent_entity` linkage.
+- Added new models: `EntityAlias`, `AcronymMap`, and `EntityReviewCandidate` with migrations + acronym seed defaults.
+- Added review candidate resolve actions (`merge` / `keep_separate`) and stale-candidate handling.
+
+**API + frontend**
+- Extended entities API payload with aliases, parent metadata, and deduplicated mention count.
+- Added review candidate APIs:
+	- `GET /api/v1/documents/{id}/entities/review-candidates/`
+	- `POST /api/v1/documents/{id}/entities/review-candidates/{candidate_id}/resolve/`
+- Updated entities page to render a review banner with per-candidate actions and alias text under canonical names.
+
+**Validation on rebuilt images**
+- Rebuilt both services with `docker compose up --build -d app frontend` before validation.
+- Backend regression: `131 passed`.
+- Frontend regression: `53 passed`.
+
 ### Added — Sprint 2 · US-05: Multi-Provider Joint Extraction + Admin Taxonomy
 
 **Extraction Pipeline**

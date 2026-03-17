@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ingestion.models import Document
-from .models import Entity, NERRun, Relation, EntityLabel, RelationshipType
+from .models import Entity, NERRun, Relation, EntityLabel, RelationshipType, EntityReviewCandidate
 from .serializers import (
     EntitySerializer,
     CytoscapeNodeSerializer,
@@ -16,11 +16,14 @@ from .serializers import (
     RelationSerializer,
     EntityLabelSerializer,
     RelationshipTypeSerializer,
+    EntityReviewCandidateSerializer,
 )
 from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress
+from .services.entity_dedup_service import EntityDedupService
 from .services.provider_runtime import ProviderConfigError
 
 logger = logging.getLogger(__name__)
+_entity_dedup_service = EntityDedupService()
 
 
 class EntityLabelAdminView(APIView):
@@ -499,7 +502,7 @@ class DocumentEntitiesView(APIView):
                 )
 
             # Get entities for document with optional filtering
-            entities = Entity.objects.filter(document_id=id)
+            entities = Entity.objects.filter(document_id=id).select_related('parent_entity').prefetch_related('aliases')
 
             # Optional: filter by entity_type
             entity_type = request.query_params.get('entity_type')
@@ -544,6 +547,108 @@ class DocumentEntitiesView(APIView):
                 {
                     'error': 'retrieval_failed',
                     'detail': 'Failed to retrieve entities',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class EntityReviewCandidatesView(APIView):
+    """List pending entity review candidates for a document."""
+
+    def get(self, request, id):
+        try:
+            try:
+                Document.objects.get(id=id)
+            except Document.DoesNotExist:
+                return Response(
+                    {
+                        'error': 'document_not_found',
+                        'detail': f'Document with ID {id} does not exist',
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            candidates = (
+                EntityReviewCandidate.objects.filter(
+                    document_id=id,
+                    status=EntityReviewCandidate.STATUS_PENDING,
+                )
+                .select_related('left_entity', 'right_entity', 'resolved_by')
+                .order_by('-created_at')
+            )
+
+            serializer = EntityReviewCandidateSerializer(candidates, many=True)
+            return Response(
+                {
+                    'document_id': str(id),
+                    'candidates': serializer.data,
+                    'total_count': len(serializer.data),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving review candidates: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'retrieval_failed',
+                    'detail': 'Failed to retrieve review candidates',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class EntityReviewResolveView(APIView):
+    """Resolve a pending review candidate via merge or keep-separate action."""
+
+    def post(self, request, id, candidate_id):
+        try:
+            action = str((request.data or {}).get('action', '')).strip().lower()
+            target_entity_id = (request.data or {}).get('target_entity_id')
+            if action not in ('merge', 'keep_separate'):
+                return Response(
+                    {
+                        'error': 'invalid_parameter',
+                        'detail': 'action must be one of: merge, keep_separate',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            candidate = get_object_or_404(
+                EntityReviewCandidate.objects.select_related('left_entity', 'right_entity'),
+                id=candidate_id,
+                document_id=id,
+            )
+
+            try:
+                resolved = _entity_dedup_service.resolve_review_candidate(
+                    candidate,
+                    action,
+                    target_entity_id=target_entity_id,
+                    user=request.user,
+                )
+            except ValueError as exc:
+                return Response(
+                    {
+                        'error': 'invalid_parameter',
+                        'detail': str(exc),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            return Response(
+                {
+                    'status': 'resolved',
+                    'action': action,
+                    'candidate_id': str(resolved.id),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            logger.error(f"Error resolving review candidate: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'resolve_failed',
+                    'detail': 'Failed to resolve review candidate',
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
@@ -630,7 +735,7 @@ class GraphNodesView(APIView):
                     pass  # Ignore invalid confidence_min
 
             # Get entities for nodes
-            entities = Entity.objects.filter(document_id=document_id)
+            entities = Entity.objects.filter(document_id=document_id).select_related('parent_entity')
             if confidence_threshold is not None:
                 entities = entities.filter(confidence__gte=confidence_threshold)
             entities = entities.order_by('entity_type', 'canonical_name')
@@ -650,6 +755,9 @@ class GraphNodesView(APIView):
                         "document_id": str(entity.document_id_id),
                         "chunk_id": str(entity.chunk_id_id) if entity.chunk_id_id else None,
                         "raw_mentions_count": len(entity.raw_mentions),
+                        "parent_entity_id": str(entity.parent_entity_id) if entity.parent_entity_id else None,
+                        "needs_review": entity.needs_review,
+                        "mention_count_dedup": entity.mention_count_dedup,
                     }
                 })
 

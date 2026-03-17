@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from ingestion.models import Document, Chunk
 from ner.models import Entity, NERRun, Relation
-from ner.services.deduplicator import deduplicate_entities
+from ner.services.entity_dedup_service import EntityDedupService
 from ner.services.relation_deduplicator import deduplicate_relations
 from ner.services.relation_extractor import extract_relations_from_chunk
 from ner.services.costing import calculate_openai_cost_usd
@@ -23,6 +23,21 @@ logger = logging.getLogger(__name__)
 # In-memory extraction progress tracker (per document_id string).
 # Updated during chunk processing so the frontend can poll for progress.
 _extraction_progress: dict = {}  # {str(document_id): {"current": int, "total": int}}
+_entity_dedup_service = EntityDedupService()
+
+
+def _deduplicate_entities_for_save(
+    extracted_entities: list[dict],
+    document,
+    run: NERRun | None = None,
+    existing_entities=None,
+) -> list[Entity]:
+    return _entity_dedup_service.upsert_entities_for_save(
+        extracted_entities=extracted_entities,
+        document=document,
+        run=run,
+        existing_entities=existing_entities,
+    )
 
 
 def _resolve_provider_config(provider: str | None, model: str | None) -> ProviderConfig:
@@ -270,7 +285,7 @@ def extract_entities_for_document(
         # Deduplicate and create Entity records
         _t0 = perf_counter()
         existing_entities = Entity.objects.filter(document_id=document_id)
-        entities_to_create = deduplicate_entities(
+        entities_to_create = _deduplicate_entities_for_save(
             all_extracted_entities,
             document,
             run=run,
@@ -278,14 +293,11 @@ def extract_entities_for_document(
         )
         logger.info("[NER] step=deduplicate  in=%d  out=%d  duration=%.2fs", len(all_extracted_entities), len(entities_to_create), perf_counter() - _t0)
 
-        # Bulk create new entities
+        # Dedup service persists entities directly and returns created records.
         _t0 = perf_counter()
-        if entities_to_create:
-            created_entities = Entity.objects.bulk_create(entities_to_create)
-            entities_created = len(created_entities)
-        else:
-            entities_created = 0
-        logger.info("[NER] step=bulk_create  entities=%d  duration=%.2fs", entities_created, perf_counter() - _t0)
+        created_entities = entities_to_create
+        entities_created = len(created_entities)
+        logger.info("[NER] step=upsert_entities  entities_created=%d  duration=%.2fs", entities_created, perf_counter() - _t0)
 
         run.status = NERRun.STATUS_COMPLETED
         run.tokens_input = tokens_input_total
@@ -499,7 +511,7 @@ def extract_relations_for_document(
 
         # Deduplicate and save only entities participating in at least one relationship
         _t0 = perf_counter()
-        entities_to_create = deduplicate_entities(
+        entities_to_create = _deduplicate_entities_for_save(
             linked_entities_only,
             document,
             run=run,
@@ -511,12 +523,9 @@ def extract_relations_for_document(
         )
 
         _t0 = perf_counter()
-        if entities_to_create:
-            created_entities = Entity.objects.bulk_create(entities_to_create)
-            entities_created = len(created_entities)
-        else:
-            entities_created = 0
-        logger.info("[NER+REL-JOINT] step=entity_bulk_create  entities=%d  duration=%.2fs", entities_created, perf_counter() - _t0)
+        created_entities = entities_to_create
+        entities_created = len(created_entities)
+        logger.info("[NER+REL-JOINT] step=entity_upsert  entities_created=%d  duration=%.2fs", entities_created, perf_counter() - _t0)
 
         if entities_created < 2:
             relations_created = 0

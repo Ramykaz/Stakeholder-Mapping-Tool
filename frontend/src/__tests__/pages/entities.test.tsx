@@ -39,12 +39,16 @@ jest.mock('next/link', () => {
 jest.mock('@/lib/api', () => ({
   getEntities: jest.fn(),
   getDocumentRuns: jest.fn().mockResolvedValue([]),
+  getEntityReviewCandidates: jest.fn().mockResolvedValue([]),
+  resolveEntityReviewCandidate: jest.fn().mockResolvedValue({ status: 'resolved' }),
 }));
 
-import { getEntities, getDocumentRuns } from '@/lib/api';
+import { getEntities, getDocumentRuns, getEntityReviewCandidates, resolveEntityReviewCandidate } from '@/lib/api';
 
 const mockGetEntities = getEntities as jest.Mock;
 const mockGetDocumentRuns = getDocumentRuns as jest.Mock;
+const mockGetEntityReviewCandidates = getEntityReviewCandidates as jest.Mock;
+const mockResolveEntityReviewCandidate = resolveEntityReviewCandidate as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -64,6 +68,8 @@ const SAMPLE_ENTITIES = [
     chunk_id: 'c1',
     document_id: 'doc-1',
     created_at: '2026-03-10T00:00:00Z',
+    aliases: ['A. Johnson'],
+    mention_count_dedup: 2,
   },
   {
     id: 'e2',
@@ -74,6 +80,8 @@ const SAMPLE_ENTITIES = [
     chunk_id: 'c1',
     document_id: 'doc-1',
     created_at: '2026-03-10T00:00:00Z',
+    aliases: ['United Nations Development Programme'],
+    mention_count_dedup: 2,
   },
   {
     id: 'e3',
@@ -84,6 +92,8 @@ const SAMPLE_ENTITIES = [
     chunk_id: 'c2',
     document_id: 'doc-1',
     created_at: '2026-03-10T00:00:00Z',
+    aliases: ['NYC'],
+    mention_count_dedup: 2,
   },
 ];
 
@@ -107,6 +117,7 @@ describe('EntitiesPage', () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
     mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -124,6 +135,7 @@ describe('EntitiesPage', () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
     mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -141,6 +153,7 @@ describe('EntitiesPage', () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValue(SAMPLE_ENTITIES);
     mockGetDocumentRuns.mockResolvedValue([]);
+    mockGetEntityReviewCandidates.mockResolvedValue([]);
 
     render(<EntitiesPage />);
 
@@ -158,6 +171,7 @@ describe('EntitiesPage', () => {
   it('loads entities when submitting document ID form', async () => {
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
     mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -174,6 +188,7 @@ describe('EntitiesPage', () => {
     mockQuery = { document_id: 'doc-bad' };
     mockGetEntities.mockRejectedValueOnce(new Error('Failed to load entities'));
     mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -186,6 +201,7 @@ describe('EntitiesPage', () => {
     mockQuery = { document_id: 'doc-empty' };
     mockGetEntities.mockResolvedValueOnce([]);
     mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -198,6 +214,7 @@ describe('EntitiesPage', () => {
     mockQuery = { document_id: 'doc-1' };
     mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
     mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -226,6 +243,7 @@ describe('EntitiesPage', () => {
         created_at: '2026-03-14T00:00:00Z',
       },
     ]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
 
     render(<EntitiesPage />);
 
@@ -238,5 +256,57 @@ describe('EntitiesPage', () => {
     expect(metadataRow).toHaveTextContent('Provider: openai');
     expect(metadataRow).toHaveTextContent('Model: gpt-5-mini');
     expect(screen.getByText(/Cost:\s*0.000246\s*USD/i)).toBeInTheDocument();
+  });
+
+  it('renders aliases under canonical name', async () => {
+    mockQuery = { document_id: 'doc-1' };
+    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValueOnce([]);
+    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
+
+    render(<EntitiesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice Johnson')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Aliases: A\. Johnson/i)).toBeInTheDocument();
+  });
+
+  it('shows review banner and resolves candidate action', async () => {
+    mockQuery = { document_id: 'doc-1' };
+    mockGetEntities.mockResolvedValue(SAMPLE_ENTITIES);
+    mockGetDocumentRuns.mockResolvedValue([]);
+    mockGetEntityReviewCandidates
+      .mockResolvedValueOnce([
+        {
+          id: 'cand-1',
+          document: 'doc-1',
+          left_entity: 'e1',
+          left_entity_name: 'UNDP',
+          right_entity: 'e2',
+          right_entity_name: 'United Nations Development Programme',
+          entity_type: 'ORGANIZATION',
+          similarity_score: 0.78,
+          status: 'pending',
+          resolved_by: null,
+          resolved_by_username: null,
+          resolved_at: null,
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    render(<EntitiesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Review Needed')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Merge'));
+
+    await waitFor(() => {
+      expect(mockResolveEntityReviewCandidate).toHaveBeenCalledWith('doc-1', 'cand-1', { action: 'merge' });
+    });
   });
 });

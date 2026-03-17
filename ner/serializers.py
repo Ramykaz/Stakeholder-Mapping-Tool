@@ -1,11 +1,40 @@
 """Serializers for NER entities, runs, relations, and taxonomy models."""
 
 from rest_framework import serializers
-from .models import Entity, NERRun, Relation, EntityLabel, RelationshipType
+from .models import (
+    Entity,
+    NERRun,
+    Relation,
+    EntityLabel,
+    RelationshipType,
+    EntityAlias,
+    EntityReviewCandidate,
+)
+
+
+class EntityAliasSerializer(serializers.ModelSerializer):
+    """Serialize alias records linked to a canonical entity."""
+
+    class Meta:
+        model = EntityAlias
+        fields = [
+            'id',
+            'entity',
+            'alias_text',
+            'normalized_alias',
+            'source',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
 
 
 class EntitySerializer(serializers.ModelSerializer):
     """Serialize Entity model to JSON."""
+
+    aliases = serializers.SerializerMethodField(read_only=True)
+    parent_entity = serializers.SerializerMethodField(read_only=True)
+    parent_entity_id = serializers.UUIDField(source='parent_entity.id', read_only=True)
 
     class Meta:
         model = Entity
@@ -13,11 +42,55 @@ class EntitySerializer(serializers.ModelSerializer):
             'id',
             'entity_type',
             'canonical_name',
+            'normalized_name',
+            'aliases',
+            'parent_entity',
+            'parent_entity_id',
+            'needs_review',
+            'mention_count_dedup',
             'raw_mentions',
             'confidence',
             'chunk_id',
             'document_id',
             'run',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_aliases(self, obj):
+        return [alias.alias_text for alias in obj.aliases.all()]
+
+    def get_parent_entity(self, obj):
+        if not obj.parent_entity_id:
+            return None
+        return {
+            'id': str(obj.parent_entity_id),
+            'canonical_name': obj.parent_entity.canonical_name,
+        }
+
+
+class EntityReviewCandidateSerializer(serializers.ModelSerializer):
+    """Serialize near-duplicate review candidates for UI review workflows."""
+
+    left_entity_name = serializers.CharField(source='left_entity.canonical_name', read_only=True)
+    right_entity_name = serializers.CharField(source='right_entity.canonical_name', read_only=True)
+    resolved_by_username = serializers.CharField(source='resolved_by.username', read_only=True)
+
+    class Meta:
+        model = EntityReviewCandidate
+        fields = [
+            'id',
+            'document',
+            'left_entity',
+            'left_entity_name',
+            'right_entity',
+            'right_entity_name',
+            'entity_type',
+            'similarity_score',
+            'status',
+            'resolved_by',
+            'resolved_by_username',
+            'resolved_at',
             'created_at',
         ]
         read_only_fields = fields
@@ -65,6 +138,9 @@ class CytoscapeNodeSerializer(serializers.ModelSerializer):
             'chunk_id': str(obj.chunk_id) if obj.chunk_id else None,
             'run_id': str(obj.run_id) if obj.run_id else None,
             'raw_mentions_count': len(obj.raw_mentions),
+            'parent_entity_id': str(obj.parent_entity_id) if obj.parent_entity_id else None,
+            'needs_review': obj.needs_review,
+            'mention_count_dedup': obj.mention_count_dedup,
         }
 
 

@@ -12,10 +12,32 @@ export interface Entity {
   id: string;
   entity_type: 'PERSON' | 'ORGANIZATION' | 'LOCATION' | 'ROLE';
   canonical_name: string;
+  normalized_name?: string;
+  aliases?: string[];
+  parent_entity?: { id: string; canonical_name: string } | null;
+  parent_entity_id?: string | null;
+  needs_review?: boolean;
+  mention_count_dedup?: number;
   raw_mentions: string[];
   confidence: number;
   chunk_id: string | null;
   document_id: string;
+  created_at: string;
+}
+
+export interface EntityReviewCandidate {
+  id: string;
+  document: string;
+  left_entity: string;
+  left_entity_name: string;
+  right_entity: string;
+  right_entity_name: string;
+  entity_type: string;
+  similarity_score: number;
+  status: 'pending' | 'merged' | 'kept_separate' | 'resolved_stale';
+  resolved_by: number | null;
+  resolved_by_username: string | null;
+  resolved_at: string | null;
   created_at: string;
 }
 

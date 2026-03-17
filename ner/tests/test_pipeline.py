@@ -160,7 +160,7 @@ class TestExtractEntitiesForDocument(TestCase):
         assert result['entities_created'] == 1
         assert created is not None
         assert created.entity_type == 'ORGANIZATION'
-        assert created.canonical_name == 'UNDP'
+        assert created.canonical_name == 'United Nations Development Programme'
         assert 0.0 <= created.confidence <= 1.0
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})

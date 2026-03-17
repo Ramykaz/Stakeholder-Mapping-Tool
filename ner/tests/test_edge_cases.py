@@ -260,7 +260,7 @@ class TestPipelineEdgeCases(TestCase):
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
     @patch('ner.services.pipeline._extract_chunk_entities')
     def test_single_chunk_with_many_entities(self, mock_extract):
-        """One chunk returns many entities (stress test dedup path)."""
+        """One chunk returns many similar entities; fuzzy dedup should collapse near-identical names."""
         Chunk.objects.create(
             document=self.document,
             text="Many people mentioned.",
@@ -278,5 +278,5 @@ class TestPipelineEdgeCases(TestCase):
 
         result = extract_entities_for_document(str(self.document.id))
 
-        assert result['entities_created'] == 50
-        assert Entity.objects.filter(document_id=self.document.id).count() == 50
+        assert result['entities_created'] == 1
+        assert Entity.objects.filter(document_id=self.document.id).count() == 1

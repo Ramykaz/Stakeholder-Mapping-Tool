@@ -31,6 +31,7 @@ whitenoise==6.6.0
 groq==0.12.0
 openai==1.68.2
 httpx<0.28  # groq 0.12.0 uses 'proxies' kwarg removed in httpx 0.28
+rapidfuzz==3.13.0
 
 # Testing
 pytest==8.1.1

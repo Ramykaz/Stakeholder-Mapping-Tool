@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 from uuid import uuid4
+from django.conf import settings
 from django.db import models
 from django.db.models import F
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -69,11 +70,18 @@ class Entity(models.Model):
         max_length=255,
         db_index=True,
     )
+    normalized_name = models.CharField(
+        max_length=255,
+        default='',
+        db_index=True,
+    )
     raw_mentions = models.JSONField(default=list)  # List of surface forms from text
     confidence = models.FloatField(
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
         db_index=True,
     )
+    needs_review = models.BooleanField(default=False, db_index=True)
+    mention_count_dedup = models.PositiveIntegerField(default=0)
     document_id = models.ForeignKey(
         Document,
         on_delete=models.CASCADE,
@@ -92,6 +100,13 @@ class Entity(models.Model):
         null=True,
         blank=True,
         related_name='entities',
+    )
+    parent_entity = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='phase_variants',
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -220,3 +235,131 @@ class RelationshipType(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class EntityAlias(models.Model):
+    """Alias text forms that resolve to a canonical entity."""
+
+    SOURCE_EXTRACTION = 'extraction'
+    SOURCE_MANUAL = 'manual'
+    SOURCE_ACRONYM = 'acronym'
+    SOURCE_CHOICES = (
+        (SOURCE_EXTRACTION, 'Extraction'),
+        (SOURCE_MANUAL, 'Manual'),
+        (SOURCE_ACRONYM, 'Acronym'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name='aliases',
+    )
+    alias_text = models.CharField(max_length=255)
+    normalized_alias = models.CharField(max_length=255, db_index=True)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_EXTRACTION)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_entity_alias'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['entity', 'normalized_alias'],
+                name='ner_entity_alias_unique_per_entity',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.alias_text} -> {self.entity.canonical_name}"
+
+
+class AcronymMap(models.Model):
+    """DB-managed acronym expansion dictionary for entity normalization."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    acronym = models.CharField(max_length=64)
+    expansion = models.CharField(max_length=255)
+    active = models.BooleanField(default=True, db_index=True)
+    priority = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_acronym_map'
+        indexes = [
+            models.Index(fields=['active', 'priority'], name='ner_acronym_act_pri_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                Lower('acronym'),
+                name='ner_acronym_map_acronym_ci_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.acronym} -> {self.expansion}"
+
+
+class EntityReviewCandidate(models.Model):
+    """Pending or resolved review decisions for borderline dedup candidates."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_MERGED = 'merged'
+    STATUS_KEPT_SEPARATE = 'kept_separate'
+    STATUS_RESOLVED_STALE = 'resolved_stale'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_MERGED, 'Merged'),
+        (STATUS_KEPT_SEPARATE, 'Kept Separate'),
+        (STATUS_RESOLVED_STALE, 'Resolved Stale'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name='entity_review_candidates',
+    )
+    left_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name='left_review_candidates',
+    )
+    right_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name='right_review_candidates',
+    )
+    entity_type = models.CharField(max_length=20, db_index=True)
+    similarity_score = models.FloatField(validators=[MinValueValidator(0.0), MaxValueValidator(1.0)])
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resolved_entity_review_candidates',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_entity_review_candidate'
+        indexes = [
+            models.Index(fields=['document', 'status'], name='ner_review_doc_status_idx'),
+            models.Index(fields=['entity_type', 'status'], name='ner_review_type_status_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=~models.Q(left_entity=models.F('right_entity')),
+                name='ner_review_no_self_pair',
+            ),
+            models.UniqueConstraint(
+                fields=['document', 'left_entity', 'right_entity', 'status'],
+                name='ner_review_unique_pair_status',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.left_entity_id}:{self.right_entity_id} ({self.status})"

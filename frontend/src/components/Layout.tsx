@@ -1,6 +1,31 @@
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { logoutUser } from '@/lib/api';
+
+
+type AuthUser = {
+  id: number;
+  username: string;
+  email: string;
+  is_admin: boolean;
+};
+
+
+function getStoredAuthUser(): AuthUser | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const raw = window.localStorage.getItem('sat.auth.user');
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
 
 interface LayoutProps {
   children: ReactNode;
@@ -50,6 +75,37 @@ const navLinks = [
 export default function Layout({ children, title, subtitle }: LayoutProps) {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    setUser(getStoredAuthUser());
+  }, [router.pathname]);
+
+  const links = useMemo(() => {
+    if (!user?.is_admin) {
+      return navLinks;
+    }
+
+    return [
+      ...navLinks,
+      {
+        href: '/admin',
+        label: 'Admin',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8v2m0-2a2 2 0 100-4m0 4a2 2 0 110-4m12 4v2m0-2a2 2 0 100-4m0 4a2 2 0 110-4M6 12H4m2 0a2 2 0 104 0m-4 0a2 2 0 114 0m8 0h2m-2 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+          </svg>
+        ),
+      },
+    ];
+  }, [user]);
+
+  const onLogout = async () => {
+    await logoutUser();
+    setUser(null);
+    setMobileMenuOpen(false);
+    await router.push('/login');
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -73,7 +129,7 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
 
             {/* Desktop Navigation */}
             <nav className="hidden sm:flex items-center gap-1">
-              {navLinks.map(({ href, label, icon }) => {
+              {links.map(({ href, label, icon }) => {
                 const isActive = router.pathname === href;
                 return (
                   <Link
@@ -90,6 +146,21 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
                   </Link>
                 );
               })}
+              {user ? (
+                <button
+                  onClick={() => void onLogout()}
+                  className="ml-2 px-3.5 py-2 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-all duration-150"
+                >
+                  Logout
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  className="ml-2 px-3.5 py-2 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-all duration-150"
+                >
+                  Login
+                </Link>
+              )}
             </nav>
 
             {/* Mobile menu button */}
@@ -111,7 +182,7 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
           {/* Mobile Navigation */}
           {mobileMenuOpen && (
             <nav className="sm:hidden pb-3 border-t border-white/10 mt-1 pt-2 animate-fade-in">
-              {navLinks.map(({ href, label, icon }) => {
+              {links.map(({ href, label, icon }) => {
                 const isActive = router.pathname === href;
                 return (
                   <Link
@@ -129,6 +200,22 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
                   </Link>
                 );
               })}
+              {user ? (
+                <button
+                  onClick={() => void onLogout()}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  Logout
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  Login
+                </Link>
+              )}
             </nav>
           )}
         </div>

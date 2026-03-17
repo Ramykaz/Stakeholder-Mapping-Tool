@@ -14,6 +14,12 @@ import apiClient, {
   getEntities,
   getGraphNodes,
   getDocumentRuns,
+  registerUser,
+  loginUser,
+  logoutUser,
+  getStoredAuthToken,
+  getStoredAuthUser,
+  clearStoredAuth,
 } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -264,5 +270,76 @@ describe('getDocumentRuns', () => {
     expect(mockedAxios.get).toHaveBeenCalledWith('/api/v1/documents/doc-222/runs/');
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('run-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test: auth APIs
+// ---------------------------------------------------------------------------
+describe('auth APIs', () => {
+  beforeEach(() => {
+    clearStoredAuth();
+  });
+
+  it('stores token and user on register', async () => {
+    (mockedAxios.post as jest.Mock).mockResolvedValueOnce({
+      data: {
+        token: 'token-123',
+        user: {
+          id: 1,
+          username: 'alice',
+          email: 'alice@example.com',
+          is_admin: false,
+        },
+      },
+    });
+
+    const result = await registerUser({
+      username: 'alice',
+      email: 'alice@example.com',
+      password: 'Password123',
+    });
+
+    expect(result.token).toBe('token-123');
+    expect(getStoredAuthToken()).toBe('token-123');
+    expect(getStoredAuthUser()?.username).toBe('alice');
+  });
+
+  it('stores token and user on login', async () => {
+    (mockedAxios.post as jest.Mock).mockResolvedValueOnce({
+      data: {
+        token: 'token-abc',
+        user: {
+          id: 2,
+          username: 'admin',
+          email: 'admin@example.com',
+          is_admin: true,
+        },
+      },
+    });
+
+    const result = await loginUser({ username: 'admin', password: 'Password123' });
+
+    expect(result.user.is_admin).toBe(true);
+    expect(getStoredAuthToken()).toBe('token-abc');
+    expect(getStoredAuthUser()?.username).toBe('admin');
+  });
+
+  it('clears storage on logout', async () => {
+    window.localStorage.setItem('sat.auth.token', 'stale-token');
+    window.localStorage.setItem(
+      'sat.auth.user',
+      JSON.stringify({ id: 3, username: 'bob', email: '', is_admin: false })
+    );
+
+    (mockedAxios.post as jest.Mock).mockResolvedValueOnce({
+      data: { status: 'logged_out' },
+    });
+
+    await logoutUser();
+
+    expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/auth/logout/', {});
+    expect(getStoredAuthToken()).toBeNull();
+    expect(getStoredAuthUser()).toBeNull();
   });
 });

@@ -27,6 +27,13 @@ This is not a generic document analysis tool. The system is designed specificall
 
 ## Features
 
+### US-08 Delivery Update (Current Sprint)
+
+- The graph view now supports payload-driven visual encoding (style, degree, confidence-aware edge rendering), plus explicit zoom controls.
+- Entity side-panel interaction is available in both graph and workspace map contexts, including linked-entity drill-down and back navigation.
+- Client-side entity/relation filters, filtered-visible two-hop focus mode, and real-time search/centering are implemented for fast exploration without graph refetch.
+- Contextual summary generation remains explicit and on-demand, with workspace integration for generate/refresh actions and fallback-friendly handling.
+
 ### 1. User Accounts and Projects
 
 - User registration and login (authentication required)

@@ -193,6 +193,44 @@ class Relation(models.Model):
         return f"{self.source_entity} → {self.label} → {self.target_entity}"
 
 
+class ContextualEntitySummary(models.Model):
+    """Cached project-scoped narrative summary for an entity."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name='contextual_summaries',
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='entity_summaries',
+    )
+    summary_text = models.TextField()
+    evidence_hash = models.CharField(max_length=128, blank=True, default='')
+    generated_by_provider = models.CharField(max_length=64, blank=True, default='internal')
+    generated_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_contextual_entity_summary'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['entity', 'project'],
+                name='ner_contextual_summary_entity_project_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['project', 'expires_at'], name='ner_ctx_summary_proj_exp_idx'),
+        ]
+
+    def __str__(self):
+        return f"Summary<{self.entity_id}:{self.project_id}>"
+
+
 class EntityLabel(models.Model):
     """Configurable entity taxonomy used for extraction and graph display."""
 

@@ -13,6 +13,9 @@ import apiClient, {
   extractEntities,
   getEntities,
   getGraphNodes,
+  getProjectGraph,
+  getEntityProfile,
+  generateEntitySummary,
   getDocumentRuns,
   registerUser,
   loginUser,
@@ -268,6 +271,68 @@ describe('getGraphNodes', () => {
     );
     expect(result.nodes).toHaveLength(1);
     expect(result.nodes[0].label).toBe('UNDP');
+    expect(result.nodes[0].style.shape).toBe('round-rectangle');
+    expect(result.nodes[0].degree).toBe(0);
+  });
+});
+
+describe('project graph + summary/profile APIs', () => {
+  it('maps enhanced project graph payload fields', async () => {
+    (mockedAxios.get as jest.Mock).mockResolvedValueOnce({
+      data: {
+        nodes: [
+          {
+            id: 'n1',
+            label: 'UNDP',
+            entity_type: 'ORGANIZATION',
+            degree: 3,
+            style: { shape: 'rectangle', color: '#2563eb' },
+            data: {
+              id: 'n1',
+              label: 'UNDP',
+              entity_type: 'ORGANIZATION',
+              confidence: 0.95,
+              shape: 'rectangle',
+              color: '#2563eb',
+              degree: 3,
+            },
+          },
+        ],
+        edges: [],
+      },
+    });
+
+    const result = await getProjectGraph('project-1');
+    expect(result.nodes[0].style.color).toBe('#2563eb');
+    expect(result.nodes[0].data.degree).toBe(3);
+  });
+
+  it('calls entity profile endpoint', async () => {
+    (mockedAxios.get as jest.Mock).mockResolvedValueOnce({
+      data: { id: 'e1', canonical_name: 'UNDP', entity_type: 'ORGANIZATION', projects: [] },
+    });
+
+    const profile = await getEntityProfile('e1');
+    expect(mockedAxios.get).toHaveBeenCalledWith('/api/v1/entities/e1/profile/');
+    expect(profile.id).toBe('e1');
+  });
+
+  it('calls contextual summary endpoint with refresh flag', async () => {
+    (mockedAxios.post as jest.Mock).mockResolvedValueOnce({
+      data: {
+        entity_id: 'e1',
+        project_id: 'p1',
+        summary: 'Narrative',
+        source: 'provider',
+      },
+    });
+
+    const summary = await generateEntitySummary('e1', 'p1', true);
+    expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/entities/e1/summary/', {
+      project_id: 'p1',
+      refresh: true,
+    });
+    expect(summary.summary).toBe('Narrative');
   });
 });
 

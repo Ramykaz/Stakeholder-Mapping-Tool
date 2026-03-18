@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import time
 from decimal import Decimal
 from time import perf_counter
@@ -9,7 +10,7 @@ from time import perf_counter
 from django.conf import settings
 from django.db import transaction
 from ingestion.models import Document, Chunk
-from ner.models import Entity, NERRun, Relation
+from ner.models import Entity, NERRun, Relation, EntityLabel
 from ner.services.entity_dedup_service import EntityDedupService
 from ner.services.relation_deduplicator import deduplicate_relations
 from ner.services.relation_extractor import extract_relations_from_chunk
@@ -24,6 +25,26 @@ logger = logging.getLogger(__name__)
 # Updated during chunk processing so the frontend can poll for progress.
 _extraction_progress: dict = {}  # {str(document_id): {"current": int, "total": int}}
 _entity_dedup_service = EntityDedupService()
+
+
+def get_active_entity_style_map() -> dict[str, dict[str, str]]:
+    """Return deterministic node style map derived from active taxonomy labels."""
+    label_rows = EntityLabel.objects.filter(active=True).values('name', 'node_shape', 'color')
+    style_map = {
+        str(row['name']).strip().upper(): {
+            'shape': row['node_shape'] or 'ellipse',
+            'color': row['color'] or '#9ca3af',
+        }
+        for row in label_rows
+    }
+    if not style_map:
+        return {
+            'PERSON': {'shape': 'ellipse', 'color': '#3b82f6'},
+            'ORGANIZATION': {'shape': 'rectangle', 'color': '#8b5cf6'},
+            'LOCATION': {'shape': 'diamond', 'color': '#10b981'},
+            'ROLE': {'shape': 'hexagon', 'color': '#f59e0b'},
+        }
+    return style_map
 
 
 def _deduplicate_entities_for_save(
@@ -96,6 +117,44 @@ def _extract_chunk_joint(
 
 def _normalize_text(value: str | None) -> str:
     return (value or '').strip().lower()
+
+
+def _entity_text_candidates(value: str | None) -> list[str]:
+    base = _normalize_text(value)
+    if not base:
+        return []
+
+    collapsed = re.sub(r'\s+', ' ', base).strip()
+    without_parens = re.sub(r'\s*\([^)]*\)\s*', ' ', collapsed)
+    without_symbols = re.sub(r'[^a-z0-9\s-]', ' ', without_parens)
+    normalized = re.sub(r'\s+', ' ', without_symbols).strip()
+
+    candidates: list[str] = []
+    for item in (collapsed, without_parens.strip(), normalized):
+        if item and item not in candidates:
+            candidates.append(item)
+    return candidates
+
+
+def _resolve_entity_by_relation_text(text: str | None, lookup: dict[str, Entity]) -> Entity | None:
+    candidates = _entity_text_candidates(text)
+    if not candidates:
+        return None
+
+    for candidate in candidates:
+        entity = lookup.get(candidate)
+        if entity:
+            return entity
+
+    for candidate in candidates:
+        if len(candidate) < 4:
+            continue
+        prefix_matches = [entity for key, entity in lookup.items() if key.startswith(candidate) or candidate.startswith(key)]
+        unique_matches = {str(entity.id): entity for entity in prefix_matches}
+        if len(unique_matches) == 1:
+            return next(iter(unique_matches.values()))
+
+    return None
 
 
 def _normalize_joint_entities(raw_entities: list, chunk: Chunk) -> list[dict]:
@@ -527,14 +586,18 @@ def extract_relations_for_document(
             relations_created = 0
             logger.info("[NER+REL-JOINT] Skipping relation persistence: fewer than 2 linked entities")
         else:
-            entity_by_name = {
-                _normalize_text(entity.canonical_name): entity
-                for entity in Entity.objects.filter(document_id=document, run=run)
-            }
+            entity_by_name: dict[str, Entity] = {}
+            for entity in Entity.objects.filter(document_id=document, run=run):
+                for key in _entity_text_candidates(entity.canonical_name):
+                    entity_by_name.setdefault(key, entity)
+                for mention in entity.raw_mentions or []:
+                    for key in _entity_text_candidates(str(mention)):
+                        entity_by_name.setdefault(key, entity)
+
             relation_inputs = []
             for rel in all_extracted_relations:
-                source = entity_by_name.get(_normalize_text(rel.get('source_text')))
-                target = entity_by_name.get(_normalize_text(rel.get('target_text')))
+                source = _resolve_entity_by_relation_text(rel.get('source_text'), entity_by_name)
+                target = _resolve_entity_by_relation_text(rel.get('target_text'), entity_by_name)
                 if not source or not target:
                     continue
                 if source.id == target.id:

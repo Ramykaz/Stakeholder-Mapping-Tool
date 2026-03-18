@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
@@ -6,11 +6,15 @@ import {
   DocumentSummary,
   deleteDocument,
   extractEntitiesForProject,
+  generateEntitySummary,
+  getEntityProfile,
   getProject,
   getProjectConceptNote,
   getDocuments,
+  getProjectGraph,
   uploadDocumentToProject,
 } from '@/lib/api';
+import { CytoscapeEdge, CytoscapeNode } from '@/types';
 
 export default function ProjectWorkspacePage() {
   const router = useRouter();
@@ -21,6 +25,7 @@ export default function ProjectWorkspacePage() {
   const AZURE_OPENAI_MODELS = ['gpt-5-mini'] as const;
   const GEMINI_MODELS = ['gemini-1.5-pro', 'gemini-1.5-flash'] as const;
   type Provider = 'groq' | 'openai' | 'azure_openai' | 'gemini';
+  type EntityType = CytoscapeNode['data']['entity_type'];
 
   const [projectName, setProjectName] = useState('Project Workspace');
   const [conceptPreview, setConceptPreview] = useState('');
@@ -30,7 +35,6 @@ export default function ProjectWorkspacePage() {
   const [uploading, setUploading] = useState(false);
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [provider, setProvider] = useState<Provider>('groq');
   const [openaiModel, setOpenaiModel] = useState<(typeof OPENAI_MODELS)[number]>('gpt-5-mini');
   const [azureModel, setAzureModel] = useState<(typeof AZURE_OPENAI_MODELS)[number]>('gpt-5-mini');
@@ -39,6 +43,20 @@ export default function ProjectWorkspacePage() {
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'assistant' | 'user'; text: string }>>([
     { role: 'assistant', text: 'Workspace ready. Upload a file, select a document on the left, then run extraction.' },
   ]);
+  const [graphNodes, setGraphNodes] = useState<CytoscapeNode[]>([]);
+  const [graphEdges, setGraphEdges] = useState<CytoscapeEdge[]>([]);
+
+  const relationKey = (edge: CytoscapeEdge) => edge.relation_type || edge.label || 'UNKNOWN';
+
+  const workspaceAvailableEntityTypes = useMemo<EntityType[]>(
+    () => Array.from(new Set(graphNodes.map((node: CytoscapeNode) => node.data.entity_type))).sort(),
+    [graphNodes],
+  );
+
+  const workspaceAvailableRelationTypes = useMemo(
+    () => Array.from(new Set(graphEdges.map((edge: CytoscapeEdge) => relationKey(edge)))).sort(),
+    [graphEdges],
+  );
 
   const reload = useCallback(async () => {
     if (!projectId) {
@@ -56,6 +74,9 @@ export default function ProjectWorkspacePage() {
       setConceptPreview((concept?.content || '').trim());
       const projectDocs = (docs || []).filter((row: any) => row.project_id === projectId);
       setDocuments(projectDocs);
+      const graph = await getProjectGraph(projectId).catch(() => ({ nodes: [], edges: [] }));
+      setGraphNodes(graph.nodes || []);
+      setGraphEdges(graph.edges || []);
       setSelectedDocId((prev) => {
         if (prev && projectDocs.some((doc: any) => doc.id === prev)) {
           return prev;
@@ -147,6 +168,43 @@ export default function ProjectWorkspacePage() {
     }
   };
 
+  const onExtractAll = async () => {
+    if (!projectId || documents.length === 0) {
+      return;
+    }
+    setActiveDoc('all');
+    setError('');
+    try {
+      const model = provider === 'openai'
+        ? openaiModel
+        : provider === 'azure_openai'
+          ? azureModel
+          : provider === 'gemini'
+            ? geminiModel
+            : GROQ_MODEL;
+      const result = await extractEntitiesForProject(projectId, undefined, { provider, model });
+      await reload();
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `Project-wide extraction done. Documents: ${result.documents_processed || documents.length}, entities: ${result.entities_created || 0}, relations: ${result.relations_created || 0}.`,
+        },
+      ]);
+    } catch (err: any) {
+      setError(err.message || 'Project extraction failed');
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `Project extraction failed: ${err.message || 'Unknown error'}`,
+        },
+      ]);
+    } finally {
+      setActiveDoc(null);
+    }
+  };
+
   const handleChatSubmit = async () => {
     const prompt = chatInput.trim();
     if (!prompt) {
@@ -164,9 +222,7 @@ export default function ProjectWorkspacePage() {
       }
 
       setChatMessages((prev) => [...prev, { role: 'assistant', text: 'Running extraction on all project documents…' }]);
-      for (const doc of documents) {
-        await onExtract(doc.id);
-      }
+      await onExtractAll();
       setChatMessages((prev) => [...prev, { role: 'assistant', text: 'Extraction complete. You can open Entities or Graph now.' }]);
       return;
     }
@@ -186,11 +242,10 @@ export default function ProjectWorkspacePage() {
     }
 
     if (normalized.includes('open relations')) {
-      if (!selectedDocId) {
-        setChatMessages((prev) => [...prev, { role: 'assistant', text: 'Select a document first, then I can open relations.' }]);
-        return;
-      }
-      await router.push(`/relations?document_id=${selectedDocId}`);
+      const target = selectedDocId
+        ? `/relations?project_id=${projectId}&document_id=${selectedDocId}`
+        : `/relations?project_id=${projectId}`;
+      await router.push(target);
       return;
     }
 
@@ -226,40 +281,29 @@ export default function ProjectWorkspacePage() {
   return (
     <Layout title={projectName} subtitle="Project workspace">
       <div className="h-[calc(100vh-160px)] min-h-[620px] flex gap-4">
-        <aside className={`card transition-all duration-200 ${sidebarOpen ? 'w-80' : 'w-16'} overflow-hidden flex flex-col`}>
-          <button
-            className="btn-ghost text-sm self-start"
-            onClick={() => setSidebarOpen((prev) => !prev)}
-          >
-            {sidebarOpen ? 'Hide' : 'Docs'}
-          </button>
-
-          {sidebarOpen && (
-            <>
-              <p className="text-xs uppercase tracking-wider text-gray-500 mt-2 mb-3">Documents</p>
-              <div className="space-y-2 overflow-auto pr-1">
-                {loading ? (
-                  <p className="text-sm text-gray-500">Loading…</p>
-                ) : documents.length === 0 ? (
-                  <p className="text-sm text-gray-500">No documents uploaded.</p>
-                ) : (
-                  documents.map((doc) => {
-                    const selected = doc.id === selectedDocId;
-                    return (
-                      <button
-                        key={doc.id}
-                        className={`w-full text-left rounded-lg border px-3 py-2 ${selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'}`}
-                        onClick={() => setSelectedDocId(doc.id)}
-                      >
-                        <p className="text-sm font-medium text-navy-700 truncate">{doc.filename}</p>
-                        <p className="text-xs text-gray-500 mt-1">{doc.entity_count || 0} entities · {doc.relation_count || 0} relations</p>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          )}
+        <aside className="group card w-16 hover:w-80 transition-all duration-200 overflow-hidden flex flex-col">
+          <p className="text-xs uppercase tracking-wider text-gray-500 mt-1 mb-3">Docs</p>
+          <div className="space-y-2 overflow-auto pr-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            {loading ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : documents.length === 0 ? (
+              <p className="text-sm text-gray-500">No documents uploaded.</p>
+            ) : (
+              documents.map((doc) => {
+                const selected = doc.id === selectedDocId;
+                return (
+                  <button
+                    key={doc.id}
+                    className={`w-full text-left rounded-lg border px-3 py-2 ${selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'}`}
+                    onClick={() => setSelectedDocId(doc.id)}
+                  >
+                    <p className="text-sm font-medium text-navy-700 truncate">{doc.filename}</p>
+                    <p className="text-xs text-gray-500 mt-1">{doc.entity_count || 0} entities · {doc.relation_count || 0} relations</p>
+                  </button>
+                );
+              })
+            )}
+          </div>
         </aside>
 
         <div className="flex-1 grid lg:grid-cols-[1.6fr_1fr] gap-4 min-w-0">
@@ -325,6 +369,13 @@ export default function ProjectWorkspacePage() {
               >
                 {activeDoc ? 'Extracting…' : 'Extract Entities + Relations'}
               </button>
+              <button
+                className="btn-ghost text-sm"
+                onClick={() => void onExtractAll()}
+                disabled={documents.length === 0 || !!activeDoc}
+              >
+                {activeDoc === 'all' ? 'Extracting All…' : 'Extract All Docs'}
+              </button>
             </div>
 
             {error && <p className="text-sm text-red-600 pt-3">{error}</p>}
@@ -376,7 +427,7 @@ export default function ProjectWorkspacePage() {
                   <p>{selectedDoc.entity_count || 0} entities · {selectedDoc.relation_count || 0} relations</p>
                   <div className="flex flex-wrap gap-2">
                     <Link href={`/entities?project_id=${projectId}&document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Entities</Link>
-                    <Link href={`/relations?document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Relations</Link>
+                    <Link href={`/relations?project_id=${projectId}&document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Relations</Link>
                     <Link href={`/graph?project_id=${projectId}&document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Graph</Link>
                     <button
                       className="btn-ghost text-xs text-red-600"
@@ -395,6 +446,21 @@ export default function ProjectWorkspacePage() {
             <div className="pt-3 border-t border-gray-100 flex flex-wrap gap-2">
               <Link href={`/projects/${projectId}/settings`} className="btn-ghost text-sm">Project Settings</Link>
               <button className="btn-ghost text-sm" onClick={() => void reload()}>Refresh</button>
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 space-y-3">
+              <h3 className="text-sm font-semibold text-navy-700">Analysis Views</h3>
+              <p className="text-sm text-gray-600">
+                Open dedicated views for the full project graph and relationship table.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/graph?project_id=${projectId}`} className="btn-ghost text-sm">Open Full Graph</Link>
+                <Link href={`/relations?project_id=${projectId}`} className="btn-ghost text-sm">Open Relations Table</Link>
+                <Link href={`/entities?project_id=${projectId}`} className="btn-ghost text-sm">Open Entities</Link>
+              </div>
+              <p className="text-xs text-gray-500">
+                Current graph scope: {graphNodes.length} entities · {graphEdges.length} relations · {workspaceAvailableEntityTypes.length} entity types · {workspaceAvailableRelationTypes.length} relation types.
+              </p>
             </div>
           </section>
         </div>

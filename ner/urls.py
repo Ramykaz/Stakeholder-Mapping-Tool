@@ -21,5 +21,7 @@ urlpatterns = [
     path('projects/<uuid:id>/entities/', views.ProjectEntitiesView.as_view(), name='project-entities'),
     path('projects/<uuid:id>/graph/', views.ProjectGraphView.as_view(), name='project-graph'),
     path('entities/<uuid:id>/', views.GlobalEntityProfileView.as_view(), name='global-entity-profile'),
+    path('entities/<uuid:id>/profile/', views.EntityProfileView.as_view(), name='entity-profile'),
+    path('entities/<uuid:id>/summary/', views.EntitySummaryView.as_view(), name='entity-summary'),
     path('graph/', views.GraphNodesView.as_view(), name='graph-nodes'),
 ]

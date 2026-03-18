@@ -7,6 +7,26 @@ Follows [Conventional Commits](https://www.conventionalcommits.org/) and [Semant
 
 ## [Unreleased]
 
+### Added — Sprint 2 · US-08: Graph Redesign + Side Panel + Focus/Search + Contextual Summary
+
+**Graph rendering + controls**
+- Extended graph payload consumption to use node `style`/`degree` and relation confidence for richer visual encoding.
+- Added deterministic node style fallback behavior and payload-driven node/edge scaling.
+- Added graph zoom controls (`+`, `-`, `Fit`) and preserved fit/reset support in the shared graph visualizer.
+
+**Entity panel + workspace parity**
+- Added reusable `EntitySidePanel` integration to workspace map with close, drill-down, and back-navigation history.
+- Added workspace-side summary actions (`Generate` / `Refresh`) using project-scoped contextual summary endpoint.
+
+**Filters, focus, and search**
+- Added client-side entity/relation filtering on graph and workspace map views (no refetch).
+- Added filtered-visible two-hop focus mode (Shift+click activate, background click reset).
+- Added real-time label search with highlight and auto-centering behavior.
+
+**Validation**
+- Frontend focused suites: `40 passed` across graph/workspace/api/summary interaction tests.
+- Backend focused suites: `6 passed` for graph payload, profile scoping, and contextual summary API contracts.
+
 ### Added — Sprint 2 · US-07: Project Model + Concept Note + Scoped Workflows
 
 **Backend domain + migrations**

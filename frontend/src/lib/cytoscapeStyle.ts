@@ -23,12 +23,14 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'text-halign': 'center',
       'font-size': '11px',
       'font-weight': 'bold' as any,
-      width: 'mapData(raw_mentions_count, 1, 20, 40, 80)',
-      height: 'mapData(raw_mentions_count, 1, 20, 40, 80)',
+      width: 'data(node_size)',
+      height: 'data(node_size)',
       'text-wrap': 'wrap',
       'text-max-width': '80px',
       'border-width': 2,
       'overlay-padding': '4px',
+      'background-color': 'data(color)',
+      'border-color': 'data(color)',
       shape: 'data(shape)' as any,
     },
   },
@@ -82,11 +84,11 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
   {
     selector: 'edge',
     style: {
-      width: 2,
-      'line-color': '#9ca3af',
+      width: 'data(edge_width)',
+      'line-color': 'data(color)',
       'curve-style': 'bezier',
       'target-arrow-shape': 'triangle',
-      'target-arrow-color': '#9ca3af',
+      'target-arrow-color': 'data(color)',
       label: 'data(label)',
       'font-size': '9px',
       'text-rotation': 'autorotate',
@@ -97,6 +99,21 @@ export const cytoscapeStylesheet: cytoscape.StylesheetStyle[] = [
       'text-background-shape': 'roundrectangle',
       color: '#4b5563',
       'font-weight': '600' as any,
+    },
+  },
+  {
+    selector: '.dimmed',
+    style: {
+      opacity: 0.2,
+    },
+  },
+  {
+    selector: '.search-hit',
+    style: {
+      'border-width': 4,
+      'border-color': '#0468B1',
+      'overlay-color': '#0468B1',
+      'overlay-opacity': 0.12,
     },
   },
 ];

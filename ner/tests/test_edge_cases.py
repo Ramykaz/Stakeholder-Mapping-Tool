@@ -313,3 +313,42 @@ class TestPipelineEdgeCases(TestCase):
         assert result['entities_created'] == 2
         assert result['relations_created'] == 0
         assert Entity.objects.filter(document_id=self.document.id).count() == 2
+
+    @patch('ner.services.pipeline.get_active_relationship_types', return_value=[{'name': 'WORKS_WITH', 'directional': True}])
+    @patch('ner.services.pipeline.get_active_entity_labels', return_value=['ORGANIZATION'])
+    @patch('ner.services.pipeline.get_provider')
+    @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
+    def test_joint_extraction_maps_parenthetical_relation_endpoints(self, mock_get_provider, *_):
+        """Relation endpoints like 'UNDP (organization)' should map to persisted entities."""
+        Chunk.objects.create(
+            document=self.document,
+            text="UNDP works with World Bank.",
+            embedding=[0.0] * 384,
+            chunk_index=0,
+            token_count=6,
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.extract_joint.return_value = {
+            'entities': [
+                {'entity_type': 'ORGANIZATION', 'text': 'UNDP', 'confidence': 0.95},
+                {'entity_type': 'ORGANIZATION', 'text': 'World Bank', 'confidence': 0.93},
+            ],
+            'relationships': [
+                {
+                    'source_text': 'UNDP (organization)',
+                    'target_text': 'World Bank (organization)',
+                    'type': 'WORKS_WITH',
+                    'confidence': 0.88,
+                }
+            ],
+            'tokens_input': 10,
+            'tokens_output': 8,
+            'tokens_cached': 0,
+        }
+        mock_get_provider.return_value = mock_provider
+
+        result = extract_relations_for_document(str(self.document.id), provider='groq', model='llama-3.1-8b-instant')
+
+        assert result['entities_created'] == 2
+        assert result['relations_created'] == 1

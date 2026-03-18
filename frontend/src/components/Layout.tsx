@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect, useMemo, useState } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { logoutUser } from '@/lib/api';
@@ -43,39 +43,15 @@ const navLinks = [
       </svg>
     ),
   },
+];
+
+const adminNavLinks = [
   {
-    href: '/upload',
-    label: 'Upload',
+    href: '/admin',
+    label: 'Manage Entities',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-      </svg>
-    ),
-  },
-  {
-    href: '/entities',
-    label: 'Entities',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ),
-  },
-  {
-    href: '/graph',
-    label: 'Graph',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-      </svg>
-    ),
-  },
-  {
-    href: '/relations',
-    label: 'Relations',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7h8M8 12h5m-5 5h8M4 7h.01M4 12h.01M4 17h.01" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 6h16M4 12h16M4 18h10" />
       </svg>
     ),
   },
@@ -99,24 +75,7 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
     }
   }, [router.pathname, router.query, router]);
 
-  const links = useMemo(() => {
-    if (!user?.is_admin) {
-      return navLinks;
-    }
-
-    return [
-      ...navLinks,
-      {
-        href: '/admin',
-        label: 'Admin',
-        icon: (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8v2m0-2a2 2 0 100-4m0 4a2 2 0 110-4m12 4v2m0-2a2 2 0 100-4m0 4a2 2 0 110-4M6 12H4m2 0a2 2 0 104 0m-4 0a2 2 0 114 0m8 0h2m-2 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
-          </svg>
-        ),
-      },
-    ];
-  }, [user]);
+  const links = user?.is_admin ? [...navLinks, ...adminNavLinks] : navLinks;
 
   const onLogout = async () => {
     await logoutUser();

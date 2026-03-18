@@ -6,20 +6,46 @@ import { CytoscapeNode, CytoscapeEdge } from '@/types';
 interface GraphVisualizationProps {
   nodes: CytoscapeNode[];
   edges?: CytoscapeEdge[];
-  onNodeClick?: (node: CytoscapeNode) => void;
+  onNodeClick?: (node: CytoscapeNode, options?: { shiftKey?: boolean }) => void;
+  onBackgroundClick?: () => void;
+  highlightNodeIds?: string[];
+  focusNodeIds?: string[];
+  centerNodeId?: string | null;
+  command?: { type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset'; nonce: number } | null;
   fontSize?: number;
 }
 
-function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11 }: GraphVisualizationProps) {
+function GraphVisualizationInner({
+  nodes,
+  edges = [],
+  onNodeClick,
+  onBackgroundClick,
+  highlightNodeIds = [],
+  focusNodeIds = [],
+  centerNodeId = null,
+  command = null,
+  fontSize = 11,
+}: GraphVisualizationProps) {
+  const LEGEND_DOT_CLASSES: Record<string, string> = {
+    PERSON: 'bg-blue-100 border-blue-500',
+    ORGANIZATION: 'bg-violet-100 border-violet-500',
+    LOCATION: 'bg-emerald-100 border-emerald-500',
+    ROLE: 'bg-amber-100 border-amber-500',
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const layoutRef = useRef<Layouts | null>(null);
   const onNodeClickRef = useRef(onNodeClick);
+  const onBackgroundClickRef = useRef(onBackgroundClick);
 
   // Keep callback ref in sync without triggering re-init
   useEffect(() => {
     onNodeClickRef.current = onNodeClick;
   }, [onNodeClick]);
+
+  useEffect(() => {
+    onBackgroundClickRef.current = onBackgroundClick;
+  }, [onBackgroundClick]);
 
   const destroyCy = useCallback(() => {
     // Stop any running layout before destroying
@@ -50,6 +76,9 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
         chunk_id: node.data.chunk_id,
         raw_mentions_count: node.data.raw_mentions_count,
         shape: node.data.shape || 'ellipse',
+        color: node.data.color || node.style?.color || '#9ca3af',
+        degree: node.data.degree || node.degree || 0,
+        node_size: node.data.node_size || 44,
       },
     }));
 
@@ -61,6 +90,8 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
         target: edge.target,
         label: edge.label,
         confidence: edge.confidence,
+        color: edge.color || '#9ca3af',
+        edge_width: edge.edge_width || 2,
       },
     }));
 
@@ -85,9 +116,15 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
     cy.on('tap', 'node', (evt) => {
       if (!onNodeClickRef.current) return;
       const nodeData = evt.target.data();
+      const shiftKey = Boolean((evt.originalEvent as any)?.shiftKey);
       const clickedNode: CytoscapeNode = {
         id: nodeData.id,
         label: nodeData.label,
+        degree: nodeData.degree,
+        style: {
+          shape: nodeData.shape,
+          color: nodeData.color,
+        },
         data: {
           entity_id: nodeData.id,
           entity_type: nodeData.entity_type,
@@ -95,9 +132,19 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
           document_id: nodeData.document_id,
           chunk_id: nodeData.chunk_id,
           raw_mentions_count: nodeData.raw_mentions_count,
+          shape: nodeData.shape,
+          color: nodeData.color,
+          degree: nodeData.degree,
+          node_size: nodeData.node_size,
         },
       };
-      onNodeClickRef.current(clickedNode);
+      onNodeClickRef.current(clickedNode, { shiftKey });
+    });
+
+    cy.on('tap', (evt) => {
+      if (evt.target === cy) {
+        onBackgroundClickRef.current?.();
+      }
     });
 
     // Run cose layout after a frame to ensure container has dimensions
@@ -140,6 +187,66 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
       .update();
   }, [fontSize]);
 
+  useEffect(() => {
+    if (!cyRef.current || cyRef.current.destroyed()) return;
+    const cy = cyRef.current;
+    cy.nodes().removeClass('search-hit');
+    if (highlightNodeIds.length > 0) {
+      highlightNodeIds.forEach((id) => cy.getElementById(id).addClass('search-hit'));
+    }
+  }, [highlightNodeIds]);
+
+  useEffect(() => {
+    if (!cyRef.current || cyRef.current.destroyed()) return;
+    const cy = cyRef.current;
+    cy.elements().removeClass('dimmed');
+    if (focusNodeIds.length > 0) {
+      const allowed = new Set(focusNodeIds);
+      cy.nodes().forEach((node) => {
+        if (!allowed.has(node.id())) {
+          node.addClass('dimmed');
+        }
+      });
+      cy.edges().forEach((edge) => {
+        if (!allowed.has(edge.source().id()) || !allowed.has(edge.target().id())) {
+          edge.addClass('dimmed');
+        }
+      });
+    }
+  }, [focusNodeIds]);
+
+  useEffect(() => {
+    if (!cyRef.current || cyRef.current.destroyed() || !centerNodeId) return;
+    const target = cyRef.current.getElementById(centerNodeId);
+    if (target && target.length > 0) {
+      cyRef.current.animate({
+        center: { eles: target },
+        zoom: Math.min(2.2, Math.max(0.8, cyRef.current.zoom())),
+      }, {
+        duration: 250,
+      });
+    }
+  }, [centerNodeId]);
+
+  useEffect(() => {
+    if (!cyRef.current || cyRef.current.destroyed() || !command) return;
+    if (command.type === 'zoomIn') {
+      cyRef.current.zoom(Math.min(cyRef.current.maxZoom(), cyRef.current.zoom() + 0.2));
+      return;
+    }
+    if (command.type === 'zoomOut') {
+      cyRef.current.zoom(Math.max(cyRef.current.minZoom(), cyRef.current.zoom() - 0.2));
+      return;
+    }
+    if (command.type === 'fit') {
+      handleFitView();
+      return;
+    }
+    if (command.type === 'reset') {
+      handleResetLayout();
+    }
+  }, [command]);
+
   const handleFitView = () => {
     cyRef.current?.fit(undefined, 40);
   };
@@ -172,11 +279,10 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
       {/* Controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 text-xs">
-          {Object.entries(ENTITY_COLORS).map(([type, colors]) => (
+          {Object.entries(ENTITY_COLORS).map(([type]) => (
             <div key={type} className="flex items-center gap-1.5">
               <span
-                className="inline-block w-2.5 h-2.5 rounded-full border"
-                style={{ backgroundColor: colors.bg, borderColor: colors.border }}
+                className={`inline-block w-2.5 h-2.5 rounded-full border ${LEGEND_DOT_CLASSES[type] || 'bg-gray-100 border-gray-400'}`}
               />
               <span className="text-gray-500 font-medium">{type}</span>
             </div>
@@ -204,8 +310,7 @@ function GraphVisualizationInner({ nodes, edges = [], onNodeClick, fontSize = 11
         id="cytoscape-container"
         role="img"
         aria-label="Stakeholder entity graph visualization"
-        className="cytoscape-container"
-        style={{ width: '100%', height: '600px' }}
+        className="cytoscape-container w-full h-[600px]"
       />
 
       {/* Node count */}

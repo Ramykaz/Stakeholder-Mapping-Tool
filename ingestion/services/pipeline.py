@@ -20,7 +20,7 @@ class IngestionError(Exception):
     """Raised when the ingestion pipeline fails after extraction."""
 
 
-def ingest_document(file_obj, filename: str, file_format: str) -> Document:
+def ingest_document(file_obj, filename: str, file_format: str, project=None) -> Document:
     """
     Run the full ingestion pipeline for an uploaded file.
 
@@ -49,6 +49,7 @@ def ingest_document(file_obj, filename: str, file_format: str) -> Document:
     document = Document.objects.create(
         filename=filename,
         file_format=file_format,
+        project=project,
         processing_status=Document.STATUS_PENDING,
     )
     logger.info("[INGEST] START  document=%s filename=%s", document.id, filename)

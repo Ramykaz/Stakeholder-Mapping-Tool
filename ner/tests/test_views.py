@@ -2,9 +2,25 @@
 
 from unittest.mock import patch
 from uuid import uuid4
+from django.contrib.auth import get_user_model
 from django.test import TestCase, Client
-from ingestion.models import Document, Chunk
+from rest_framework.authtoken.models import Token
+from ingestion.models import Document, Chunk, Project
 from ner.models import Entity, NERRun
+
+
+User = get_user_model()
+
+
+def _auth_client(client: Client, username: str = 'tester'):
+    user = User.objects.create_user(
+        username=f'{username}_{uuid4().hex[:6]}',
+        email=f'{uuid4().hex[:6]}@example.com',
+        password='Password123',
+    )
+    token = Token.objects.create(user=user)
+    client.defaults['HTTP_AUTHORIZATION'] = f'Token {token.key}'
+    return user
 
 
 class TestExtractEntitiesView(TestCase):
@@ -13,10 +29,13 @@ class TestExtractEntitiesView(TestCase):
     def setUp(self):
         """Create test client and document."""
         self.client = Client()
+        self.user = _auth_client(self.client, username='extract')
+        self.project = Project.objects.create(name='p1', owner=self.user)
         self.document = Document.objects.create(
             filename="test.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         self.chunk = Chunk.objects.create(
             document=self.document,
@@ -82,6 +101,7 @@ class TestExtractEntitiesView(TestCase):
             entity_type='PERSON',
             canonical_name='Old Person',
             document_id=self.document,
+            project=self.project,
             confidence=0.7,
         )
 
@@ -253,10 +273,13 @@ class TestDocumentEntitiesView(TestCase):
     def setUp(self):
         """Create test document with entities."""
         self.client = Client()
+        self.user = _auth_client(self.client, username='entities')
+        self.project = Project.objects.create(name='p2', owner=self.user)
         self.document = Document.objects.create(
             filename="test.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         Entity.objects.create(
             entity_type='PERSON',
@@ -264,6 +287,7 @@ class TestDocumentEntitiesView(TestCase):
             raw_mentions=['John Doe', 'John'],
             confidence=0.95,
             document_id=self.document,
+            project=self.project,
         )
         Entity.objects.create(
             entity_type='ORGANIZATION',
@@ -271,6 +295,7 @@ class TestDocumentEntitiesView(TestCase):
             raw_mentions=['UNDP'],
             confidence=0.98,
             document_id=self.document,
+            project=self.project,
         )
 
     def test_get_entities_success(self):
@@ -290,6 +315,7 @@ class TestDocumentEntitiesView(TestCase):
             filename="empty.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
 
         url = f'/api/v1/documents/{empty_doc.id}/entities/'
@@ -317,10 +343,13 @@ class TestGraphNodesView(TestCase):
     def setUp(self):
         """Create test document with entities."""
         self.client = Client()
+        self.user = _auth_client(self.client, username='graph')
+        self.project = Project.objects.create(name='p3', owner=self.user)
         self.document = Document.objects.create(
             filename="test.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         Entity.objects.create(
             entity_type='PERSON',
@@ -328,6 +357,7 @@ class TestGraphNodesView(TestCase):
             raw_mentions=['John', 'John Doe'],
             confidence=0.95,
             document_id=self.document,
+            project=self.project,
         )
 
     def test_get_graph_nodes_success(self):
@@ -353,6 +383,7 @@ class TestGraphNodesView(TestCase):
             filename="empty.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
 
         url = f'/api/v1/graph/?document_id={empty_doc.id}'
@@ -388,10 +419,13 @@ class TestDocumentRunsView(TestCase):
 
     def setUp(self):
         self.client = Client()
+        self.user = _auth_client(self.client, username='runs')
+        self.project = Project.objects.create(name='p4', owner=self.user)
         self.document = Document.objects.create(
             filename="history.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         NERRun.objects.create(
             document_id=self.document,
@@ -445,10 +479,13 @@ class TestExtractEntitiesRelationsView(TestCase):
     def setUp(self):
         """Create test client and document."""
         self.client = Client()
+        self.user = _auth_client(self.client, username='joint')
+        self.project = Project.objects.create(name='p5', owner=self.user)
         self.document = Document.objects.create(
             filename="test.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         self.chunk = Chunk.objects.create(
             document=self.document,
@@ -497,12 +534,14 @@ class TestExtractEntitiesRelationsView(TestCase):
             entity_type='PERSON',
             canonical_name='Old Person',
             document_id=self.document,
+            project=self.project,
             confidence=0.7,
         )
         entity2 = Entity.objects.create(
             entity_type='ORGANIZATION',
             canonical_name='Old Company',
             document_id=self.document,
+            project=self.project,
             confidence=0.7,
         )
         
@@ -516,6 +555,7 @@ class TestExtractEntitiesRelationsView(TestCase):
         Relation.objects.create(
             document_id=self.document,
             run=run,
+            project=self.project,
             source_entity=entity1,
             target_entity=entity2,
             label='OLD_RELATION',
@@ -550,22 +590,27 @@ class TestRelationsView(TestCase):
         from ner.models import Relation
         
         self.client = Client()
+        self.user = _auth_client(self.client, username='rels')
+        self.project = Project.objects.create(name='p6', owner=self.user)
         self.document = Document.objects.create(
             filename="test.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         
         self.entity1 = Entity.objects.create(
             entity_type='PERSON',
             canonical_name='John Smith',
             document_id=self.document,
+            project=self.project,
             confidence=0.95,
         )
         self.entity2 = Entity.objects.create(
             entity_type='ORGANIZATION',
             canonical_name='Acme Corp',
             document_id=self.document,
+            project=self.project,
             confidence=0.98,
         )
         
@@ -579,6 +624,7 @@ class TestRelationsView(TestCase):
         Relation.objects.create(
             document_id=self.document,
             run=self.run,
+            project=self.project,
             source_entity=self.entity1,
             target_entity=self.entity2,
             label='WORKS_AT',
@@ -608,6 +654,7 @@ class TestRelationsView(TestCase):
             filename="empty.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
 
         url = f'/api/v1/documents/{empty_doc.id}/relations/'

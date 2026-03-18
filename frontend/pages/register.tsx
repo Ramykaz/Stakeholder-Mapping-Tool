@@ -15,6 +15,19 @@ export default function RegisterPage() {
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
+    if (!username.trim()) {
+      setError('Username is required.');
+      return;
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(email.trim())) {
+      setError('Please provide a valid email address.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
     setLoading(true);
     try {
       await registerUser({ username, email, password });

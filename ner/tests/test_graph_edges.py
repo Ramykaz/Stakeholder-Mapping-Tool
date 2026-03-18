@@ -2,21 +2,30 @@
 
 from uuid import uuid4
 
-from django.test import Client, TestCase
+from django.contrib.auth import get_user_model
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APITestCase
 
-from ingestion.models import Document
+from ingestion.models import Document, Project
 from ner.models import Entity, NERRun, Relation
 
 
-class TestGraphEdgesView(TestCase):
+User = get_user_model()
+
+
+class TestGraphEdgesView(APITestCase):
     """Validate /api/v1/graph edge payload behavior."""
 
     def setUp(self):
-        self.client = Client()
+        self.user = User.objects.create_user('graphuser', 'graphuser@example.com', 'Password123')
+        self.token = Token.objects.create(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        self.project = Project.objects.create(name='Graph Project', owner=self.user)
         self.document = Document.objects.create(
             filename="graph-test.pdf",
             file_format="pdf",
             processing_status="completed",
+            project=self.project,
         )
         self.run = NERRun.objects.create(
             document_id=self.document,

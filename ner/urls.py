@@ -17,5 +17,9 @@ urlpatterns = [
     path('documents/<uuid:id>/relations/', views.RelationsView.as_view(), name='document-relations'),
     path('documents/<uuid:id>/runs/', views.DocumentRunsView.as_view(), name='document-runs'),
     path('documents/<uuid:id>/extraction-progress/', views.ExtractionProgressView.as_view(), name='extraction-progress'),
+    path('projects/<uuid:id>/extract-entities/', views.ProjectExtractEntitiesView.as_view(), name='project-extract-entities'),
+    path('projects/<uuid:id>/entities/', views.ProjectEntitiesView.as_view(), name='project-entities'),
+    path('projects/<uuid:id>/graph/', views.ProjectGraphView.as_view(), name='project-graph'),
+    path('entities/<uuid:id>/', views.GlobalEntityProfileView.as_view(), name='global-entity-profile'),
     path('graph/', views.GraphNodesView.as_view(), name='graph-nodes'),
 ]

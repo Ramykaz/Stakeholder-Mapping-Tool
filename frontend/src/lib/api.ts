@@ -115,6 +115,59 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
+function normalizeErrorMessage(data: any): string {
+  if (!data) {
+    return 'Unknown error';
+  }
+
+  if (typeof data === 'string') {
+    return data;
+  }
+
+  if (typeof data.detail === 'string') {
+    return data.detail;
+  }
+
+  if (data.error && typeof data.error === 'object') {
+    if (typeof data.error.message === 'string') {
+      const remediation = Array.isArray(data.error.remediation) && data.error.remediation.length > 0
+        ? ` ${String(data.error.remediation[0])}`
+        : '';
+      return `${data.error.message}${remediation}`.trim();
+    }
+    if (typeof data.error.detail === 'string') {
+      return data.error.detail;
+    }
+  }
+
+  if (typeof data.message === 'string') {
+    return data.message;
+  }
+
+  if (typeof data.error === 'string') {
+    return data.error;
+  }
+
+  const fieldErrors = Object.entries(data)
+    .filter(([key]) => !['detail', 'message', 'error', 'code'].includes(key))
+    .map(([key, value]) => {
+      if (Array.isArray(value)) {
+        return `${key}: ${value.join(', ')}`;
+      }
+      if (typeof value === 'string') {
+        return `${key}: ${value}`;
+      }
+      return null;
+    })
+    .filter(Boolean) as string[];
+
+  if (fieldErrors.length > 0) {
+    return fieldErrors.join(' | ');
+  }
+
+  return 'Unknown error';
+}
+
 // Error interceptor
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
@@ -127,12 +180,26 @@ apiClient.interceptors.response.use(
       console.error(`API Error [${status}]:`, data);
 
       // Return user-friendly error message
-      const errorDetail = data?.detail || data?.message || 'Unknown error';
+      const errorDetail = normalizeErrorMessage(data);
+      const errorCode = String(data?.code || data?.error?.code || '').toLowerCase();
+
+      if (errorCode === 'incorrect_password') {
+        return Promise.reject(new Error('Incorrect password.'));
+      }
+
+      if (errorCode === 'invalid_credentials') {
+        return Promise.reject(new Error('Invalid credentials.'));
+      }
+
+      if (errorCode === 'provider_rate_limited') {
+        return Promise.reject(new Error(errorDetail || 'Provider is rate limited. Switch provider and retry.'));
+      }
+
       const errorMessage =
         status === 404
           ? 'Resource not found'
           : status === 429
-            ? 'Rate limited. Please try again later'
+            ? (errorDetail || 'Rate limited. Please switch provider and try again later')
             : status === 500
               ? 'Server error. Please try again'
               : errorDetail;
@@ -309,8 +376,155 @@ export interface NERRunSummary {
   created_at: string;
 }
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'archived';
+  document_count: number;
+  entity_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConceptNoteResponse {
+  project_id: string;
+  content: string;
+  attachment?: File | null;
+  attachment_url: string | null;
+  updated_at: string;
+}
+
+export interface GlobalEntityProfile {
+  id: string;
+  canonical_name: string;
+  entity_type: string;
+  projects: Array<{ id: string; name: string }>;
+}
+
 export async function getDocuments(): Promise<DocumentSummary[]> {
   const response = await apiClient.get('/api/v1/documents/');
+  return response.data;
+}
+
+export async function getProjects(): Promise<ProjectSummary[]> {
+  const response = await apiClient.get('/api/v1/projects/');
+  return response.data || [];
+}
+
+export async function createProject(payload: {
+  name: string;
+  description?: string;
+  status?: 'active' | 'archived';
+}): Promise<ProjectSummary> {
+  const response = await apiClient.post('/api/v1/projects/', payload);
+  return response.data;
+}
+
+export async function getProject(id: string): Promise<ProjectSummary> {
+  const response = await apiClient.get(`/api/v1/projects/${id}/`);
+  return response.data;
+}
+
+export async function updateProject(id: string, payload: Partial<{
+  name: string;
+  description: string;
+  status: 'active' | 'archived';
+}>): Promise<ProjectSummary> {
+  const response = await apiClient.patch(`/api/v1/projects/${id}/`, payload);
+  return response.data;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/projects/${id}/`);
+}
+
+export async function getProjectConceptNote(projectId: string): Promise<ConceptNoteResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/concept-note/`);
+  return response.data;
+}
+
+export async function upsertProjectConceptNote(
+  projectId: string,
+  payload: { content: string; attachment?: File | null }
+): Promise<ConceptNoteResponse> {
+  const formData = new FormData();
+  formData.append('content', payload.content || '');
+  if (payload.attachment) {
+    formData.append('attachment', payload.attachment);
+  }
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/concept-note/`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+}
+
+export async function uploadDocumentToProject(
+  projectId: string,
+  file: File
+): Promise<DocumentSummary> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/documents/`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+}
+
+export async function extractEntitiesForProject(
+  projectId: string,
+  documentId: string,
+  options?: { provider?: ProviderName; model?: string }
+): Promise<{
+  status: string;
+  project_id: string;
+  document_id: string;
+  entities_created: number;
+  relations_created: number;
+  run_id: string;
+  provider?: string;
+  model?: string;
+}> {
+  const payload: Record<string, string> = { document_id: documentId };
+  if (options?.provider) payload.provider = options.provider;
+  if (options?.model) payload.model = options.model;
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/extract-entities/`, payload);
+  return response.data;
+}
+
+export async function getProjectEntities(projectId: string): Promise<any[]> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/entities/`);
+  return response.data.entities || [];
+}
+
+export async function getProjectGraph(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/graph/`);
+  return {
+    nodes: (response.data.nodes || []).map((n: any) => ({
+      id: n.data.id,
+      label: n.data.label,
+      data: {
+        entity_id: n.data.id,
+        entity_type: n.data.entity_type,
+        confidence: n.data.confidence,
+        document_id: n.data.document_id || '',
+        chunk_id: n.data.chunk_id || null,
+        raw_mentions_count: n.data.raw_mentions_count || 0,
+        shape: n.data.shape,
+      },
+    })),
+    edges: (response.data.edges || []).map((e: any) => ({
+      id: e.data.id,
+      source: e.data.source,
+      target: e.data.target,
+      label: e.data.label,
+      confidence: e.data.confidence,
+    })),
+  };
+}
+
+export async function getGlobalEntityProfile(entityId: string): Promise<GlobalEntityProfile> {
+  const response = await apiClient.get(`/api/v1/entities/${entityId}/`);
   return response.data;
 }
 
@@ -480,9 +694,11 @@ export async function registerUser(payload: {
   email?: string;
   password: string;
 }): Promise<{ token: string; user: AuthUser }> {
+  console.info('[AUTH] register request', { username: payload.username, email: payload.email });
   const response = await apiClient.post('/api/v1/auth/register/', payload);
   const data = response.data as { token: string; user: AuthUser };
   setStoredAuth(data.token, data.user);
+  console.info('[AUTH] register success', { userId: data.user.id, isAdmin: data.user.is_admin });
   return data;
 }
 
@@ -490,9 +706,11 @@ export async function loginUser(payload: {
   username: string;
   password: string;
 }): Promise<{ token: string; user: AuthUser }> {
+  console.info('[AUTH] login request', { username: payload.username });
   const response = await apiClient.post('/api/v1/auth/login/', payload);
   const data = response.data as { token: string; user: AuthUser };
   setStoredAuth(data.token, data.user);
+  console.info('[AUTH] login success', { userId: data.user.id, isAdmin: data.user.is_admin });
   return data;
 }
 

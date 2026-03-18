@@ -14,6 +14,14 @@ export default function LoginPage() {
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
+    if (!username.trim()) {
+      setError('Username is required.');
+      return;
+    }
+    if (!password) {
+      setError('Password is required.');
+      return;
+    }
     setLoading(true);
     try {
       const result = await loginUser({ username, password });

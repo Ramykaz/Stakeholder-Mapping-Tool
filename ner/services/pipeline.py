@@ -342,6 +342,7 @@ def extract_relations_for_document(
     document_id: str,
     provider: str | None = None,
     model: str | None = None,
+    concept_note: str | None = None,
 ) -> dict:
     """Extract entities and relations in one provider call per chunk."""
     provider_config = _resolve_provider_config(provider, model)
@@ -442,7 +443,7 @@ def extract_relations_for_document(
                 chunk_data = _extract_chunk_joint(
                     chunk.text,
                     provider_config,
-                    concept_note=None,
+                    concept_note=concept_note,
                     entity_labels=active_entity_labels,
                     relationship_types=active_relationship_types,
                 )
@@ -496,30 +497,25 @@ def extract_relations_for_document(
                 if _normalize_text(item.get('target_text'))
             }
         )
-
-        linked_entities_only = [
-            entity
-            for entity in all_extracted_entities
-            if _normalize_text(entity.get('text')) in linked_entity_names
-        ]
         logger.info(
-            "[NER+REL-JOINT] step=linked_entity_filter  raw_entities=%d  linked_entities=%d  linked_names=%d",
+            "[NER+REL-JOINT] step=linked_entity_filter  raw_entities=%d  linked_names=%d",
             len(all_extracted_entities),
-            len(linked_entities_only),
             len(linked_entity_names),
         )
 
-        # Deduplicate and save only entities participating in at least one relationship
+        # Persist deduplicated entities even when relations are empty.
+        # This avoids user-visible false negatives where extraction ran but
+        # reported 0 entities simply because no relationship triplets survived.
         _t0 = perf_counter()
         entities_to_create = _deduplicate_entities_for_save(
-            linked_entities_only,
+            all_extracted_entities,
             document,
             run=run,
             existing_entities=Entity.objects.none(),
         )
         logger.info(
             "[NER+REL-JOINT] step=entity_deduplicate  in=%d  out=%d  duration=%.2fs",
-            len(linked_entities_only), len(entities_to_create), perf_counter() - _t0,
+            len(all_extracted_entities), len(entities_to_create), perf_counter() - _t0,
         )
 
         _t0 = perf_counter()

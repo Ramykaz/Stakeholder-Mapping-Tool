@@ -1,18 +1,27 @@
 """US-06 tests for review candidate list/resolve APIs."""
 
-from django.test import Client, TestCase
+from django.contrib.auth import get_user_model
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APITestCase
 
-from ingestion.models import Document
+from ingestion.models import Document, Project
 from ner.models import Entity, EntityReviewCandidate
 
 
-class TestEntityReviewCandidatesApi(TestCase):
+User = get_user_model()
+
+
+class TestEntityReviewCandidatesApi(APITestCase):
     def setUp(self):
-        self.client = Client()
+        self.user = User.objects.create_user('reviewer', 'reviewer@example.com', 'Password123')
+        self.token = Token.objects.create(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        self.project = Project.objects.create(name='Review Project', owner=self.user)
         self.document = Document.objects.create(
             filename='review.txt',
             file_format='txt',
             processing_status='completed',
+            project=self.project,
         )
         self.left = Entity.objects.create(
             entity_type='ORGANIZATION',
@@ -57,7 +66,7 @@ class TestEntityReviewCandidatesApi(TestCase):
         response = self.client.post(
             f'/api/v1/documents/{self.document.id}/entities/review-candidates/{self.candidate.id}/resolve/',
             data={'action': 'keep_separate'},
-            content_type='application/json',
+            format='json',
         )
 
         self.assertEqual(response.status_code, 200)
@@ -68,7 +77,7 @@ class TestEntityReviewCandidatesApi(TestCase):
         response = self.client.post(
             f'/api/v1/documents/{self.document.id}/entities/review-candidates/{self.candidate.id}/resolve/',
             data={'action': 'merge'},
-            content_type='application/json',
+            format='json',
         )
 
         self.assertEqual(response.status_code, 200)
@@ -82,7 +91,7 @@ class TestEntityReviewCandidatesApi(TestCase):
         response = self.client.post(
             f'/api/v1/documents/{self.document.id}/entities/review-candidates/{self.candidate.id}/resolve/',
             data={'action': 'merge'},
-            content_type='application/json',
+            format='json',
         )
 
         self.assertEqual(response.status_code, 400)

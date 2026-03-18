@@ -357,6 +357,7 @@ class EntityDedupService:
                 needs_review=False,
                 mention_count_dedup=1,
                 document_id=document,
+                project=getattr(document, 'project', None),
                 run=run,
                 chunk_id=chunk,
                 parent_entity=parent_entity,

@@ -70,6 +70,15 @@ const navLinks = [
       </svg>
     ),
   },
+  {
+    href: '/relations',
+    label: 'Relations',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7h8M8 12h5m-5 5h8M4 7h.01M4 12h.01M4 17h.01" />
+      </svg>
+    ),
+  },
 ];
 
 export default function Layout({ children, title, subtitle }: LayoutProps) {
@@ -80,6 +89,15 @@ export default function Layout({ children, title, subtitle }: LayoutProps) {
   useEffect(() => {
     setUser(getStoredAuthUser());
   }, [router.pathname]);
+
+  useEffect(() => {
+    if (router.pathname === '/upload') {
+      const projectId = router.query?.project_id;
+      if (!projectId || (Array.isArray(projectId) && projectId.length === 0)) {
+        void router.replace('/');
+      }
+    }
+  }, [router.pathname, router.query, router]);
 
   const links = useMemo(() => {
     if (!user?.is_admin) {

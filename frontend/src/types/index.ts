@@ -69,6 +69,12 @@ export interface Relation {
 export interface CytoscapeNode {
   id: string;
   label: string; // canonical_name
+  entity_type?: 'PERSON' | 'ORGANIZATION' | 'LOCATION' | 'ROLE';
+  degree?: number;
+  style?: {
+    shape: 'ellipse' | 'rectangle' | 'diamond' | 'hexagon';
+    color: string;
+  };
   data: {
     entity_id: string;
     entity_type: 'PERSON' | 'ORGANIZATION' | 'LOCATION' | 'ROLE';
@@ -77,6 +83,9 @@ export interface CytoscapeNode {
     chunk_id: string | null;
     raw_mentions_count: number;
     shape?: 'ellipse' | 'rectangle' | 'diamond' | 'hexagon';
+    color?: string;
+    degree?: number;
+    node_size?: number;
   };
 }
 
@@ -87,6 +96,9 @@ export interface CytoscapeEdge {
   target: string;
   label: string;
   confidence: number;
+  relation_type?: string;
+  color?: string;
+  edge_width?: number;
 }
 
 // Graph response
@@ -161,5 +173,27 @@ export interface GlobalEntityProfile {
   id: string;
   canonical_name: string;
   entity_type: string;
+  aliases?: string[];
+  relationships?: Array<{
+    relation_id: string;
+    project_id: string | null;
+    source_entity_id: string;
+    target_entity_id: string;
+    relation_type: string;
+    confidence: number;
+    supporting_excerpts: string[];
+  }>;
   projects: Array<{ id: string; name: string }>;
+}
+
+export interface ContextualSummaryResponse {
+  entity_id: string;
+  project_id: string;
+  summary: string | null;
+  source?: 'cache' | 'provider';
+  generated_at?: string;
+  expires_at?: string;
+  fallback_message?: string;
+  retryable?: boolean;
+  reason?: string;
 }

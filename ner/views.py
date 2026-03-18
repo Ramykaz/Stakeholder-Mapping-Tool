@@ -19,8 +19,10 @@ from .serializers import (
     RelationshipTypeSerializer,
     EntityReviewCandidateSerializer,
     GlobalEntityProfileSerializer,
+    ContextualSummaryRequestSerializer,
 )
-from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress
+from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress, get_active_entity_style_map
+from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
 from .services.provider_runtime import ProviderConfigError
 
@@ -40,6 +42,10 @@ def _get_project_for_user_or_404(project_id, user):
     return get_object_or_404(Project, id=project_id, owner=user)
 
 
+def _get_entity_for_user_or_404(entity_id, user):
+    return get_object_or_404(Entity, id=entity_id, document_id__project__owner=user)
+
+
 def _resolve_document_project(document: Document, user=None) -> Project:
     if document.project_id:
         return document.project
@@ -55,6 +61,10 @@ def _get_project_concept_note_text(project: Project) -> str | None:
         return None
     text = (concept_note.content or '').strip()
     return text or None
+
+
+def _active_entity_style_map() -> dict:
+    return get_active_entity_style_map()
 
 
 class EntityLabelAdminView(APIView):
@@ -784,17 +794,39 @@ class GraphNodesView(APIView):
                 entities = entities.filter(confidence__gte=confidence_threshold)
             entities = entities.order_by('entity_type', 'canonical_name')
 
+            style_map = _active_entity_style_map()
+            default_style = {'shape': 'ellipse', 'color': '#9ca3af'}
+
+            entity_ids = {str(entity.id) for entity in entities}
+            degree_map = {entity_id: 0 for entity_id in entity_ids}
+
+            relations_for_degree = Relation.objects.filter(document_id=document_id, document_id__project__owner=request.user)
+            if confidence_threshold is not None:
+                relations_for_degree = relations_for_degree.filter(confidence__gte=confidence_threshold)
+            for rel in relations_for_degree.only('source_entity_id', 'target_entity_id'):
+                source_id = str(rel.source_entity_id)
+                target_id = str(rel.target_entity_id)
+                if source_id in degree_map and target_id in degree_map:
+                    degree_map[source_id] += 1
+                    degree_map[target_id] += 1
+
             # Build nodes array with shape mapping
             nodes = []
             for entity in entities:
+                style = style_map.get(entity.entity_type, default_style)
                 nodes.append({
                     "id": str(entity.id),
                     "label": entity.canonical_name,
+                    "entity_type": entity.entity_type,
+                    "degree": degree_map.get(str(entity.id), 0),
+                    "style": style,
                     "data": {
                         "id": str(entity.id),
                         "label": entity.canonical_name,
                         "entity_type": entity.entity_type,
-                        "shape": self.SHAPE_MAP.get(entity.entity_type, 'ellipse'),
+                        "shape": style.get('shape', self.SHAPE_MAP.get(entity.entity_type, 'ellipse')),
+                        "color": style.get('color', '#9ca3af'),
+                        "degree": degree_map.get(str(entity.id), 0),
                         "confidence": entity.confidence,
                         "document_id": str(entity.document_id_id),
                         "chunk_id": str(entity.chunk_id_id) if entity.chunk_id_id else None,
@@ -806,7 +838,6 @@ class GraphNodesView(APIView):
                 })
 
             # Get relations for edges (only include if both source and target are in  filtered entities)
-            entity_ids = {str(entity.id) for entity in entities}
             relations = Relation.objects.filter(document_id=document_id, document_id__project__owner=request.user).select_related(
                 'source_entity',
                 'target_entity',
@@ -861,32 +892,88 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
         try:
             project = _get_project_for_user_or_404(id, request.user)
             document_id = request.data.get('document_id') if isinstance(request.data, dict) else None
-            if not document_id:
-                return Response(
-                    {'error': 'missing_parameter', 'detail': 'Required body parameter: document_id'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            document = _get_document_for_user_or_404(document_id, request.user)
-            if document.project_id != project.id:
-                return Response(
-                    {'error': 'document_not_in_project'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            documents = []
+            if document_id:
+                document = _get_document_for_user_or_404(document_id, request.user)
+                if document.project_id != project.id:
+                    return Response(
+                        {'error': 'document_not_in_project'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                documents = [document]
+            else:
+                documents = list(Document.objects.filter(project=project).order_by('upload_timestamp'))
+                if not documents:
+                    return Response(
+                        {'error': 'no_project_documents', 'detail': 'Project has no uploaded documents.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
             provider, model = _resolve_provider_and_model(request)
             concept_note = _get_project_concept_note_text(project)
-            result = extract_relations_for_document(str(document.id), provider=provider, model=model, concept_note=concept_note)
+            total_entities_created = 0
+            total_relations_created = 0
+            per_document_results = []
+
+            for document in documents:
+                result = extract_relations_for_document(
+                    str(document.id),
+                    provider=provider,
+                    model=model,
+                    concept_note=concept_note,
+                )
+
+                fallback_used = False
+                if result.get('relations_created', 0) == 0 and result.get('entities_created', 0) >= 2:
+                    fallback = extract_relations_only_for_document(str(document.id), provider=provider, model=model)
+                    result = {
+                        **result,
+                        'relations_created': fallback.get('relations_created', 0),
+                        'run_id': fallback.get('run_id') or result.get('run_id'),
+                    }
+                    fallback_used = True
+
+                doc_entities = int(result.get('entities_created', 0) or 0)
+                doc_relations = int(result.get('relations_created', 0) or 0)
+                total_entities_created += doc_entities
+                total_relations_created += doc_relations
+                per_document_results.append(
+                    {
+                        'document_id': str(document.id),
+                        'entities_created': doc_entities,
+                        'relations_created': doc_relations,
+                        'run_id': result.get('run_id'),
+                        'fallback_relations_run': fallback_used,
+                    }
+                )
+
+            if len(documents) == 1:
+                only = per_document_results[0]
+                return Response(
+                    {
+                        'status': 'completed',
+                        'project_id': str(project.id),
+                        'document_id': only['document_id'],
+                        'entities_created': only['entities_created'],
+                        'relations_created': only['relations_created'],
+                        'run_id': only['run_id'],
+                        'provider': provider,
+                        'model': model,
+                        'fallback_relations_run': only['fallback_relations_run'],
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
             return Response(
                 {
                     'status': 'completed',
                     'project_id': str(project.id),
-                    'document_id': str(document.id),
-                    'entities_created': result.get('entities_created', 0),
-                    'relations_created': result.get('relations_created', 0),
-                    'run_id': result.get('run_id'),
-                    'provider': result.get('provider', provider),
-                    'model': result.get('model', model),
+                    'documents_processed': len(documents),
+                    'entities_created': total_entities_created,
+                    'relations_created': total_relations_created,
+                    'provider': provider,
+                    'model': model,
+                    'results': per_document_results,
                 },
                 status=status.HTTP_201_CREATED,
             )
@@ -931,22 +1018,40 @@ class ProjectGraphView(AuthenticatedAPIView):
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
         entities = Entity.objects.filter(project=project).order_by('entity_type', 'canonical_name')
+        style_map = _active_entity_style_map()
+        default_style = {'shape': 'ellipse', 'color': '#9ca3af'}
+        entity_ids = {str(entity.id) for entity in entities}
+        degree_map = {entity_id: 0 for entity_id in entity_ids}
+
+        relation_qs = Relation.objects.filter(project=project).select_related('source_entity', 'target_entity')
+        for relation in relation_qs:
+            source_id = str(relation.source_entity_id)
+            target_id = str(relation.target_entity_id)
+            if source_id in degree_map and target_id in degree_map:
+                degree_map[source_id] += 1
+                degree_map[target_id] += 1
+
         nodes = [
             {
                 'id': str(entity.id),
                 'label': entity.canonical_name,
+                'entity_type': entity.entity_type,
+                'degree': degree_map.get(str(entity.id), 0),
+                'style': style_map.get(entity.entity_type, default_style),
                 'data': {
                     'id': str(entity.id),
                     'label': entity.canonical_name,
                     'entity_type': entity.entity_type,
-                    'shape': self.SHAPE_MAP.get(entity.entity_type, 'ellipse'),
+                    'shape': style_map.get(entity.entity_type, default_style).get('shape', self.SHAPE_MAP.get(entity.entity_type, 'ellipse')),
+                    'color': style_map.get(entity.entity_type, default_style).get('color', '#9ca3af'),
+                    'degree': degree_map.get(str(entity.id), 0),
                     'confidence': entity.confidence,
                 },
             }
             for entity in entities
         ]
         entity_ids = {str(item['id']) for item in nodes}
-        relations = Relation.objects.filter(project=project).select_related('source_entity', 'target_entity')
+        relations = relation_qs
         edges = []
         for relation in relations:
             source_id = str(relation.source_entity_id)
@@ -983,6 +1088,53 @@ class GlobalEntityProfileView(AuthenticatedAPIView):
         entity = get_object_or_404(Entity, id=id, document_id__project__owner=request.user)
         serializer = GlobalEntityProfileSerializer(entity, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class EntityProfileView(AuthenticatedAPIView):
+    """GET /api/v1/entities/{id}/profile/."""
+
+    def get(self, request, id):
+        entity = _get_entity_for_user_or_404(id, request.user)
+        serializer = GlobalEntityProfileSerializer(entity, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class EntitySummaryView(AuthenticatedAPIView):
+    """POST /api/v1/entities/{id}/summary/."""
+
+    def post(self, request, id):
+        entity = _get_entity_for_user_or_404(id, request.user)
+        serializer = ContextualSummaryRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        project_id = serializer.validated_data['project_id']
+        refresh = serializer.validated_data.get('refresh', False)
+        project = _get_project_for_user_or_404(project_id, request.user)
+
+        entity_in_project = Entity.objects.filter(
+            canonical_name=entity.canonical_name,
+            project=project,
+            document_id__project__owner=request.user,
+        ).exists()
+        if not entity_in_project:
+            return Response(
+                {
+                    'error': 'entity_not_in_project',
+                    'detail': 'Entity is not linked to the selected project context.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        summary_payload = get_or_generate_summary(
+            entity=entity,
+            project=project,
+            refresh=refresh,
+            timeout_seconds=8,
+        )
+
+        status_code = summary_payload.pop('status_code', status.HTTP_200_OK)
+        return Response(summary_payload, status=status_code)
 
 
 class DocumentRunsView(AuthenticatedAPIView):

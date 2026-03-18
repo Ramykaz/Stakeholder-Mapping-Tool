@@ -672,3 +672,136 @@ class TestRelationsView(TestCase):
 
         assert response.status_code == 404
 
+
+class TestProjectExtractEntitiesView(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = _auth_client(self.client, username='project_extract')
+        self.project = Project.objects.create(name='Project A', owner=self.user)
+        self.document1 = Document.objects.create(
+            filename='doc1.txt',
+            file_format='txt',
+            processing_status='completed',
+            project=self.project,
+        )
+        self.document2 = Document.objects.create(
+            filename='doc2.txt',
+            file_format='txt',
+            processing_status='completed',
+            project=self.project,
+        )
+
+    @patch('ner.views.extract_relations_only_for_document')
+    @patch('ner.views.extract_relations_for_document')
+    def test_extract_single_document_with_fallback_relations(self, mock_joint_extract, mock_rel_only):
+        mock_joint_extract.return_value = {
+            'entities_created': 4,
+            'relations_created': 0,
+            'run_id': 'run-joint',
+        }
+        mock_rel_only.return_value = {
+            'relations_created': 3,
+            'run_id': 'run-fallback',
+        }
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/',
+            {'document_id': str(self.document1.id)},
+            content_type='application/json',
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data['document_id'] == str(self.document1.id)
+        assert data['entities_created'] == 4
+        assert data['relations_created'] == 3
+        assert data['fallback_relations_run'] is True
+        assert data['run_id'] == 'run-fallback'
+
+    @patch('ner.views.extract_relations_only_for_document')
+    @patch('ner.views.extract_relations_for_document')
+    def test_extract_all_project_documents_when_document_id_missing(self, mock_joint_extract, mock_rel_only):
+        mock_joint_extract.side_effect = [
+            {
+                'entities_created': 2,
+                'relations_created': 1,
+                'run_id': 'run-1',
+            },
+            {
+                'entities_created': 5,
+                'relations_created': 0,
+                'run_id': 'run-2',
+            },
+        ]
+        mock_rel_only.return_value = {
+            'relations_created': 2,
+            'run_id': 'run-2-fallback',
+        }
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/',
+            {},
+            content_type='application/json',
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data['documents_processed'] == 2
+        assert data['entities_created'] == 7
+        assert data['relations_created'] == 3
+        assert len(data['results']) == 2
+        second = data['results'][1]
+        assert second['document_id'] == str(self.document2.id)
+        assert second['relations_created'] == 2
+        assert second['fallback_relations_run'] is True
+
+
+class TestCrossProjectLeakageRegression(TestCase):
+    """Regression checks that entity profile data remains owner-scoped."""
+
+    def setUp(self):
+        self.client = Client()
+
+        self.owner = User.objects.create_user(
+            username=f'owner_{uuid4().hex[:6]}',
+            email=f'owner_{uuid4().hex[:6]}@example.com',
+            password='Password123',
+        )
+        self.other = User.objects.create_user(
+            username=f'other_{uuid4().hex[:6]}',
+            email=f'other_{uuid4().hex[:6]}@example.com',
+            password='Password123',
+        )
+
+        owner_token = Token.objects.create(user=self.owner)
+        self.client.defaults['HTTP_AUTHORIZATION'] = f'Token {owner_token.key}'
+
+        self.owner_project = Project.objects.create(name='Owner Project', owner=self.owner)
+        self.owner_document = Document.objects.create(
+            filename='owner.txt',
+            file_format='txt',
+            processing_status='completed',
+            project=self.owner_project,
+        )
+
+        self.owner_entity = Entity.objects.create(
+            entity_type='ORGANIZATION',
+            canonical_name='UNDP',
+            raw_mentions=['UNDP'],
+            confidence=0.95,
+            document_id=self.owner_document,
+            project=self.owner_project,
+        )
+
+    def test_owner_can_access_profile_for_owned_entity(self):
+        response = self.client.get(f'/api/v1/entities/{self.owner_entity.id}/profile/')
+        assert response.status_code == 200
+        assert response.json()['canonical_name'] == 'UNDP'
+
+    def test_other_user_cannot_access_profile_for_foreign_entity(self):
+        other_token = Token.objects.create(user=self.other)
+        self.client.defaults['HTTP_AUTHORIZATION'] = f'Token {other_token.key}'
+
+        response = self.client.get(f'/api/v1/entities/{self.owner_entity.id}/profile/')
+        assert response.status_code == 404
+

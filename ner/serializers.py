@@ -9,6 +9,7 @@ from .models import (
     RelationshipType,
     EntityAlias,
     EntityReviewCandidate,
+    ContextualEntitySummary,
 )
 
 
@@ -209,12 +210,28 @@ class RelationshipTypeSerializer(serializers.ModelSerializer):
 
 
 class GlobalEntityProfileSerializer(serializers.ModelSerializer):
+    aliases = serializers.SerializerMethodField(read_only=True)
     projects = serializers.SerializerMethodField(read_only=True)
+    relationships = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Entity
-        fields = ['id', 'canonical_name', 'entity_type', 'projects']
+        fields = ['id', 'canonical_name', 'entity_type', 'aliases', 'projects', 'relationships']
         read_only_fields = fields
+
+    def get_aliases(self, obj):
+        request = self.context.get('request')
+        owner = getattr(request, 'user', None)
+        queryset = Entity.objects.filter(canonical_name=obj.canonical_name)
+        if owner and owner.is_authenticated:
+            queryset = queryset.filter(document_id__project__owner=owner)
+
+        alias_values = (
+            EntityAlias.objects.filter(entity__in=queryset)
+            .values_list('alias_text', flat=True)
+            .distinct()
+        )
+        return sorted(value for value in alias_values if value)
 
     def get_projects(self, obj):
         request = self.context.get('request')
@@ -233,3 +250,50 @@ class GlobalEntityProfileSerializer(serializers.ModelSerializer):
             {'id': row['project__id'], 'name': row['project__name']}
             for row in memberships
         ]
+
+    def get_relationships(self, obj):
+        request = self.context.get('request')
+        owner = getattr(request, 'user', None)
+        canonical_entities = Entity.objects.filter(canonical_name=obj.canonical_name)
+        if owner and owner.is_authenticated:
+            canonical_entities = canonical_entities.filter(document_id__project__owner=owner)
+
+        relations = (
+            Relation.objects
+            .filter(source_entity__in=canonical_entities)
+            .select_related('source_entity', 'target_entity', 'project')
+            .order_by('-confidence')
+        )
+
+        return [
+            {
+                'relation_id': str(rel.id),
+                'project_id': str(rel.project_id) if rel.project_id else None,
+                'source_entity_id': str(rel.source_entity_id),
+                'target_entity_id': str(rel.target_entity_id),
+                'relation_type': rel.label,
+                'confidence': rel.confidence,
+                'supporting_excerpts': [],
+            }
+            for rel in relations[:50]
+        ]
+
+
+class ContextualSummaryRequestSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField(required=True)
+    refresh = serializers.BooleanField(required=False, default=False)
+
+
+class ContextualSummarySerializer(serializers.ModelSerializer):
+    entity_id = serializers.UUIDField(source='entity.id', read_only=True)
+    project_id = serializers.UUIDField(source='project.id', read_only=True)
+    summary = serializers.CharField(source='summary_text', read_only=True)
+    source = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ContextualEntitySummary
+        fields = ['entity_id', 'project_id', 'summary', 'source', 'generated_at', 'expires_at']
+        read_only_fields = fields
+
+    def get_source(self, _obj):
+        return 'cache'

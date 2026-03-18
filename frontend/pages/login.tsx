@@ -25,11 +25,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const result = await loginUser({ username, password });
-      if (result.user.is_admin) {
-        await router.push('/admin');
-      } else {
-        await router.push('/');
-      }
+      await router.push('/');
     } catch (e: any) {
       setError(e.message || 'Login failed.');
     } finally {

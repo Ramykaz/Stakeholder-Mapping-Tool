@@ -299,6 +299,21 @@ export async function getEntities(
   return response.data.entities || [];
 }
 
+export function computeNodeSize(degree: number): number {
+  const safeDegree = Number.isFinite(degree) ? Math.max(0, degree) : 0;
+  const min = 34;
+  const max = 92;
+  const scaled = min + Math.log2(safeDegree + 1) * 14;
+  return Math.max(min, Math.min(max, Math.round(scaled)));
+}
+
+export function computeEdgeWidth(confidence: number): number {
+  const safeConfidence = Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0;
+  const min = 1.5;
+  const max = 6;
+  return Number((min + (max - min) * safeConfidence).toFixed(2));
+}
+
 /**
  * Get graph nodes and edges for a document (Cytoscape.js format).
  * @param documentId - UUID of document
@@ -320,8 +335,11 @@ export async function getGraphNodes(
 
   return {
     nodes: (response.data.nodes || []).map((n: any) => ({
-      id: n.data.id,
-      label: n.data.label,
+      id: n.id || n.data.id,
+      label: n.label || n.data.label,
+      entity_type: n.entity_type || n.data.entity_type,
+      degree: n.degree ?? n.data.degree ?? 0,
+      style: n.style || { shape: n.data.shape, color: n.data.color || '#9ca3af' },
       data: {
         entity_id: n.data.id,
         entity_type: n.data.entity_type,
@@ -330,15 +348,24 @@ export async function getGraphNodes(
         chunk_id: n.data.chunk_id || null,
         raw_mentions_count: n.data.raw_mentions_count || 0,
         shape: n.data.shape,
+        color: n.data.color || '#9ca3af',
+        degree: n.data.degree ?? n.degree ?? 0,
+        node_size: computeNodeSize(n.data.degree ?? n.degree ?? 0),
       },
     })),
-    edges: (response.data.edges || []).map((e: any) => ({
-      id: e.data.id,
-      source: e.data.source,
-      target: e.data.target,
-      label: e.data.label,
-      confidence: e.data.confidence,
-    })),
+    edges: (response.data.edges || []).map((e: any) => {
+      const edgeData = e.data || e;
+      return {
+        id: edgeData.id,
+        source: edgeData.source,
+        target: edgeData.target,
+        label: edgeData.label,
+        relation_type: edgeData.relation_type,
+        confidence: edgeData.confidence,
+        color: edgeData.color,
+        edge_width: computeEdgeWidth(edgeData.confidence),
+      };
+    }),
   };
 }
 
@@ -399,7 +426,29 @@ export interface GlobalEntityProfile {
   id: string;
   canonical_name: string;
   entity_type: string;
+  aliases?: string[];
+  relationships?: Array<{
+    relation_id: string;
+    project_id: string | null;
+    source_entity_id: string;
+    target_entity_id: string;
+    relation_type: string;
+    confidence: number;
+    supporting_excerpts: string[];
+  }>;
   projects: Array<{ id: string; name: string }>;
+}
+
+export interface ContextualSummaryResponse {
+  entity_id: string;
+  project_id: string;
+  summary: string | null;
+  source?: 'cache' | 'provider';
+  generated_at?: string;
+  expires_at?: string;
+  fallback_message?: string;
+  retryable?: boolean;
+  reason?: string;
 }
 
 export async function getDocuments(): Promise<DocumentSummary[]> {
@@ -473,19 +522,29 @@ export async function uploadDocumentToProject(
 
 export async function extractEntitiesForProject(
   projectId: string,
-  documentId: string,
+  documentId?: string,
   options?: { provider?: ProviderName; model?: string }
 ): Promise<{
   status: string;
   project_id: string;
-  document_id: string;
+  document_id?: string;
+  documents_processed?: number;
   entities_created: number;
   relations_created: number;
-  run_id: string;
+  run_id?: string;
+  results?: Array<{
+    document_id: string;
+    entities_created: number;
+    relations_created: number;
+    run_id?: string;
+    fallback_relations_run?: boolean;
+  }>;
+  fallback_relations_run?: boolean;
   provider?: string;
   model?: string;
 }> {
-  const payload: Record<string, string> = { document_id: documentId };
+  const payload: Record<string, string> = {};
+  if (documentId) payload.document_id = documentId;
   if (options?.provider) payload.provider = options.provider;
   if (options?.model) payload.model = options.model;
   const response = await apiClient.post(`/api/v1/projects/${projectId}/extract-entities/`, payload);
@@ -501,8 +560,11 @@ export async function getProjectGraph(projectId: string): Promise<{ nodes: any[]
   const response = await apiClient.get(`/api/v1/projects/${projectId}/graph/`);
   return {
     nodes: (response.data.nodes || []).map((n: any) => ({
-      id: n.data.id,
-      label: n.data.label,
+      id: n.id || n.data.id,
+      label: n.label || n.data.label,
+      entity_type: n.entity_type || n.data.entity_type,
+      degree: n.degree ?? n.data.degree ?? 0,
+      style: n.style || { shape: n.data.shape, color: n.data.color || '#9ca3af' },
       data: {
         entity_id: n.data.id,
         entity_type: n.data.entity_type,
@@ -511,20 +573,46 @@ export async function getProjectGraph(projectId: string): Promise<{ nodes: any[]
         chunk_id: n.data.chunk_id || null,
         raw_mentions_count: n.data.raw_mentions_count || 0,
         shape: n.data.shape,
+        color: n.data.color || '#9ca3af',
+        degree: n.data.degree ?? n.degree ?? 0,
+        node_size: computeNodeSize(n.data.degree ?? n.degree ?? 0),
       },
     })),
-    edges: (response.data.edges || []).map((e: any) => ({
-      id: e.data.id,
-      source: e.data.source,
-      target: e.data.target,
-      label: e.data.label,
-      confidence: e.data.confidence,
-    })),
+    edges: (response.data.edges || []).map((e: any) => {
+      const edgeData = e.data || e;
+      return {
+        id: edgeData.id,
+        source: edgeData.source,
+        target: edgeData.target,
+        label: edgeData.label,
+        relation_type: edgeData.relation_type,
+        confidence: edgeData.confidence,
+        color: edgeData.color,
+        edge_width: computeEdgeWidth(edgeData.confidence),
+      };
+    }),
   };
 }
 
 export async function getGlobalEntityProfile(entityId: string): Promise<GlobalEntityProfile> {
   const response = await apiClient.get(`/api/v1/entities/${entityId}/`);
+  return response.data;
+}
+
+export async function getEntityProfile(entityId: string): Promise<GlobalEntityProfile> {
+  const response = await apiClient.get(`/api/v1/entities/${entityId}/profile/`);
+  return response.data;
+}
+
+export async function generateEntitySummary(
+  entityId: string,
+  projectId: string,
+  refresh = false
+): Promise<ContextualSummaryResponse> {
+  const response = await apiClient.post(`/api/v1/entities/${entityId}/summary/`, {
+    project_id: projectId,
+    refresh,
+  });
   return response.data;
 }
 

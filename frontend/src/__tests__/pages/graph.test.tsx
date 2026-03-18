@@ -176,7 +176,7 @@ describe('GraphPage', () => {
     render(<GraphPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/no entities found/i)).toBeInTheDocument();
+      expect(screen.getByText(/no graph data available/i)).toBeInTheDocument();
     });
   });
 
@@ -221,7 +221,7 @@ describe('GraphPage', () => {
       expect(screen.getByTestId('edge-r1')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('WORKS_AT')).toBeInTheDocument();
+    expect(screen.getAllByText('WORKS_AT').length).toBeGreaterThan(0);
   });
 
   it('passes node shapes from API payload to graph component', async () => {

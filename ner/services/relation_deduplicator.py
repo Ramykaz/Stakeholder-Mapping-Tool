@@ -100,6 +100,8 @@ def deduplicate_relations(
             "label": rel_data["label"],
             "confidence": rel_data["confidence"],
         }
+        if document_obj is not None and getattr(document_obj, 'project_id', None):
+            relation_kwargs['project_id'] = document_obj.project_id
         if document_obj is not None:
             relation_kwargs['document_id'] = document_obj
         else:

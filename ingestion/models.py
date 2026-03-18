@@ -1,7 +1,56 @@
 """Database models for the document ingestion pipeline."""
 import uuid
 from django.db import models
+from django.conf import settings
 from pgvector.django import VectorField
+
+
+class Project(models.Model):
+    STATUS_ACTIVE = 'active'
+    STATUS_ARCHIVED = 'archived'
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_ARCHIVED, 'Archived'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='projects',
+        null=True,
+        blank=True,
+    )
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'projects'
+        indexes = [
+            models.Index(fields=['status', 'updated_at']),
+            models.Index(fields=['owner', 'updated_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} [{self.status}]"
+
+
+class ConceptNote(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='concept_note')
+    content = models.TextField(blank=True, default='')
+    attachment = models.FileField(upload_to='concept_notes/', null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'concept_notes'
+
+    def __str__(self):
+        return f"ConceptNote<{self.project_id}>"
 
 
 class Document(models.Model):
@@ -26,6 +75,13 @@ class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     filename = models.CharField(max_length=255)
     file_format = models.CharField(max_length=10, choices=FORMAT_CHOICES)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        related_name='documents',
+        null=True,
+        blank=True,
+    )
     upload_timestamp = models.DateTimeField(auto_now_add=True)
     processing_status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING
@@ -38,6 +94,25 @@ class Document(models.Model):
 
     def __str__(self):
         return f"{self.filename} [{self.processing_status}]"
+
+
+def get_or_create_default_project(owner=None) -> Project:
+    defaults = {
+        'description': 'Auto-created default project for legacy migrated records.',
+        'status': Project.STATUS_ACTIVE,
+    }
+    if owner is not None:
+        defaults['owner'] = owner
+
+    lookup = {'name': 'Default Project'}
+    if owner is not None:
+        lookup['owner'] = owner
+
+    project, _ = Project.objects.get_or_create(
+        defaults=defaults,
+        **lookup,
+    )
+    return project
 
 
 class Chunk(models.Model):

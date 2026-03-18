@@ -206,3 +206,30 @@ class RelationshipTypeSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class GlobalEntityProfileSerializer(serializers.ModelSerializer):
+    projects = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Entity
+        fields = ['id', 'canonical_name', 'entity_type', 'projects']
+        read_only_fields = fields
+
+    def get_projects(self, obj):
+        request = self.context.get('request')
+        owner = getattr(request, 'user', None)
+        queryset = Entity.objects.filter(canonical_name=obj.canonical_name)
+        if owner and owner.is_authenticated:
+            queryset = queryset.filter(document_id__project__owner=owner)
+
+        memberships = (
+            queryset
+            .exclude(project__isnull=True)
+            .values('project__id', 'project__name')
+            .distinct()
+        )
+        return [
+            {'id': row['project__id'], 'name': row['project__name']}
+            for row in memberships
+        ]

@@ -7,6 +7,34 @@ Follows [Conventional Commits](https://www.conventionalcommits.org/) and [Semant
 
 ## [Unreleased]
 
+### Added — Sprint 2 · US-07: Project Model + Concept Note + Scoped Workflows
+
+**Backend domain + migrations**
+- Added `Project` and one-to-one `ConceptNote` models in `ingestion`.
+- Extended `Document`, `Entity`, and `Relation` with project linkage for scoped operations.
+- Added migrations and backfills to map legacy records to a deterministic default project and propagate project context.
+
+**APIs + extraction context**
+- Added project CRUD and concept note APIs under `/api/v1/projects/*`.
+- Added scoped operational APIs for upload, extraction, entities, and graph:
+	- `POST /api/v1/projects/{id}/documents/`
+	- `POST /api/v1/projects/{id}/extract-entities/`
+	- `GET /api/v1/projects/{id}/entities/`
+	- `GET /api/v1/projects/{id}/graph/`
+- Added global entity profile endpoint: `GET /api/v1/entities/{id}/`.
+- Injected project concept-note text into project-scoped extraction path.
+
+**Frontend**
+- Replaced landing page with project dashboard cards.
+- Added project creation, workspace, and settings pages.
+- Updated upload/entities/graph flows to consume project-scoped APIs.
+- Added route guard to prevent upload flow access without project context.
+
+**Validation on rebuilt images**
+- Rebuilt services before regression runs using `docker compose up --build -d app frontend`.
+- Backend regression: `131 passed`.
+- Frontend regression: `53 passed`.
+
 ### Added — Sprint 2 · US-06: Entity Deduplication + Alias Review Workflow
 
 **Backend dedup + models**

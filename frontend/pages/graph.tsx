@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
-import { getGraphNodes } from '@/lib/api';
+import { getGraphNodes, getProjectGraph } from '@/lib/api';
 import { CytoscapeNode, CytoscapeEdge } from '@/types';
 
 const GraphVisualization = dynamic(
@@ -22,7 +22,8 @@ const BADGE_STYLES: Record<string, string> = {
 
 export default function GraphPage() {
   const router = useRouter();
-  const { document_id } = router.query;
+  const { document_id, project_id } = router.query;
+  const activeProjectId = typeof project_id === 'string' ? project_id : '';
 
   const [nodes, setNodes] = useState<CytoscapeNode[]>([]);
   const [edges, setEdges] = useState<CytoscapeEdge[]>([]);
@@ -47,7 +48,9 @@ export default function GraphPage() {
     setError('');
     setSelectedNode(null);
     try {
-      const data = await getGraphNodes(docId, confidenceMin > 0 ? confidenceMin : undefined);
+      const data = activeProjectId
+        ? await getProjectGraph(activeProjectId)
+        : await getGraphNodes(docId, confidenceMin > 0 ? confidenceMin : undefined);
       setNodes(data.nodes || []);
       setEdges(data.edges || []);
     } catch (err: any) {
@@ -57,7 +60,7 @@ export default function GraphPage() {
     } finally {
       setLoading(false);
     }
-  }, [confidenceMin]);
+  }, [confidenceMin, activeProjectId]);
 
   useEffect(() => {
     if (activeDocId) {
@@ -70,7 +73,8 @@ export default function GraphPage() {
     const trimmed = inputDocId.trim();
     if (trimmed) {
       setActiveDocId(trimmed);
-      router.replace(`/graph?document_id=${trimmed}`, undefined, { shallow: true });
+      const query = activeProjectId ? `/graph?project_id=${activeProjectId}&document_id=${trimmed}` : `/graph?document_id=${trimmed}`;
+      router.replace(query, undefined, { shallow: true });
     }
   };
 
@@ -241,12 +245,20 @@ export default function GraphPage() {
                       </div>
 
                       <div className="mt-5 pt-4 border-t border-gray-100">
-                        <button
-                          onClick={() => router.push(`/entities?document_id=${activeDocId}`)}
-                          className="btn-secondary w-full text-xs"
-                        >
-                          View in Entity Table
-                        </button>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            onClick={() => router.push(`/entities?document_id=${activeDocId}`)}
+                            className="btn-secondary w-full text-xs"
+                          >
+                            View in Entity Table
+                          </button>
+                          <button
+                            onClick={() => router.push(`/relations?document_id=${activeDocId}`)}
+                            className="btn-secondary w-full text-xs"
+                          >
+                            View Relations
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -139,6 +139,19 @@ curl "http://localhost:8000/api/v1/graph/?document_id={document_id}&confidence_m
 | `/api/v1/graph/` | GET | Get knowledge graph (nodes + edges) |
 | `/health` | GET | Service liveness and DB connectivity |
 
+## US-07 Project-Scoped Flow
+
+1. Create a project: `POST /api/v1/projects/`
+2. Save concept context: `POST /api/v1/projects/{id}/concept-note/`
+3. Upload within project: `POST /api/v1/projects/{id}/documents/`
+4. Run scoped extraction: `POST /api/v1/projects/{id}/extract-entities/`
+5. Read scoped outputs:
+  - `GET /api/v1/projects/{id}/entities/`
+  - `GET /api/v1/projects/{id}/graph/`
+6. Open cross-project profile when needed: `GET /api/v1/entities/{id}/`
+
+Legacy endpoints under `/api/v1/documents/*` remain available during transition and map legacy records to a default project.
+
 ### Role model
 
 - Regular users: can use upload/extraction/graph workflows

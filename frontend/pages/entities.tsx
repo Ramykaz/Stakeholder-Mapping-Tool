@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
-import { getEntities, getDocumentRuns, getEntityReviewCandidates, resolveEntityReviewCandidate } from '@/lib/api';
+import { getEntities, getProjectEntities, getDocumentRuns, getEntityReviewCandidates, resolveEntityReviewCandidate } from '@/lib/api';
 import { Entity, NERRun, EntityReviewCandidate } from '@/types';
 
 const ENTITY_TYPES = ['ALL', 'PERSON', 'ORGANIZATION', 'LOCATION', 'ROLE'] as const;
@@ -54,7 +54,8 @@ function ConfidenceBar({ value }: { value: number }) {
 
 export default function EntitiesPage() {
   const router = useRouter();
-  const { document_id } = router.query;
+  const { document_id, project_id } = router.query;
+  const activeProjectId = typeof project_id === 'string' ? project_id : '';
 
   const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,7 +81,7 @@ export default function EntitiesPage() {
     try {
       const filters = filterType !== 'ALL' ? { entity_type: filterType } : undefined;
       const [entityData, runData, candidateData] = await Promise.all([
-        getEntities(docId, filters),
+        activeProjectId ? getProjectEntities(activeProjectId) : getEntities(docId, filters),
         getDocumentRuns(docId),
         getEntityReviewCandidates(docId),
       ]);
@@ -95,7 +96,7 @@ export default function EntitiesPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterType]);
+  }, [filterType, activeProjectId]);
 
   const handleResolveCandidate = async (candidateId: string, action: 'merge' | 'keep_separate') => {
     if (!activeDocId) return;
@@ -122,7 +123,8 @@ export default function EntitiesPage() {
     const trimmed = inputDocId.trim();
     if (trimmed) {
       setActiveDocId(trimmed);
-      router.replace(`/entities?document_id=${trimmed}`, undefined, { shallow: true });
+      const query = activeProjectId ? `/entities?project_id=${activeProjectId}&document_id=${trimmed}` : `/entities?document_id=${trimmed}`;
+      router.replace(query, undefined, { shallow: true });
     }
   };
 
@@ -296,15 +298,23 @@ export default function EntitiesPage() {
               </div>
 
               {entities.length > 0 && (
-                <button
-                  onClick={() => router.push(`/graph?document_id=${activeDocId}`)}
-                  className="btn-secondary text-xs !px-3.5 !py-1.5"
-                >
-                  <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                  View Graph
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => router.push(`/relations?document_id=${activeDocId}`)}
+                    className="btn-secondary text-xs !px-3.5 !py-1.5"
+                  >
+                    View Relations
+                  </button>
+                  <button
+                    onClick={() => router.push(`/graph?document_id=${activeDocId}`)}
+                    className="btn-secondary text-xs !px-3.5 !py-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                    View Graph
+                  </button>
+                </div>
               )}
             </div>
 

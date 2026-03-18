@@ -4,10 +4,13 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
-import { uploadDocument, extractEntities, extractEntitiesRelations, extractRelations, getDocuments, deleteDocument, getExtractionProgress, DocumentSummary } from '@/lib/api';
+import { uploadDocument, uploadDocumentToProject, extractEntities, extractEntitiesForProject, extractEntitiesRelations, extractRelations, getDocuments, deleteDocument, getExtractionProgress, DocumentSummary } from '@/lib/api';
 
 const GROQ_DEFAULT_MODEL = 'llama-3.1-8b-instant';
 const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'] as const;
+const AZURE_OPENAI_MODELS = ['gpt-5-mini'] as const;
+const GEMINI_MODELS = ['gemini-1.5-pro', 'gemini-1.5-flash'] as const;
+type Provider = 'groq' | 'openai' | 'azure_openai' | 'gemini';
 
 type UploadStep = 'select' | 'uploading' | 'uploaded' | 'extracting' | 'done' | 'error';
 
@@ -66,6 +69,7 @@ function clearPersistedState() {
 
 export default function UploadPage() {
   const router = useRouter();
+  const projectId = typeof router.query?.project_id === 'string' ? router.query.project_id : '';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Restore persisted state on mount
@@ -88,8 +92,10 @@ export default function UploadPage() {
   const [dragActive, setDragActive] = useState(false);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
-  const [provider, setProvider] = useState<'groq' | 'openai'>('groq');
+  const [provider, setProvider] = useState<Provider>('groq');
   const [openaiModel, setOpenaiModel] = useState<(typeof OPENAI_MODELS)[number]>('gpt-5-mini');
+  const [azureModel, setAzureModel] = useState<(typeof AZURE_OPENAI_MODELS)[number]>('gpt-5-mini');
+  const [geminiModel, setGeminiModel] = useState<(typeof GEMINI_MODELS)[number]>('gemini-1.5-pro');
   const [extractionMeta, setExtractionMeta] = useState<ExtractionMetadata | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [rowExtractingId, setRowExtractingId] = useState<string | null>(null);
@@ -174,7 +180,7 @@ export default function UploadPage() {
     setStep('uploading');
     setError('');
     try {
-      const result = await uploadDocument(file);
+      const result = projectId ? await uploadDocumentToProject(projectId, file) : await uploadDocument(file);
       setDocumentId(result.id);
       setStep('uploaded');
       persistState('uploaded', result.id, fileName, fileSize, 0);
@@ -203,8 +209,14 @@ export default function UploadPage() {
     }, 1500);
 
     try {
-      const model = provider === 'openai' ? openaiModel : GROQ_DEFAULT_MODEL;
-      if (activeMode === 'entities-relations') {
+      const model = resolveModel();
+      if (projectId) {
+        const result = await extractEntitiesForProject(projectId, documentId, { provider, model });
+        clearInterval(progressInterval);
+        setChunkProgress(null);
+        setEntitiesCreated(result.entities_created || 0);
+        setRelationsCreated(result.relations_created || 0);
+      } else if (activeMode === 'entities-relations') {
         // Extract both entities and relations
         const result = await extractEntitiesRelations(documentId, { provider, model });
         clearInterval(progressInterval);
@@ -266,7 +278,9 @@ export default function UploadPage() {
     setRowExtractMode(mode);
     try {
       const model = provider === 'openai' ? openaiModel : GROQ_DEFAULT_MODEL;
-      if (mode === 'entities') {
+      if (projectId && mode !== 'relations') {
+        await extractEntitiesForProject(projectId, docId, { provider, model });
+      } else if (mode === 'entities') {
         await extractEntities(docId, { provider, model });
       } else if (mode === 'relations') {
         await extractRelations(docId, { provider, model });
@@ -298,6 +312,15 @@ export default function UploadPage() {
     if (ext === 'docx') return '📝';
     return '📃';
   };
+
+  const resolveModel = () => {
+    if (provider === 'openai') return openaiModel;
+    if (provider === 'azure_openai') return azureModel;
+    if (provider === 'gemini') return geminiModel;
+    return GROQ_DEFAULT_MODEL;
+  };
+
+  const providerLabel = provider === 'azure_openai' ? 'Azure OpenAI' : provider === 'gemini' ? 'Gemini' : provider === 'openai' ? 'OpenAI' : 'Groq';
 
   return (
     <Layout title="Upload Document" subtitle="Upload and process documents for stakeholder extraction">
@@ -446,11 +469,13 @@ export default function UploadPage() {
               <select
                 id="provider-select"
                 value={provider}
-                onChange={(e) => setProvider(e.target.value as 'groq' | 'openai')}
+                onChange={(e) => setProvider(e.target.value as Provider)}
                 className="mt-1 mb-3 input-field"
               >
                 <option value="groq">Groq</option>
                 <option value="openai">OpenAI</option>
+                <option value="azure_openai">Azure OpenAI</option>
+                <option value="gemini">Gemini</option>
               </select>
 
               {provider === 'openai' && (
@@ -463,6 +488,38 @@ export default function UploadPage() {
                     className="mt-1 input-field"
                   >
                     {OPENAI_MODELS.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {provider === 'azure_openai' && (
+                <>
+                  <label htmlFor="azure-model-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">Azure OpenAI Model</label>
+                  <select
+                    id="azure-model-select"
+                    value={azureModel}
+                    onChange={(e) => setAzureModel(e.target.value as (typeof AZURE_OPENAI_MODELS)[number])}
+                    className="mt-1 input-field"
+                  >
+                    {AZURE_OPENAI_MODELS.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {provider === 'gemini' && (
+                <>
+                  <label htmlFor="gemini-model-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">Gemini Model</label>
+                  <select
+                    id="gemini-model-select"
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value as (typeof GEMINI_MODELS)[number])}
+                    className="mt-1 input-field"
+                  >
+                    {GEMINI_MODELS.map((model) => (
                       <option key={model} value={model}>{model}</option>
                     ))}
                   </select>
@@ -507,7 +564,7 @@ export default function UploadPage() {
         {/* Extracting spinner */}
         {step === 'extracting' && (
           <div className="animate-slide-up">
-            <LoadingSpinner message={`Extracting ${extractionMode === 'entities-relations' ? 'entities and relations' : 'entities'} with ${provider === 'openai' ? `OpenAI ${openaiModel}` : 'Groq llama-3.1-8b-instant'}...`} size="lg" />
+            <LoadingSpinner message={`Extracting ${extractionMode === 'entities-relations' ? 'entities and relations' : 'entities'} with ${providerLabel} ${resolveModel()}...`} size="lg" />
             {chunkProgress && chunkProgress.total > 0 && (
               <div className="mt-4 text-center">
                 <p className="text-sm text-gray-500">
@@ -569,6 +626,12 @@ export default function UploadPage() {
                 View Entities
               </button>
               <button
+                onClick={() => router.push(`/relations?document_id=${documentId}`)}
+                className="btn-secondary text-sm"
+              >
+                View Relations
+              </button>
+              <button
                 onClick={() => router.push(`/graph?document_id=${documentId}`)}
                 className="btn-secondary text-sm"
               >
@@ -598,19 +661,47 @@ export default function UploadPage() {
               <span className="text-xs text-gray-400">Extract using:</span>
               <select
                 value={provider}
-                onChange={(e) => setProvider(e.target.value as 'groq' | 'openai')}
+                onChange={(e) => setProvider(e.target.value as Provider)}
+                title="Extraction provider"
                 className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
               >
                 <option value="groq">Groq</option>
                 <option value="openai">OpenAI</option>
+                <option value="azure_openai">Azure OpenAI</option>
+                <option value="gemini">Gemini</option>
               </select>
               {provider === 'openai' && (
                 <select
                   value={openaiModel}
                   onChange={(e) => setOpenaiModel(e.target.value as (typeof OPENAI_MODELS)[number])}
+                  title="OpenAI model"
                   className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
                 >
                   {OPENAI_MODELS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+              {provider === 'azure_openai' && (
+                <select
+                  value={azureModel}
+                  onChange={(e) => setAzureModel(e.target.value as (typeof AZURE_OPENAI_MODELS)[number])}
+                  title="Azure OpenAI model"
+                  className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                >
+                  {AZURE_OPENAI_MODELS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+              {provider === 'gemini' && (
+                <select
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value as (typeof GEMINI_MODELS)[number])}
+                  title="Gemini model"
+                  className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                >
+                  {GEMINI_MODELS.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
@@ -714,6 +805,15 @@ export default function UploadPage() {
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                  </Link>
+                  <Link
+                    href={`/relations?document_id=${doc.id}`}
+                    className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    title="View relations"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7h8M8 12h5m-5 5h8M4 7h.01M4 12h.01M4 17h.01" />
                     </svg>
                   </Link>
                   <button

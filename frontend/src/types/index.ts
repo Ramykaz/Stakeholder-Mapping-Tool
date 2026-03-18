@@ -1,4 +1,4 @@
-export type LLMProvider = 'groq' | 'openai';
+export type LLMProvider = 'groq' | 'openai' | 'azure_openai' | 'gemini';
 export type OpenAIModel = 'gpt-5-mini' | 'gpt-5-nano';
 
 export interface ExtractionRequestOptions {
@@ -137,4 +137,29 @@ export interface NERRun {
   tokens_cached: number;
   cost_usd: string;
   created_at: string;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'archived';
+  document_count: number;
+  entity_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConceptNoteResponse {
+  project_id: string;
+  content: string;
+  attachment_url: string | null;
+  updated_at: string;
+}
+
+export interface GlobalEntityProfile {
+  id: string;
+  canonical_name: string;
+  entity_type: string;
+  projects: Array<{ id: string; name: string }>;
 }

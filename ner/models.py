@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import F
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db.models.functions import Lower
-from ingestion.models import Document, Chunk
+from ingestion.models import Document, Chunk, Project
 
 
 class NERRun(models.Model):
@@ -101,6 +101,13 @@ class Entity(models.Model):
         blank=True,
         related_name='entities',
     )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='entities',
+    )
     parent_entity = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
@@ -135,6 +142,13 @@ class Relation(models.Model):
     run = models.ForeignKey(
         NERRun,
         on_delete=models.CASCADE,
+        related_name='relations',
+    )
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='relations',
     )
     source_entity = models.ForeignKey(

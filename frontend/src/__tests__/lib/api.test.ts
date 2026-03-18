@@ -94,7 +94,25 @@ describe('error interceptor', () => {
       request: {},
       message: '',
     };
-    await expect(rejectHandler(error)).rejects.toThrow('Rate limited. Please try again later');
+    await expect(rejectHandler(error)).rejects.toThrow('slow down');
+  });
+
+  it('maps provider-specific 429 responses to remediation message', async () => {
+    const error = {
+      response: {
+        status: 429,
+        data: {
+          error: {
+            code: 'PROVIDER_RATE_LIMITED',
+            message: 'groq is currently rate limited.',
+            remediation: ['Switch to OpenAI provider in the extraction controls and retry.'],
+          },
+        },
+      },
+      request: {},
+      message: '',
+    };
+    await expect(rejectHandler(error)).rejects.toThrow('Switch to OpenAI provider');
   });
 
   it('maps 500 responses to server-error message', async () => {

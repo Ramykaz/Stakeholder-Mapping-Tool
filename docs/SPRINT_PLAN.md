@@ -86,7 +86,7 @@
 |------|---------|------------|
 | US-05 | LLM abstraction + joint extraction + label system + admin UI | 002, 003, 004 |
 | US-06 | Entity deduplication + aliases + review UI | 002, 004, US-05 |
-| US-07 | Projects + concept note + project dashboard + workspace | all previous |
+| US-07 | Projects + concept note + project dashboard + workspace | all previous ✅ Implemented + regressions passing |
 | US-08 | Graph redesign + side panel + filters + focus | US-05, US-06, US-07 |
 | US-09 | Natural language query | US-05, US-07, US-08 |
 

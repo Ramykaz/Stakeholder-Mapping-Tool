@@ -4,9 +4,12 @@ import uuid
 import pytest
 from unittest.mock import patch, MagicMock
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIRequestFactory
+from rest_framework.test import force_authenticate
 
 factory = APIRequestFactory()
+User = get_user_model()
 
 
 def _make_mock_document(**kwargs):
@@ -23,6 +26,15 @@ def _make_mock_document(**kwargs):
 
 @pytest.mark.django_db
 class TestIngestView:
+    def _authed_request(self, method: str, path: str, payload=None):
+        user = User.objects.create_user(username=f'user_{uuid.uuid4().hex[:8]}', email=f'{uuid.uuid4().hex[:8]}@example.com', password='Password123')
+        if method.lower() == 'post':
+            request = factory.post(path, payload or {}, format='multipart')
+        else:
+            request = factory.get(path, payload or {}, format='json')
+        force_authenticate(request, user=user)
+        return request
+
     @patch('ingestion.views.ingest_document')
     def test_valid_pdf_returns_201(self, mock_ingest):
         from ingestion.views import IngestView
@@ -30,7 +42,7 @@ class TestIngestView:
         mock_ingest.return_value = _make_mock_document()
         pdf_file = SimpleUploadedFile('report.pdf', b'%PDF-1.4 content', content_type='application/pdf')
 
-        request = factory.post('/api/v1/documents/', {'file': pdf_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': pdf_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 201
@@ -50,7 +62,7 @@ class TestIngestView:
             content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
 
-        request = factory.post('/api/v1/documents/', {'file': docx_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': docx_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 201
@@ -62,7 +74,7 @@ class TestIngestView:
         mock_ingest.return_value = _make_mock_document(file_format='txt', filename='notes.txt')
         txt_file = SimpleUploadedFile('notes.txt', b'Plain text content', content_type='text/plain')
 
-        request = factory.post('/api/v1/documents/', {'file': txt_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': txt_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 201
@@ -73,7 +85,7 @@ class TestIngestView:
         tiny_file = SimpleUploadedFile('big.pdf', b'tiny', content_type='application/pdf')
         tiny_file.size = 60 * 1024 * 1024  # lie about the size
 
-        request = factory.post('/api/v1/documents/', {'file': tiny_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': tiny_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 413
@@ -84,7 +96,7 @@ class TestIngestView:
 
         bad_file = SimpleUploadedFile('spreadsheet.xlsx', b'content', content_type='application/vnd.ms-excel')
 
-        request = factory.post('/api/v1/documents/', {'file': bad_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': bad_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 415
@@ -98,7 +110,7 @@ class TestIngestView:
         mock_ingest.side_effect = ExtractionError("No extractable text found.")
         pdf_file = SimpleUploadedFile('empty.pdf', b'%PDF-1.4 no text', content_type='application/pdf')
 
-        request = factory.post('/api/v1/documents/', {'file': pdf_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': pdf_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 422
@@ -112,7 +124,7 @@ class TestIngestView:
         mock_ingest.side_effect = IngestionError("Database write failed.")
         txt_file = SimpleUploadedFile('doc.txt', b'Some text', content_type='text/plain')
 
-        request = factory.post('/api/v1/documents/', {'file': txt_file}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {'file': txt_file})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 500
@@ -123,7 +135,7 @@ class TestIngestView:
     def test_missing_file_field_returns_400(self):
         from ingestion.views import IngestView
 
-        request = factory.post('/api/v1/documents/', {}, format='multipart')
+        request = self._authed_request('post', '/api/v1/documents/', {})
         response = IngestView.as_view()(request)
 
         assert response.status_code == 400

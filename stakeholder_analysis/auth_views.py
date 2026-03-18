@@ -2,14 +2,17 @@
 
 from django.contrib.auth import authenticate, get_user_model
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers, status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+import logging
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _is_admin_email(email: str) -> bool:
@@ -47,6 +50,16 @@ class RegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError('Username already exists.')
         return value
 
+    def validate_email(self, value):
+        normalized = (value or '').strip().lower()
+        if User.objects.filter(email__iexact=normalized).exists():
+            raise serializers.ValidationError('Email is already registered.')
+        return normalized
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
+
     def create(self, validated_data):
         email = (validated_data.get('email') or '').strip()
         is_staff = _is_admin_email(email)
@@ -61,6 +74,17 @@ class RegisterSerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True)
+
+    def validate_username(self, value):
+        username = (value or '').strip()
+        if not username:
+            raise serializers.ValidationError('Username is required.')
+        return username
+
+    def validate_password(self, value):
+        if not value:
+            raise serializers.ValidationError('Password is required.')
+        return value
 
 
 def _user_payload(user):
@@ -80,6 +104,7 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         token, _ = Token.objects.get_or_create(user=user)
+        logger.info('[AUTH] register success user_id=%s username=%s is_admin=%s', user.id, user.username, bool(user.is_staff))
         return Response(
             {
                 'token': token.key,
@@ -96,18 +121,38 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        username = serializer.validated_data['username']
+        password = serializer.validated_data['password']
+
+        user_obj = User.objects.filter(username__iexact=username).first()
+        if not user_obj:
+            logger.info('[AUTH] login failed reason=invalid_credentials username=%s', username)
+            return Response(
+                {'code': 'invalid_credentials', 'detail': 'No account found for this username.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user_obj.check_password(password):
+            logger.info('[AUTH] login failed reason=incorrect_password username=%s user_id=%s', username, user_obj.id)
+            return Response(
+                {'code': 'incorrect_password', 'detail': 'Incorrect password.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         user = authenticate(
             request=request,
-            username=serializer.validated_data['username'],
-            password=serializer.validated_data['password'],
+            username=username,
+            password=password,
         )
         if not user:
+            logger.info('[AUTH] login failed reason=authentication_failed username=%s', username)
             return Response(
-                {'detail': 'Invalid username or password.'},
+                {'code': 'invalid_credentials', 'detail': 'Invalid credentials.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         token, _ = Token.objects.get_or_create(user=user)
+        logger.info('[AUTH] login success user_id=%s username=%s', user.id, user.username)
         return Response(
             {
                 'token': token.key,
@@ -121,6 +166,7 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        logger.info('[AUTH] logout user_id=%s username=%s', request.user.id, request.user.username)
         Token.objects.filter(user=request.user).delete()
         return Response({'status': 'logged_out'}, status=status.HTTP_200_OK)
 

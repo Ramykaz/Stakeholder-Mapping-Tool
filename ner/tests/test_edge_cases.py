@@ -16,7 +16,7 @@ from ingestion.models import Document, Chunk
 from ner.models import Entity
 from ner.services.groq_client import extract_entities_from_chunk
 from ner.services.deduplicator import deduplicate_entities
-from ner.services.pipeline import extract_entities_for_document
+from ner.services.pipeline import extract_entities_for_document, extract_relations_for_document
 
 
 # ---------------------------------------------------------------------------
@@ -280,3 +280,36 @@ class TestPipelineEdgeCases(TestCase):
 
         assert result['entities_created'] == 1
         assert Entity.objects.filter(document_id=self.document.id).count() == 1
+
+    @patch('ner.services.pipeline.get_active_relationship_types', return_value=[{'name': 'WORKS_AT', 'directional': True}])
+    @patch('ner.services.pipeline.get_active_entity_labels', return_value=['PERSON', 'ORGANIZATION'])
+    @patch('ner.services.pipeline.get_provider')
+    @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
+    def test_joint_extraction_persists_entities_when_no_relationships(self, mock_get_provider, *_):
+        """Joint mode should not report zero entities just because relationships are empty."""
+        Chunk.objects.create(
+            document=self.document,
+            text="Alice works at UNDP.",
+            embedding=[0.0] * 384,
+            chunk_index=0,
+            token_count=5,
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.extract_joint.return_value = {
+            'entities': [
+                {'entity_type': 'PERSON', 'text': 'Alice', 'confidence': 0.91},
+                {'entity_type': 'ORGANIZATION', 'text': 'UNDP', 'confidence': 0.95},
+            ],
+            'relationships': [],
+            'tokens_input': 12,
+            'tokens_output': 6,
+            'tokens_cached': 0,
+        }
+        mock_get_provider.return_value = mock_provider
+
+        result = extract_relations_for_document(str(self.document.id), provider='groq', model='llama-3.1-8b-instant')
+
+        assert result['entities_created'] == 2
+        assert result['relations_created'] == 0
+        assert Entity.objects.filter(document_id=self.document.id).count() == 2

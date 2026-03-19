@@ -1081,6 +1081,46 @@ class ProjectGraphView(AuthenticatedAPIView):
         )
 
 
+class ProjectQueryView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/query/
+
+    Accepts {"query": "..."} and returns matching entity IDs plus a plain-text answer.
+    Uses keyword matching on canonical_name and alias text for fast response.
+    """
+
+    def post(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        query = (request.data.get('query') or '').strip()
+        if not query:
+            return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from django.db.models import Q
+
+        # Keyword search across canonical_name
+        qs = Entity.objects.filter(project=project).filter(
+            Q(canonical_name__icontains=query)
+        ).order_by('entity_type', 'canonical_name')[:30]
+
+        entity_ids = [str(e.id) for e in qs]
+        count = len(entity_ids)
+
+        if count == 0:
+            answer = f"No entities found matching \"{query}\"."
+        elif count == 1:
+            answer = f"Found 1 entity matching \"{query}\": {qs[0].canonical_name}."
+        else:
+            names = ', '.join(e.canonical_name for e in qs[:5])
+            suffix = f' and {count - 5} more' if count > 5 else ''
+            answer = f"Found {count} entities matching \"{query}\": {names}{suffix}."
+
+        return Response({
+            'query': query,
+            'answer': answer,
+            'entity_ids': entity_ids,
+            'count': count,
+        }, status=status.HTTP_200_OK)
+
+
 class GlobalEntityProfileView(AuthenticatedAPIView):
     """GET /api/v1/entities/{id}/."""
 

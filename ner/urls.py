@@ -20,6 +20,7 @@ urlpatterns = [
     path('projects/<uuid:id>/extract-entities/', views.ProjectExtractEntitiesView.as_view(), name='project-extract-entities'),
     path('projects/<uuid:id>/entities/', views.ProjectEntitiesView.as_view(), name='project-entities'),
     path('projects/<uuid:id>/graph/', views.ProjectGraphView.as_view(), name='project-graph'),
+    path('projects/<uuid:id>/query/', views.ProjectQueryView.as_view(), name='project-query'),
     path('entities/<uuid:id>/', views.GlobalEntityProfileView.as_view(), name='global-entity-profile'),
     path('entities/<uuid:id>/profile/', views.EntityProfileView.as_view(), name='entity-profile'),
     path('entities/<uuid:id>/summary/', views.EntitySummaryView.as_view(), name='entity-summary'),

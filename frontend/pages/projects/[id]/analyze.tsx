@@ -1,0 +1,357 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import Head from 'next/head';
+import {
+  getProject, getProjectDocuments, extractEntitiesForProject,
+  getProjectEntities, getProjectGraph, getStoredAuthToken, ProjectSummary, DocumentSummary,
+} from '@/lib/api';
+import TopNavigation from '@/components/layout/TopNavigation';
+import Sidebar from '@/components/layout/Sidebar';
+
+const STEPS = ['Concept Note', 'Upload Documents', 'Analyze', 'Explore'];
+
+const TYPE_COLORS: Record<string, string> = {
+  PERSON: '#2ec4a5', ORGANIZATION: '#3d6fff', GOVERNMENT: '#3d6fff',
+  LOCATION: '#f5a623', ROLE: '#7b8299', EVENT: '#9b6ef3',
+  PROJECT: '#9b6ef3', POLICY: '#9b6ef3', CONCEPT: '#f0614a',
+};
+
+export default function AnalyzePage() {
+  const router = useRouter();
+  const { id } = router.query as { id: string };
+
+  const [project, setProject] = useState<ProjectSummary | null>(null);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [entities, setEntities] = useState<any[]>([]);
+  const [edges, setEdges] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [extracting, setExtracting] = useState(false);
+  const [extracted, setExtracted] = useState(false);
+  const [extractResult, setExtractResult] = useState<{ entities_created: number; relations_created: number } | null>(null);
+  const [error, setError] = useState('');
+  const [activeView, setActiveView] = useState<'entities' | 'relations'>('entities');
+
+  const loadData = useCallback(() => {
+    if (!id) return;
+    setLoading(true);
+    Promise.all([
+      getProject(id),
+      getProjectDocuments(id),
+    ]).then(([proj, docs]) => {
+      setProject(proj);
+      setDocuments(docs);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    if (!getStoredAuthToken()) { void router.replace('/login'); return; }
+    if (!id) return;
+    loadData();
+    // Also try to load any already-extracted entities
+    getProjectEntities(id).then(ents => {
+      if (ents.length > 0) { setEntities(ents); setExtracted(true); }
+    }).catch(() => {});
+    getProjectGraph(id).then(({ edges: e }) => { if (e.length > 0) setEdges(e); }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const handleExtract = async () => {
+    if (!id) return;
+    setExtracting(true);
+    setError('');
+    try {
+      const result = await extractEntitiesForProject(id, undefined, { provider: 'groq' });
+      setExtractResult({
+        entities_created: result.entities_created ?? 0,
+        relations_created: result.relations_created ?? 0,
+      });
+      setExtracted(true);
+      // Load results
+      const [ents, { edges: e }] = await Promise.all([
+        getProjectEntities(id),
+        getProjectGraph(id),
+      ]);
+      setEntities(ents);
+      setEdges(e);
+    } catch (err: any) {
+      setError(err.message || 'Extraction failed. Make sure a Groq API key is configured.');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const completedDocs = documents.filter(d => d.processing_status === 'completed');
+  const canExtract = completedDocs.length > 0 && !extracting;
+
+  return (
+    <>
+      <Head><title>Analyze — {project?.name ?? ''}</title></Head>
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+        <TopNavigation workspaceId={id} />
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <Sidebar workspaceId={id} />
+          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
+            <div style={{ maxWidth: 800, margin: '0 auto' }}>
+
+              {/* Progress indicator */}
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 40 }}>
+                {STEPS.map((label, i) => (
+                  <React.Fragment key={label}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontFamily: 'var(--mono)', fontSize: 12,
+                        background: i < 2 ? 'var(--teal)' : i === 2 ? 'var(--accent)' : 'transparent',
+                        color: i < 3 ? '#fff' : 'var(--text2)',
+                        border: i >= 3 ? '1px solid var(--border2)' : 'none',
+                      }}>
+                        {i < 2 ? '✓' : i + 1}
+                      </div>
+                      <span style={{ fontSize: 11, color: i === 2 ? 'var(--text)' : 'var(--text3)', whiteSpace: 'nowrap' }}>
+                        {label}
+                      </span>
+                    </div>
+                    {i < STEPS.length - 1 && (
+                      <div style={{ flex: 1, height: 1, background: 'var(--border)', margin: '0 8px', marginBottom: 20 }}/>
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+
+              {/* Header */}
+              <div style={{ marginBottom: 32 }}>
+                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: '#fff', marginBottom: 4 }}>
+                  Analyze documents
+                </h1>
+                <p style={{ color: 'var(--text2)', fontSize: 13 }}>
+                  Extract entities and relationships from your uploaded documents using AI.
+                </p>
+              </div>
+
+              {/* Document summary */}
+              {!loading && (
+                <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px', marginBottom: 24 }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>Documents ready for analysis</div>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <div>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--teal)' }}>{completedDocs.length}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text3)' }}>processed</div>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--text)' }}>{documents.length}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text3)' }}>total</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Extraction card */}
+              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '24px', marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginBottom: 16 }}>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+                      Extract Entities &amp; Relationships
+                    </h3>
+                    <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6 }}>
+                      AI will scan your documents and identify stakeholders, organizations, locations, and the relationships between them.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleExtract}
+                    className="btn-primary"
+                    disabled={!canExtract}
+                    style={{ flexShrink: 0, padding: '10px 20px' }}
+                  >
+                    {extracting ? 'Analyzing…' : extracted ? 'Re-run Analysis' : 'Run Analysis'}
+                  </button>
+                </div>
+
+                {extracting && (
+                  <div style={{ padding: '12px 16px', background: 'var(--accent-soft)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s infinite' }}/>
+                    <span style={{ fontSize: 13, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>Processing… this may take a minute</span>
+                  </div>
+                )}
+
+                {extractResult && !extracting && (
+                  <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
+                    <div style={{ padding: '12px 16px', background: 'rgba(46,196,165,0.1)', borderRadius: 8, border: '1px solid rgba(46,196,165,0.2)', textAlign: 'center', minWidth: 100 }}>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--teal)' }}>{extractResult.entities_created}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>entities extracted</div>
+                    </div>
+                    <div style={{ padding: '12px 16px', background: 'rgba(61,111,255,0.1)', borderRadius: 8, border: '1px solid rgba(61,111,255,0.2)', textAlign: 'center', minWidth: 100 }}>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--accent)' }}>{extractResult.relations_created}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>relations found</div>
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--coral-soft)', borderRadius: 8, color: 'var(--coral)', fontSize: 13 }}>
+                    {error}
+                  </div>
+                )}
+
+                {completedDocs.length === 0 && !loading && (
+                  <div style={{ fontSize: 13, color: 'var(--text3)', marginTop: 8 }}>
+                    No processed documents found.{' '}
+                    <button onClick={() => void router.push(`/projects/${id}/documents`)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 13 }}>
+                      Upload documents first →
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Results section */}
+              {extracted && entities.length > 0 && (
+                <>
+                  {/* View toggle */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    <button
+                      onClick={() => setActiveView('entities')}
+                      style={{
+                        padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                        background: activeView === 'entities' ? 'var(--accent)' : 'var(--bg2)',
+                        color: activeView === 'entities' ? '#fff' : 'var(--text2)',
+                        fontSize: 13, fontWeight: activeView === 'entities' ? 500 : 400,
+                      }}
+                    >
+                      Entities ({entities.length})
+                    </button>
+                    <button
+                      onClick={() => setActiveView('relations')}
+                      style={{
+                        padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                        background: activeView === 'relations' ? 'var(--accent)' : 'var(--bg2)',
+                        color: activeView === 'relations' ? '#fff' : 'var(--text2)',
+                        fontSize: 13, fontWeight: activeView === 'relations' ? 500 : 400,
+                      }}
+                    >
+                      Relations ({edges.length})
+                    </button>
+                  </div>
+
+                  {/* Entities table */}
+                  {activeView === 'entities' && (
+                    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 100px 60px', padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg3)' }}>
+                        {['Name', 'Type', 'Confidence', 'Links'].map(h => (
+                          <div key={h} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+                        ))}
+                      </div>
+                      {entities.slice(0, 50).map((ent: any) => {
+                        const color = TYPE_COLORS[ent.entity_type] || '#7b8299';
+                        const conf = Math.round((ent.confidence || 0) * 100);
+                        return (
+                          <div
+                            key={ent.id}
+                            onClick={() => void router.push(`/projects/${id}/entities/${ent.id}`)}
+                            style={{
+                              display: 'grid', gridTemplateColumns: '1fr 120px 100px 60px',
+                              padding: '10px 16px', borderBottom: '1px solid var(--border)',
+                              cursor: 'pointer', transition: 'background .1s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 12 }}>
+                              {ent.canonical_name || ent.name || ent.label}
+                            </div>
+                            <div>
+                              <span style={{
+                                padding: '2px 8px', borderRadius: 4,
+                                background: `${color}22`, color, fontSize: 11, fontFamily: 'var(--mono)',
+                              }}>
+                                {ent.entity_type}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ flex: 1, height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
+                                <div style={{ width: `${conf}%`, height: '100%', background: 'var(--accent)', borderRadius: 2 }}/>
+                              </div>
+                              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', minWidth: 28 }}>{conf}%</span>
+                            </div>
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+                              {ent.degree || 0}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {entities.length > 50 && (
+                        <div style={{ padding: '10px 16px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                          Showing 50 of {entities.length} entities. View graph for full exploration.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Relations table */}
+                  {activeView === 'relations' && (
+                    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 1fr 80px', padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg3)' }}>
+                        {['Source', 'Relation', 'Target', 'Confidence'].map(h => (
+                          <div key={h} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+                        ))}
+                      </div>
+                      {edges.length === 0 ? (
+                        <div style={{ padding: '20px 16px', color: 'var(--text3)', fontSize: 13 }}>
+                          No relations found. Try running extraction again.
+                        </div>
+                      ) : edges.slice(0, 50).map((edge: any, i: number) => {
+                        const srcNode = entities.find((e: any) => e.id === edge.source);
+                        const tgtNode = entities.find((e: any) => e.id === edge.target);
+                        const conf = Math.round((edge.confidence || 0) * 100);
+                        return (
+                          <div
+                            key={edge.id || i}
+                            style={{
+                              display: 'grid', gridTemplateColumns: '1fr 140px 1fr 80px',
+                              padding: '10px 16px', borderBottom: '1px solid var(--border)',
+                            }}
+                          >
+                            <div style={{ fontSize: 12, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>
+                              {srcNode?.canonical_name || srcNode?.label || edge.source}
+                            </div>
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' }}>
+                              {edge.label || edge.relation_type}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>
+                              {tgtNode?.canonical_name || tgtNode?.label || edge.target}
+                            </div>
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                              {conf}%
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* CTAs */}
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  onClick={() => void router.push(`/projects/${id}/documents`)}
+                  className="btn-ghost"
+                >
+                  ← Back to documents
+                </button>
+                <button
+                  onClick={() => void router.push(`/projects/${id}/map`)}
+                  className="btn-primary btn-primary-lg"
+                  disabled={!extracted && entities.length === 0}
+                >
+                  View graph map →
+                </button>
+              </div>
+
+            </div>
+          </main>
+        </div>
+      </div>
+    </>
+  );
+}

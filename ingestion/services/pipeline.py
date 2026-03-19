@@ -102,16 +102,16 @@ def ingest_document(file_obj, filename: str, file_format: str, project=None) -> 
             raise IngestionError(f"Storage failed: {exc}") from exc
         logger.info("[INGEST] step=db_write  chunks=%d  duration=%.2fs", len(chunks_text), time.perf_counter() - _t0)
 
-    except ExtractionError:
-        _mark_failed(document)
+    except ExtractionError as exc:
+        _mark_failed(document, str(exc))
         raise  # Re-raised as-is so the view can return 422.
 
-    except IngestionError:
-        _mark_failed(document)
+    except IngestionError as exc:
+        _mark_failed(document, str(exc))
         raise  # Re-raised as-is so the view can return 500.
 
     except Exception as exc:
-        _mark_failed(document)
+        _mark_failed(document, str(exc))
         raise IngestionError(f"Unexpected ingestion error: {exc}") from exc
 
     logger.info(
@@ -121,10 +121,11 @@ def ingest_document(file_obj, filename: str, file_format: str, project=None) -> 
     return document
 
 
-def _mark_failed(document: Document) -> None:
+def _mark_failed(document: Document, error_message: str = '') -> None:
     """Best-effort: update Document status to failed outside any transaction."""
     try:
         document.processing_status = Document.STATUS_FAILED
-        document.save(update_fields=['processing_status'])
+        document.error_message = error_message[:2000] if error_message else ''
+        document.save(update_fields=['processing_status', 'error_message'])
     except Exception as exc:
         logger.error("Failed to update document %s status to 'failed': %s", document.id, exc)

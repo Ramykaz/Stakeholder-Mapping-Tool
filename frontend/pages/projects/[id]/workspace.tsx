@@ -280,6 +280,24 @@ export default function ProjectWorkspacePage() {
 
   return (
     <Layout title={projectName} subtitle="Project workspace">
+      {/* Map navigation link */}
+      {projectId && (
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={() => void router.push(`/projects/${projectId}/map`)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, padding: 0, fontFamily: 'var(--mono)' }}
+          >
+            ← Graph Map
+          </button>
+          <span style={{ color: 'var(--text3)', fontSize: 12 }}>·</span>
+          <button
+            onClick={() => void router.push(`/projects/${projectId}/documents`)}
+            style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 13, padding: 0, fontFamily: 'var(--mono)' }}
+          >
+            Documents
+          </button>
+        </div>
+      )}
       <div className="h-[calc(100vh-160px)] min-h-[620px] flex gap-4">
         <aside className="group card w-16 hover:w-80 transition-all duration-200 overflow-hidden flex flex-col">
           <p className="text-xs uppercase tracking-wider text-gray-500 mt-1 mb-3">Docs</p>

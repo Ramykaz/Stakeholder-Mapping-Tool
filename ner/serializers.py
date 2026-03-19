@@ -216,7 +216,7 @@ class GlobalEntityProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Entity
-        fields = ['id', 'canonical_name', 'entity_type', 'aliases', 'projects', 'relationships']
+        fields = ['id', 'canonical_name', 'entity_type', 'confidence', 'aliases', 'projects', 'relationships']
         read_only_fields = fields
 
     def get_aliases(self, obj):

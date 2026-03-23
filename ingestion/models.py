@@ -88,6 +88,8 @@ class Document(models.Model):
     )
     # Set after successful completion; NULL while pending or failed.
     chunk_count = models.IntegerField(null=True, blank=True)
+    # Populated when processing_status='failed'
+    error_message = models.TextField(blank=True, default='')
 
     class Meta:
         db_table = 'ingestion_documents'

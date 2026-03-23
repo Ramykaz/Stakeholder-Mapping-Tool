@@ -47,6 +47,9 @@ class ConceptNoteSerializer(serializers.ModelSerializer):
 
 class DocumentSerializer(serializers.ModelSerializer):
     project_id = serializers.UUIDField(source='project.id', read_only=True)
+    # Annotated by views; fall back to 0 when not present
+    entity_count = serializers.SerializerMethodField()
+    relation_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -58,5 +61,14 @@ class DocumentSerializer(serializers.ModelSerializer):
             'upload_timestamp',
             'processing_status',
             'chunk_count',
+            'error_message',
+            'entity_count',
+            'relation_count',
         ]
         read_only_fields = fields
+
+    def get_entity_count(self, obj):
+        return getattr(obj, 'entity_count', 0) or 0
+
+    def get_relation_count(self, obj):
+        return getattr(obj, 'relation_count', 0) or 0

@@ -296,6 +296,44 @@ class DocumentDetailView(AuthenticatedAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProjectDocumentDetailView(AuthenticatedAPIView):
+    """
+    DELETE /api/v1/projects/{id}/documents/{doc_id}/  — Remove a document from a project.
+    GET    /api/v1/projects/{id}/documents/{doc_id}/status/  — Polling endpoint.
+    """
+
+    def delete(self, request, id, doc_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        doc = Document.objects.filter(id=doc_id, project=project).first()
+        if not doc:
+            return Response({'error': 'document_not_found'}, status=status.HTTP_404_NOT_FOUND)
+        logger.info('[UPLOAD] delete document=%s project=%s user=%s', doc.id, project.id, request.user.id)
+        doc.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProjectDocumentStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/documents/{doc_id}/status/"""
+
+    def get(self, request, id, doc_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        doc = (
+            Document.objects
+            .filter(id=doc_id, project=project)
+            .annotate(entity_count=Count('entities', distinct=True))
+            .first()
+        )
+        if not doc:
+            return Response({'error': 'document_not_found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'id': str(doc.id),
+            'processing_status': doc.processing_status,
+            'chunk_count': doc.chunk_count,
+            'entity_count': doc.entity_count,
+            'error_message': doc.error_message,
+        }, status=status.HTTP_200_OK)
+
+
 class HealthView(APIView):
     """
     GET /health

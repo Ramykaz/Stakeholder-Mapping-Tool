@@ -4,23 +4,27 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 
 ## Features
 
-- **Document Ingestion**: Upload PDF, DOCX, or TXT files (up to 50MB)
-- **Entity Extraction**: Extract PERSON, ORGANIZATION, LOCATION, and ROLE entities using LLMs (Groq/OpenAI)
+- **Dark Design System (US-09)**: Full dark UI with DM Serif Display + Outfit + DM Mono fonts, CSS design tokens, and consistent component library
+- **Project Workspace Flow**: Create project → save concept note → upload documents → map exploration (multi-step guided workflow)
+- **Document Ingestion**: Upload PDF, DOCX, or TXT files (up to 50MB) with processing status badges and polling
+- **Entity Extraction**: Extract PERSON, ORGANIZATION, LOCATION, ROLE, EVENT, and more using LLMs (Groq/OpenAI)
 - **Relation Extraction**: Identify directional relationships between entities (e.g., REPORTS_TO, EMPLOYS, MANAGES)
-- **Knowledge Graph Visualization**: Interactive graph with entity nodes (shape-coded by type) and labeled relation edges
+- **Interactive Map**: Full-screen dark graph canvas with zoom toolbar, NL entity query, entity side-panel, and tab navigation
+- **Entity Detail Pages**: Per-entity profile with confidence bar, aliases, contextual AI summary, and relationships
 - **Dual Extraction Modes**:
   - **Entities Only**: Extract and deduplicate named entities
   - **Entities + Relations**: Two-pass extraction for entities and their relationships
 - **Provider Flexibility**: Shared provider abstraction supports Groq, OpenAI, Azure OpenAI, and Gemini model paths
-- **Authentication + Roles**: User registration/login with token auth; admin-only taxonomy management
+- **Authentication + Roles**: Split-panel login/register with token auth; admin-only taxonomy management
 - **Entity Deduplication + Aliases (US-06)**: Save-time exact/acronym/fuzzy dedup, alias tracking, and review workflow for borderline matches
 
 ## Tech Stack
 
+- **Frontend**: Next.js 14 · TypeScript · Cytoscape.js (graph canvas)
 - **Backend**: Python 3.11 · Django 4.2 · Django REST Framework
 - **Database**: Supabase (PostgreSQL + pgvector)
 - **Embeddings**: all-MiniLM-L6-v2 (local, sentence-transformers)
-- **LLM**: Groq (Llama 3) · Ollama (fallback)
+- **LLM**: Groq (Llama 3) · OpenAI · Azure OpenAI · Gemini
 - **Infrastructure**: Docker · Docker Compose
 
 ## Prerequisites
@@ -123,20 +127,42 @@ curl "http://localhost:8000/api/v1/graph/?document_id={document_id}&confidence_m
 # → HTTP 200 with nodes (entities) and edges (relations) in Cytoscape.js format
 ```
 
+## Frontend Routes
+
+| Route | Description |
+|-------|-------------|
+| `/` | Marketing landing page (redirects to `/projects` when signed in) |
+| `/login` | Split-panel sign-in / register |
+| `/projects` | Projects dashboard with card grid |
+| `/projects/{id}/setup` | Concept note editor with autosave |
+| `/projects/{id}/documents` | Document upload, list, and status polling |
+| `/projects/{id}/map` | Interactive graph map with NL query and entity panel |
+| `/projects/{id}/entities/{entityId}` | Full entity detail with summary and relationships |
+| `/projects/{id}/workspace` | Extraction workspace (legacy) |
+
 ## API Reference
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/documents/` | POST | Upload and ingest a document |
 | `/api/v1/auth/register/` | POST | Register user account and return auth token |
 | `/api/v1/auth/login/` | POST | Login and return auth token |
 | `/api/v1/auth/logout/` | POST | Logout and invalidate current token |
 | `/api/v1/auth/me/` | GET | Get authenticated user profile and role |
-| `/api/v1/documents/{id}/extract-entities/` | POST | Extract entities only |
+| `/api/v1/projects/` | GET, POST | List / create projects |
+| `/api/v1/projects/{id}/` | GET, PATCH, DELETE | Project detail |
+| `/api/v1/projects/{id}/concept-note/` | GET, POST | Read / upsert concept note |
+| `/api/v1/projects/{id}/documents/` | GET, POST | List / upload project documents |
+| `/api/v1/projects/{id}/documents/{doc_id}/` | DELETE | Delete a project document |
+| `/api/v1/projects/{id}/documents/{doc_id}/status/` | GET | Poll processing status for a document |
+| `/api/v1/projects/{id}/extract-entities/` | POST | Run entity extraction for all project documents |
+| `/api/v1/projects/{id}/entities/` | GET | List all entities in project scope |
+| `/api/v1/projects/{id}/graph/` | GET | Get project knowledge graph (nodes + edges) |
+| `/api/v1/projects/{id}/query/` | POST | NL keyword search — returns matching entity IDs + answer |
+| `/api/v1/entities/{id}/profile/` | GET | Global entity profile (aliases, relationships, projects) |
+| `/api/v1/entities/{id}/summary/` | POST | Generate contextual AI summary for an entity |
+| `/api/v1/documents/` | POST | Upload and ingest a document (legacy) |
 | `/api/v1/documents/{id}/extract-entities-relations/` | POST | Extract entities and relations (two-pass) |
-| `/api/v1/documents/{id}/entities/` | GET | List entities for a document |
-| `/api/v1/documents/{id}/relations/` | GET | List relations for a document |
-| `/api/v1/graph/` | GET | Get knowledge graph (nodes + edges) |
+| `/api/v1/graph/` | GET | Legacy document-scoped knowledge graph |
 | `/health` | GET | Service liveness and DB connectivity |
 
 ## US-07 Project-Scoped Flow

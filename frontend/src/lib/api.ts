@@ -381,6 +381,7 @@ export interface DocumentSummary {
   chunk_count: number | null;
   entity_count: number;
   relation_count?: number;
+  error_message?: string;
   last_run: {
     provider: string;
     model: string;
@@ -426,6 +427,7 @@ export interface GlobalEntityProfile {
   id: string;
   canonical_name: string;
   entity_type: string;
+  confidence?: number;
   aliases?: string[];
   relationships?: Array<{
     relation_id: string;
@@ -517,6 +519,23 @@ export async function uploadDocumentToProject(
   const response = await apiClient.post(`/api/v1/projects/${projectId}/documents/`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
+  return response.data;
+}
+
+export async function getProjectDocuments(projectId: string): Promise<DocumentSummary[]> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/`);
+  return response.data || [];
+}
+
+export async function deleteProjectDocument(projectId: string, docId: string): Promise<void> {
+  await apiClient.delete(`/api/v1/projects/${projectId}/documents/${docId}/`);
+}
+
+export async function getProjectDocumentStatus(
+  projectId: string,
+  docId: string
+): Promise<{ id: string; processing_status: string; chunk_count: number | null; entity_count: number; error_message: string }> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/${docId}/status/`);
   return response.data;
 }
 
@@ -820,6 +839,14 @@ export async function logoutUser(): Promise<void> {
   } finally {
     clearStoredAuth();
   }
+}
+
+export async function queryProjectGraph(
+  projectId: string,
+  query: string
+): Promise<{ query: string; answer: string; entity_ids: string[]; count: number }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/query/`, { query });
+  return response.data;
 }
 
 export default apiClient;

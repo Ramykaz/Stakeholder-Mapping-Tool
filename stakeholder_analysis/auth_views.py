@@ -126,9 +126,12 @@ class LoginView(APIView):
 
         user_obj = User.objects.filter(username__iexact=username).first()
         if not user_obj:
+            # Fall back to email lookup
+            user_obj = User.objects.filter(email__iexact=username).first()
+        if not user_obj:
             logger.info('[AUTH] login failed reason=invalid_credentials username=%s', username)
             return Response(
-                {'code': 'invalid_credentials', 'detail': 'No account found for this username.'},
+                {'code': 'invalid_credentials', 'detail': 'No account found. Check your email and try again.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -141,7 +144,7 @@ class LoginView(APIView):
 
         user = authenticate(
             request=request,
-            username=username,
+            username=user_obj.username,
             password=password,
         )
         if not user:

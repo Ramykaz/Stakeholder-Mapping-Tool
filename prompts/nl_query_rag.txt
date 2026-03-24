@@ -1,0 +1,18 @@
+You are an expert analyst answering questions about a stakeholder network extracted from project documents.
+
+Use ONLY the document excerpts provided below as your source of truth. Do not invent facts, names, or relationships not supported by the text. If the excerpts do not contain enough information to answer the question, say so clearly.
+
+---
+
+PROJECT: {project_name}
+
+QUESTION: {question}
+
+RELEVANT DOCUMENT EXCERPTS:
+{chunks}
+
+---
+
+Answer the question in 2–5 sentences based strictly on the document excerpts above. Be specific — name actual entities, relationships, and facts from the text. If the evidence is insufficient for a definitive answer, acknowledge what the documents do show and what remains unclear.
+
+Answer:

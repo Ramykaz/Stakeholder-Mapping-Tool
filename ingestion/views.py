@@ -145,7 +145,11 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
     parser_classes = [MultiPartParser]
 
     def get(self, request, id):
+        from django.db.models import Avg, Case, When, IntegerField, Value, Sum
+        from ner.models import Entity, NERRun
+
         project = resolve_project_for_user_or_404(id, request.user)
+        include_stats = request.query_params.get('include_stats', '').lower() in ('true', '1')
         docs = (
             Document.objects.filter(project=project)
             .annotate(entity_count=Count('entities', distinct=True))
@@ -156,6 +160,26 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
         for item, doc in zip(data, docs):
             item['entity_count'] = doc.entity_count
             item['relation_count'] = doc.relation_count
+            if include_stats and doc.processing_status == Document.STATUS_COMPLETED:
+                entities = Entity.objects.filter(document_id=doc, is_flagged=False)
+                high = entities.filter(confidence__gte=0.8).count()
+                medium = entities.filter(confidence__gte=0.5, confidence__lt=0.8).count()
+                low = entities.filter(confidence__lt=0.5).count()
+                top_entities = list(
+                    entities.order_by('-confidence').values('id', 'canonical_name', 'entity_type', 'confidence')[:5]
+                )
+                for e in top_entities:
+                    e['id'] = str(e['id'])
+                runs = NERRun.objects.filter(document_id=doc, status=NERRun.STATUS_COMPLETED)
+                total_relations = runs.aggregate(total=Sum('relations_created'))['total'] or 0
+                item['stats'] = {
+                    'entity_count': doc.entity_count,
+                    'relation_count': total_relations,
+                    'confidence_distribution': {'high': high, 'medium': medium, 'low': low},
+                    'top_entities': top_entities,
+                }
+            else:
+                item['stats'] = None
         return Response(data, status=status.HTTP_200_OK)
 
     def post(self, request, id):

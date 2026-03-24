@@ -24,6 +24,8 @@ class Project(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    provider = models.CharField(max_length=32, blank=True, default='')
+    model = models.CharField(max_length=64, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

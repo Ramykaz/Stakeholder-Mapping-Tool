@@ -14,6 +14,8 @@ class ProjectSummarySerializer(serializers.ModelSerializer):
             'name',
             'description',
             'status',
+            'provider',
+            'model',
             'document_count',
             'entity_count',
             'created_at',
@@ -25,7 +27,15 @@ class ProjectSummarySerializer(serializers.ModelSerializer):
 class ProjectWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
-        fields = ['name', 'description', 'status']
+        fields = ['name', 'description', 'status', 'provider', 'model']
+
+    def validate_provider(self, value):
+        if not value:
+            return value
+        allowed = {'groq', 'openai', 'azure_openai', 'gemini'}
+        if value.strip().lower() not in allowed:
+            raise serializers.ValidationError(f"provider must be one of: {', '.join(sorted(allowed))}")
+        return value.strip().lower()
 
 
 class ConceptNoteSerializer(serializers.ModelSerializer):

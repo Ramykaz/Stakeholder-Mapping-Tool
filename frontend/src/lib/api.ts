@@ -844,8 +844,141 @@ export async function logoutUser(): Promise<void> {
 export async function queryProjectGraph(
   projectId: string,
   query: string
-): Promise<{ query: string; answer: string; entity_ids: string[]; count: number }> {
+): Promise<{ query: string; answer: string | null; is_nl_query: boolean; entity_ids: string[]; count: number }> {
   const response = await apiClient.post(`/api/v1/projects/${projectId}/query/`, { query });
+  return response.data;
+}
+
+// ── Per-document stats ────────────────────────────────────────────────────────
+
+export interface DocumentStats {
+  entity_count: number;
+  relation_count: number;
+  confidence_distribution: { high: number; medium: number; low: number };
+  top_entities: Array<{ id: string; name: string; type: string; confidence: number }>;
+}
+
+export interface DocumentSummaryWithStats extends DocumentSummary {
+  stats: DocumentStats | null;
+}
+
+export async function getProjectDocumentsWithStats(projectId: string): Promise<DocumentSummaryWithStats[]> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/?include_stats=true`);
+  return response.data || [];
+}
+
+// ── Entity flagging ───────────────────────────────────────────────────────────
+
+export async function flagEntity(
+  entityId: string,
+  isFlagged: boolean
+): Promise<{ id: string; canonical_name: string; is_flagged: boolean }> {
+  const response = await apiClient.post(`/api/v1/entities/${entityId}/flag/`, { is_flagged: isFlagged });
+  return response.data;
+}
+
+export async function getProjectFlaggedCount(projectId: string): Promise<number> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/entities/?is_flagged=true`);
+  return (response.data.entities || []).length;
+}
+
+// ── Dedup review queue ────────────────────────────────────────────────────────
+
+export interface ReviewCandidate {
+  id: string;
+  left_entity: { id: string; name: string; type: string };
+  right_entity: { id: string; name: string; type: string };
+  similarity_score: number;
+  mention_context: string;
+  status: 'pending' | 'merged' | 'kept_separate' | 'resolved_stale';
+}
+
+export interface ReviewCandidateList {
+  count: number;
+  pending_count: number;
+  results: ReviewCandidate[];
+}
+
+export async function getProjectReviewCandidates(projectId: string): Promise<ReviewCandidateList> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/review/`);
+  return response.data;
+}
+
+export async function resolveReviewCandidate(
+  candidateId: string,
+  action: 'merge' | 'keep_separate'
+): Promise<{ id: string; status: string; canonical_entity?: { id: string; name: string }; resolved_at: string }> {
+  const response = await apiClient.post(`/api/v1/review-candidates/${candidateId}/resolve/`, { action });
+  return response.data;
+}
+
+// ── Entity timeline ───────────────────────────────────────────────────────────
+
+export interface TimelineEntry {
+  document_id: string;
+  document_name: string;
+  uploaded_at: string;
+  context_snippet: string;
+}
+
+export async function getEntityTimeline(
+  entityId: string,
+  projectId: string
+): Promise<{ entity_id: string; project_id: string; timeline: TimelineEntry[] }> {
+  const response = await apiClient.get(`/api/v1/entities/${entityId}/timeline/`, {
+    params: { project_id: projectId },
+  });
+  return response.data;
+}
+
+// ── Global entity list ────────────────────────────────────────────────────────
+
+export interface GlobalEntitySummary {
+  id: string;
+  canonical_name: string;
+  entity_type: string;
+  project_count: number;
+  document_count: number;
+  confidence_min: number;
+  confidence_max: number;
+  representative_id: string | null;
+  representative_project_id: string | null;
+}
+
+export async function getGlobalEntities(params?: {
+  page?: number;
+  page_size?: number;
+  type?: string;
+}): Promise<{ count: number; next: string | null; previous: string | null; results: GlobalEntitySummary[] }> {
+  const response = await apiClient.get('/api/v1/entities/', { params });
+  return response.data;
+}
+
+// ── LLM provider selection ────────────────────────────────────────────────────
+
+export interface ProviderOption {
+  name: string;
+  available: boolean;
+  models: string[];
+}
+
+export interface ProjectProviders {
+  current_provider: string;
+  current_model: string;
+  providers: ProviderOption[];
+}
+
+export async function getProjectProviders(projectId: string): Promise<ProjectProviders> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/providers/`);
+  return response.data;
+}
+
+export async function updateProjectProvider(
+  projectId: string,
+  provider: string,
+  model: string
+): Promise<ProjectSummary> {
+  const response = await apiClient.patch(`/api/v1/projects/${projectId}/`, { provider, model });
   return response.data;
 }
 

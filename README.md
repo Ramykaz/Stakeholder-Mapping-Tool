@@ -117,9 +117,11 @@ curl http://localhost:8000/health
 | `/projects/{id}/setup` | Concept note editor — always editable, accessible from sidebar |
 | `/projects/{id}/documents` | Document upload, list, and processing status |
 | `/projects/{id}/analyze` | Extraction controls + link back to concept note editor |
-| `/projects/{id}/map` | Interactive graph map (filter panel, focus mode, legend) |
-| `/projects/{id}/settings` | Project settings (rename, description) |
-| `/projects/{id}/entities/{entityId}` | Entity detail — aliases, AI summary, relationships |
+| `/projects/{id}/map` | Interactive graph map (filter panel, focus mode, NL query, legend) |
+| `/projects/{id}/settings` | Project settings (rename, description, LLM provider selection) |
+| `/projects/{id}/entities/{entityId}` | Entity detail — aliases, AI summary, relationships, timeline, unflag |
+| `/projects/{id}/review` | Dedup review queue — merge or keep-separate for borderline entity pairs |
+| `/entities` | Global entity view across all projects, sorted by cross-project frequency |
 
 ## API Reference
 
@@ -248,3 +250,4 @@ This project uses [Spec-Kit](https://github.com/SDG-AI-Lab/speckit) (spec-driven
 | [008-ui-and-graph-redesign](specs/008-ui-and-graph-redesign/) | Dark design system — fonts, tokens, component library, graph canvas |
 | [009-complete-ui-rewiring](specs/009-complete-ui-rewiring/) | Full UI rewiring — sidebar, workspace flow, light/dark toggle |
 | [010-graph-visualization-fixes](specs/010-graph-visualization-fixes/) | Graph node sizing, theme-adaptive canvas, live filters, focus mode, project CRUD modals |
+| [011-intelligence-layer](specs/011-intelligence-layer/) | Semantic search (pgvector), LLM RAG summaries, entity flagging, dedup review queue, entity timeline, NL query, global entity view, per-project LLM provider selection |

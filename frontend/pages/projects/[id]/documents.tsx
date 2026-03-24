@@ -4,12 +4,14 @@ import Head from 'next/head';
 import {
   getProject,
   getProjectDocuments,
+  getProjectDocumentsWithStats,
   uploadDocumentToProject,
   deleteProjectDocument,
   getProjectDocumentStatus,
   getStoredAuthToken,
   ProjectSummary,
   DocumentSummary,
+  DocumentSummaryWithStats,
 } from '@/lib/api';
 import { getStatusBadgeClass } from '@/lib/entityTypes';
 import { formatFileSize } from '@/lib/uiState';
@@ -40,6 +42,8 @@ export default function DocumentsPage() {
 
   const [project, setProject] = useState<ProjectSummary | null>(null);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [docsWithStats, setDocsWithStats] = useState<DocumentSummaryWithStats[]>([]);
+  const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -60,6 +64,9 @@ export default function DocumentsPage() {
     getProjectDocuments(id)
       .then(docs => { setDocuments(docs); setLoading(false); })
       .catch(() => { setLoading(false); });
+    getProjectDocumentsWithStats(id)
+      .then(setDocsWithStats)
+      .catch(() => {});
   }, [id]);
 
   // Polling: refresh status for non-terminal documents every 3s
@@ -239,59 +246,104 @@ export default function DocumentsPage() {
                 </div>
               )}
 
-              {documents.map(doc => (
-                <div key={doc.id} style={{
-                  background: 'var(--bg2)', border: '1px solid var(--border)',
-                  borderRadius: 8, padding: '12px 16px',
-                  display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8,
-                }}>
-                  {/* File type icon */}
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 7, flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
-                    background: getFileIconBg(doc.file_format),
-                  }}>
-                    {getFileIcon(doc.file_format)}
-                  </div>
+              {documents.map(doc => {
+                const stats = docsWithStats.find(d => d.id === doc.id)?.stats;
+                const isExpanded = expandedDocId === doc.id;
+                return (
+                  <div key={doc.id} style={{ marginBottom: 8 }}>
+                    <div style={{
+                      background: 'var(--bg2)', border: '1px solid var(--border)',
+                      borderRadius: 8, padding: '12px 16px',
+                      display: 'flex', alignItems: 'center', gap: 12,
+                    }}>
+                      {/* File type icon */}
+                      <div style={{
+                        width: 32, height: 32, borderRadius: 7, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
+                        background: getFileIconBg(doc.file_format),
+                      }}>
+                        {getFileIcon(doc.file_format)}
+                      </div>
 
-                  {/* Name + meta */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>
-                      {doc.filename}
+                      {/* Name + meta */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>
+                          {doc.filename}
+                        </div>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span>{doc.file_format?.toUpperCase()}</span>
+                          {stats && (
+                            <>
+                              <span style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: 10 }}>
+                                {stats.entity_count} entities
+                              </span>
+                              <span style={{ padding: '1px 6px', borderRadius: 4, background: 'var(--bg3)', color: 'var(--text3)', fontSize: 10 }}>
+                                {stats.relation_count} relations
+                              </span>
+                              <span style={{ padding: '1px 6px', borderRadius: 4, background: 'rgba(46,196,165,0.12)', color: 'var(--teal)', fontSize: 10 }}>
+                                H:{stats.confidence_distribution.high} M:{stats.confidence_distribution.medium} L:{stats.confidence_distribution.low}
+                              </span>
+                            </>
+                          )}
+                          {!stats && doc.processing_status === 'completed' && doc.entity_count > 0 &&
+                            <span>{doc.entity_count} entities extracted</span>}
+                        </div>
+                        {doc.processing_status === 'failed' && doc.error_message && (
+                          <div style={{ fontSize: 11, color: 'var(--coral)', marginTop: 4 }}>
+                            {doc.error_message}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Status badge */}
+                      <span className={`badge ${getStatusBadgeClass(
+                        doc.processing_status === 'completed' ? 'processed' :
+                        doc.processing_status === 'failed'    ? 'error' :
+                        'pending'
+                      )}`}>
+                        {doc.processing_status === 'pending' ? (
+                          <span style={{ animation: 'pulse 1.5s infinite' }}>processing</span>
+                        ) : doc.processing_status}
+                      </span>
+
+                      {/* Expand toggle */}
+                      {stats && stats.top_entities.length > 0 && (
+                        <button
+                          onClick={() => setExpandedDocId(isExpanded ? null : doc.id)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, padding: 4 }}
+                          title={isExpanded ? 'Collapse' : 'Show top entities'}
+                        >
+                          {isExpanded ? '▲' : '▼'}
+                        </button>
+                      )}
+
+                      {/* Delete */}
+                      <button
+                        onClick={e => void onDelete(e, doc.id)}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, fontSize: 14 }}
+                      >✕</button>
                     </div>
-                    <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
-                      {doc.file_format?.toUpperCase()}
-                      {doc.processing_status === 'completed' && doc.entity_count > 0 &&
-                        ` · ${doc.entity_count} entities extracted`}
-                      {doc.processing_status === 'completed' && doc.chunk_count &&
-                        ` · ${doc.chunk_count} chunks`}
-                    </div>
-                    {/* Error message */}
-                    {doc.processing_status === 'failed' && doc.error_message && (
-                      <div style={{ fontSize: 11, color: 'var(--coral)', marginTop: 4 }}>
-                        {doc.error_message}
+
+                    {/* Expanded top entities */}
+                    {isExpanded && stats && stats.top_entities.length > 0 && (
+                      <div style={{
+                        background: 'var(--bg3)', border: '1px solid var(--border)',
+                        borderTop: 'none', borderRadius: '0 0 8px 8px',
+                        padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 6,
+                      }}>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>TOP ENTITIES</div>
+                        {stats.top_entities.map((e: any) => (
+                          <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                            <span style={{ color: 'var(--text)', fontWeight: 500, flex: 1 }}>{e.name}</span>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'var(--bg2)', color: 'var(--text3)' }}>{e.type}</span>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', minWidth: 32, textAlign: 'right' }}>{Math.round(e.confidence * 100)}%</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
-
-                  {/* Status badge */}
-                  <span className={`badge ${getStatusBadgeClass(
-                    doc.processing_status === 'completed' ? 'processed' :
-                    doc.processing_status === 'failed'    ? 'error' :
-                    'pending'
-                  )}`}>
-                    {doc.processing_status === 'pending' ? (
-                      <span style={{ animation: 'pulse 1.5s infinite' }}>processing</span>
-                    ) : doc.processing_status}
-                  </span>
-
-                  {/* Delete */}
-                  <button
-                    onClick={e => void onDelete(e, doc.id)}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, fontSize: 14 }}
-                  >✕</button>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Bottom CTA */}
               <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -5,10 +5,13 @@ import {
   getProject,
   getEntityProfile,
   generateEntitySummary,
+  flagEntity,
+  getEntityTimeline,
   getStoredAuthToken,
   ProjectSummary,
   GlobalEntityProfile,
   ContextualSummaryResponse,
+  TimelineEntry,
 } from '@/lib/api';
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
@@ -37,14 +40,23 @@ export default function EntityDetailPage() {
   const [error, setError] = useState('');
   const [summary, setSummary] = useState<ContextualSummaryResponse | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [isFlagged, setIsFlagged] = useState(false);
 
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
     if (!id || !entityId) return;
     getProject(id).then(setProject).catch(() => {});
     getEntityProfile(entityId)
-      .then(data => { setProfile(data); setLoading(false); })
+      .then(data => {
+        setProfile(data);
+        setIsFlagged((data as any).is_flagged ?? false);
+        setLoading(false);
+      })
       .catch(() => { setError('Entity not found or access denied.'); setLoading(false); });
+    getEntityTimeline(entityId, id)
+      .then(data => setTimeline(data.timeline || []))
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, entityId]);
 
@@ -190,7 +202,7 @@ export default function EntityDetailPage() {
                   </div>
 
                   {/* Relationships */}
-                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px' }}>
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
                     <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
                       Relationships ({(profile.relationships || []).length})
                     </div>
@@ -221,6 +233,54 @@ export default function EntityDetailPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Timeline */}
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+                      Document Timeline
+                    </div>
+                    {timeline.length === 0 ? (
+                      <div style={{ color: 'var(--text3)', fontSize: 13 }}>No document mentions found.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {timeline.map((entry, i) => (
+                          <div key={i} style={{ borderLeft: '2px solid var(--border2)', paddingLeft: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <button
+                                onClick={() => void router.push(`/projects/${id}/documents`)}
+                                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0, fontWeight: 500 }}
+                              >
+                                {entry.document_name}
+                              </button>
+                              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>
+                                {new Date(entry.uploaded_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                              &ldquo;{entry.context_snippet}&rdquo;
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Unflag button */}
+                  {isFlagged && (
+                    <div style={{ background: 'rgba(240,97,74,0.08)', border: '1px solid rgba(240,97,74,0.3)', borderRadius: 10, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: 'var(--coral, #f0614a)' }}>This entity is flagged and hidden from the graph.</span>
+                      <button
+                        onClick={async () => {
+                          await flagEntity(entityId, false);
+                          setIsFlagged(false);
+                          void router.push(`/projects/${id}/map`);
+                        }}
+                        style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)', cursor: 'pointer', fontSize: 12 }}
+                      >
+                        Unflag entity
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>

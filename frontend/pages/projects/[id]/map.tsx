@@ -17,6 +17,7 @@ import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 import EmptyState from '@/components/EmptyState';
 import { CytoscapeNode, CytoscapeEdge } from '@/types';
+import { mapDegreeToSize } from '@/lib/graphFocus';
 
 const GraphVisualization = dynamic(
   () => import('@/components/GraphVisualization'),
@@ -64,7 +65,33 @@ export default function MapPage() {
       .catch(() => {});
     getProjectGraph(id)
       .then(({ nodes: n, edges: e }) => {
-        setNodes(n);
+        // Compute degree (connection count) for each node
+        const degreeMap = new Map<string, number>();
+        n.forEach(node => degreeMap.set(node.id, 0));
+        e.forEach(edge => {
+          degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1);
+          degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1);
+        });
+        const degrees = Array.from(degreeMap.values());
+        const minDeg = Math.min(...degrees, 0);
+        const maxDeg = Math.max(...degrees, 1);
+
+        // Enrich nodes with computed degree and node_size
+        const enrichedNodes = n.map(node => {
+          const deg = degreeMap.get(node.id) ?? 0;
+          return {
+            ...node,
+            degree: deg,
+            data: {
+              ...node.data,
+              degree: deg,
+              node_size: mapDegreeToSize(deg, minDeg, maxDeg),
+              shape: 'ellipse' as const,
+            },
+          };
+        });
+
+        setNodes(enrichedNodes);
         setEdges(e);
         setLoading(false);
       })
@@ -254,10 +281,13 @@ export default function MapPage() {
                     edges={edges}
                     onNodeClick={handleNodeClick}
                     onBackgroundClick={handleClosePanel}
+                    onFocusExit={handleClosePanel}
                     highlightNodeIds={highlightNodeIds}
                     focusNodeIds={focusNodeIds}
                     centerNodeId={centerNodeId}
                     command={graphCommand}
+                    showFilterPanel
+                    showLegend
                   />
                 )}
 

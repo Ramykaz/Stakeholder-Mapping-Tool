@@ -37,3 +37,27 @@ export function formatRelativeTime(iso: string): string {
     return iso;
   }
 }
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+export type Theme = 'dark' | 'light';
+
+export function getActiveTheme(): Theme {
+  if (typeof document === 'undefined') return 'dark';
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
+// ── Filter State ──────────────────────────────────────────────────────────────
+export interface FilterState {
+  /** Empty array means "show all types". */
+  entityTypes: string[];
+  /** 0–100 (percentage). Nodes with confidence*100 < this are hidden. */
+  confidenceMin: number;
+  /** Nodes with degree < this are hidden. */
+  degreeMin: number;
+}
+
+export const DEFAULT_FILTER_STATE: FilterState = {
+  entityTypes: [],
+  confidenceMin: 0,
+  degreeMin: 0,
+};

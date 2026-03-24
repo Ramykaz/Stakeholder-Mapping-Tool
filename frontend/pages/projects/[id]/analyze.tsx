@@ -340,6 +340,12 @@ export default function AnalyzePage() {
                   ← Back to documents
                 </button>
                 <button
+                  onClick={() => void router.push(`/projects/${id}/setup`)}
+                  className="btn-ghost"
+                >
+                  Edit concept note
+                </button>
+                <button
                   onClick={() => void router.push(`/projects/${id}/map`)}
                   className="btn-primary btn-primary-lg"
                   disabled={!extracted && entities.length === 0}

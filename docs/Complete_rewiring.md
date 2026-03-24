@@ -1,5 +1,3 @@
-/.specify.tasks
-
 # UNDP Stakeholder Analysis Tool — Full System Rewire
 # Complete frontend UI redesign + backend alignment spec
 # Stack: Django 4.2 backend · Next.js frontend · Supabase (PostgreSQL) · Celery · Redis

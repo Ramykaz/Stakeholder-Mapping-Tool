@@ -117,7 +117,8 @@ export default function SetupPage() {
                   )}
                 </div>
                 <p style={{ color: 'var(--text2)', fontSize: 13, marginTop: 4 }}>
-                  Describe the stakeholder landscape you want to map. This guides every AI extraction.
+                  Describe the stakeholder landscape you want to map. This guides every AI extraction.{' '}
+                  <span style={{ color: 'var(--text3)' }}>You can return here to update it at any time.</span>
                 </p>
               </div>
 

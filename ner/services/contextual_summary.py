@@ -42,6 +42,11 @@ def _generate_summary_text(entity: Entity, project: Project, provider: str = '',
     chunk_texts = [c.text for c in chunks if c.text]
     chunks_block = '\n\n---\n\n'.join(chunk_texts) if chunk_texts else '(No document excerpts found for this entity.)'
 
+    source_refs = [
+        {'document_name': c.document.filename, 'snippet': (c.text or '')[:200]}
+        for c in chunks if c.text
+    ]
+
     prompt_path = Path('prompts/entity_summary_rag.txt')
     try:
         template = prompt_path.read_text(encoding='utf-8').strip()
@@ -63,7 +68,8 @@ def _generate_summary_text(entity: Entity, project: Project, provider: str = '',
     resolved_model = (model or '').strip() or django_settings.NER_DEFAULT_MODEL
 
     try:
-        return _call_provider(prompt, resolved_provider, resolved_model)
+        text = _call_provider(prompt, resolved_provider, resolved_model)
+        return text, source_refs
     except Exception:
         logger.exception("LLM summary call failed", extra={'entity_id': str(entity.id)})
         raise
@@ -118,7 +124,7 @@ def get_or_generate_summary(
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_generate_summary_text, entity, project, resolved_provider, resolved_model)
-            summary_text = future.result(timeout=max(1, timeout_seconds))
+            summary_text, source_refs = future.result(timeout=max(1, timeout_seconds))
     except FutureTimeoutError:
         logger.warning("Contextual summary timed out", extra={'entity_id': str(entity.id), 'project_id': str(project.id)})
         return {
@@ -151,4 +157,5 @@ def get_or_generate_summary(
         'source': 'provider',
         'generated_at': cache.generated_at,
         'expires_at': cache.expires_at,
+        'source_chunks': source_refs,
     }

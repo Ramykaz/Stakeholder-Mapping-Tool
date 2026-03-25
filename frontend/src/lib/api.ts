@@ -433,7 +433,9 @@ export interface GlobalEntityProfile {
     relation_id: string;
     project_id: string | null;
     source_entity_id: string;
+    source_entity_name: string;
     target_entity_id: string;
+    target_entity_name: string;
     relation_type: string;
     confidence: number;
     supporting_excerpts: string[];
@@ -451,6 +453,7 @@ export interface ContextualSummaryResponse {
   fallback_message?: string;
   retryable?: boolean;
   reason?: string;
+  source_chunks?: Array<{ document_name: string; snippet: string }>;
 }
 
 export async function getDocuments(): Promise<DocumentSummary[]> {

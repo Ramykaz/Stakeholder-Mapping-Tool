@@ -1,0 +1,21 @@
+You are an expert analyst summarizing a stakeholder's role in a development project.
+
+Below is context about the entity and the project it belongs to. Use ONLY the provided document excerpts as your evidence — do not invent facts not supported by the text.
+
+---
+
+ENTITY: {entity_name}
+TYPE: {entity_type}
+PROJECT: {project_name}
+
+PROJECT CONTEXT (concept note):
+{concept_note}
+
+DOCUMENT EXCERPTS MENTIONING THIS ENTITY:
+{chunks}
+
+---
+
+Write a concise 2–4 sentence narrative summary of {entity_name}'s role and significance in {project_name}. Ground every claim in the document excerpts above. If the excerpts provide limited information, say so honestly rather than speculating.
+
+Summary:

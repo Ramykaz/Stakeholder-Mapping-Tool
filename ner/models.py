@@ -81,6 +81,7 @@ class Entity(models.Model):
         db_index=True,
     )
     needs_review = models.BooleanField(default=False, db_index=True)
+    is_flagged = models.BooleanField(default=False, db_index=True)
     mention_count_dedup = models.PositiveIntegerField(default=0)
     document_id = models.ForeignKey(
         Document,

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { getProjects, deleteProject, getStoredAuthToken, getStoredAuthUser, ProjectSummary } from '../../lib/api';
+import { getProjects, deleteProject, getProjectReviewCandidates, getProject, getStoredAuthToken, getStoredAuthUser, ProjectSummary } from '../../lib/api';
 
 export interface SidebarProps {
   workspaceId?: string;
@@ -93,12 +93,35 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
     }
   };
 
+  const [reviewCount, setReviewCount] = useState(0);
+  const [activeProvider, setActiveProvider] = useState('');
+
+  useEffect(() => {
+    if (activeProjectId && isAuthenticated) {
+      getProjectReviewCandidates(activeProjectId)
+        .then(d => setReviewCount(d.pending_count ?? 0))
+        .catch(() => {});
+      getProject(activeProjectId)
+        .then(p => {
+          const prov = (p as any).provider || '';
+          const mod = (p as any).model || '';
+          setActiveProvider(prov ? `${prov}${mod ? ` / ${mod}` : ''}` : '');
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId]);
+
   // Sub-pages for the active project
   const projectSubPages = activeProjectId ? [
     { label: 'Edit concept note', path: `/projects/${activeProjectId}/setup` },
     { label: 'Documents', path: `/projects/${activeProjectId}/documents` },
     { label: 'Analyze', path: `/projects/${activeProjectId}/analyze` },
     { label: 'Graph Map', path: `/projects/${activeProjectId}/map` },
+    {
+      label: `Review duplicates${reviewCount > 0 ? ` (${reviewCount})` : ''}`,
+      path: `/projects/${activeProjectId}/review`,
+    },
   ] : [];
 
   return (
@@ -229,6 +252,16 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
                   {sub.label}
                 </div>
               ))}
+              {/* Active LLM provider */}
+              {isActive(project.id) && activeProvider && (
+                <div style={{
+                  padding: '3px 10px 5px 28px', margin: '0 8px',
+                  fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  LLM: {activeProvider}
+                </div>
+              )}
             </div>
           ))}
 
@@ -246,6 +279,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
         <div style={{ marginTop: 'auto', padding: '12px 8px', borderTop: '1px solid var(--border)' }}>
           {[
             { label: 'Projects', action: () => void router.push('/projects') },
+            { label: 'Entities', action: () => void router.push('/entities') },
             { label: user?.is_admin ? 'Admin Settings' : 'Account', action: onSettings },
           ].map(item => (
             <div

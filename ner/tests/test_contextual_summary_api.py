@@ -43,7 +43,7 @@ class TestContextualSummaryApi(APITestCase):
         self.assertEqual(payload['summary'], cache.summary_text)
         self.assertEqual(payload['source'], 'cache')
 
-    @patch('ner.services.contextual_summary._generate_summary_text', return_value='Fresh narrative')
+    @patch('ner.services.contextual_summary._generate_summary_text', return_value=('Fresh narrative', []))
     def test_summary_refresh_regenerates(self, _mock_generate):
         ContextualEntitySummary.objects.create(
             entity=self.entity,

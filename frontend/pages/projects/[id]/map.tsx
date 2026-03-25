@@ -8,6 +8,8 @@ import {
   getEntityProfile,
   generateEntitySummary,
   queryProjectGraph,
+  flagEntity,
+  getProjectFlaggedCount,
   getStoredAuthToken,
   ProjectSummary,
   GlobalEntityProfile,
@@ -53,15 +55,21 @@ export default function MapPage() {
 
   // NL query
   const [queryInput, setQueryInput] = useState('');
-  const [queryResult, setQueryResult] = useState<{ answer: string; entity_ids: string[] } | null>(null);
+  const [queryResult, setQueryResult] = useState<{ answer: string | null; is_nl_query: boolean; entity_ids: string[] } | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const queryInputRef = useRef<HTMLInputElement>(null);
+
+  // Entity flagging
+  const [flaggedCount, setFlaggedCount] = useState(0);
 
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
     if (!id) return;
     getProject(id)
       .then(setProject)
+      .catch(() => {});
+    getProjectFlaggedCount(id)
+      .then(setFlaggedCount)
       .catch(() => {});
     getProjectGraph(id)
       .then(({ nodes: n, edges: e }) => {
@@ -162,11 +170,11 @@ export default function MapPage() {
     setFocusNodeIds([]);
     try {
       const result = await queryProjectGraph(id, queryInput.trim());
-      setQueryResult(result);
+      setQueryResult({ answer: result.answer, is_nl_query: result.is_nl_query, entity_ids: result.entity_ids });
       setHighlightNodeIds(result.entity_ids);
       if (result.entity_ids.length > 0) setFocusNodeIds(result.entity_ids);
     } catch {
-      setQueryResult({ answer: 'Query failed. Please try again.', entity_ids: [] });
+      setQueryResult({ answer: 'Query failed. Please try again.', is_nl_query: false, entity_ids: [] });
     } finally {
       setQueryLoading(false);
     }
@@ -203,6 +211,11 @@ export default function MapPage() {
                 </div>
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>
                   {nodes.length} entities · {edges.length} relations
+                  {flaggedCount > 0 && (
+                    <span style={{ marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: 'rgba(240,97,74,0.15)', color: 'var(--coral, #f0614a)', fontSize: 10 }}>
+                      {flaggedCount} flagged
+                    </span>
+                  )}
                 </div>
               </div>
               <button
@@ -443,6 +456,25 @@ export default function MapPage() {
                         </div>
                       ) : null}
 
+                      {/* Flag entity */}
+                      <button
+                        onClick={async () => {
+                          if (!selectedNode) return;
+                          await flagEntity(selectedNode.id, true);
+                          setNodes(prev => prev.filter(n => n.id !== selectedNode.id));
+                          setEdges(prev => prev.filter(e => e.source !== selectedNode.id && e.target !== selectedNode.id));
+                          setFlaggedCount(c => c + 1);
+                          handleClosePanel();
+                        }}
+                        style={{
+                          width: '100%', padding: '6px 12px', borderRadius: 6, border: '1px solid rgba(240,97,74,0.3)',
+                          background: 'rgba(240,97,74,0.08)', color: 'var(--coral, #f0614a)',
+                          cursor: 'pointer', fontSize: 12, fontFamily: 'var(--sans)',
+                        }}
+                      >
+                        Flag &amp; reject entity
+                      </button>
+
                       {/* View full detail link */}
                       <button
                         onClick={() => void router.push(`/projects/${id}/entities/${selectedNode.id}`)}
@@ -461,8 +493,8 @@ export default function MapPage() {
                     position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
                     zIndex: 5, width: 'min(560px, calc(100% - 360px))',
                   }}>
-                    {/* Query result bubble */}
-                    {queryResult && (
+                    {/* NL answer panel — shown only for natural language questions */}
+                    {queryResult && queryResult.is_nl_query && queryResult.answer && (
                       <div style={{
                         marginBottom: 8, padding: '10px 14px', borderRadius: 10,
                         background: 'var(--bg2)', border: '1px solid var(--border)',

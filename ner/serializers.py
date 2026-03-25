@@ -258,25 +258,38 @@ class GlobalEntityProfileSerializer(serializers.ModelSerializer):
         if owner and owner.is_authenticated:
             canonical_entities = canonical_entities.filter(document_id__project__owner=owner)
 
+        entity_ids = list(canonical_entities.values_list('id', flat=True))
+
+        from django.db.models import Q
         relations = (
             Relation.objects
-            .filter(source_entity__in=canonical_entities)
+            .filter(Q(source_entity_id__in=entity_ids) | Q(target_entity_id__in=entity_ids))
             .select_related('source_entity', 'target_entity', 'project')
             .order_by('-confidence')
+            .distinct()
         )
 
-        return [
-            {
-                'relation_id': str(rel.id),
+        seen = set()
+        result = []
+        for rel in relations[:100]:
+            key = str(rel.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append({
+                'relation_id': key,
                 'project_id': str(rel.project_id) if rel.project_id else None,
                 'source_entity_id': str(rel.source_entity_id),
+                'source_entity_name': rel.source_entity.canonical_name if rel.source_entity else '',
                 'target_entity_id': str(rel.target_entity_id),
+                'target_entity_name': rel.target_entity.canonical_name if rel.target_entity else '',
                 'relation_type': rel.label,
                 'confidence': rel.confidence,
                 'supporting_excerpts': [],
-            }
-            for rel in relations[:50]
-        ]
+            })
+            if len(result) >= 50:
+                break
+        return result
 
 
 class ContextualSummaryRequestSerializer(serializers.Serializer):

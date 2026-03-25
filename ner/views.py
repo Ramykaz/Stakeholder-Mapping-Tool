@@ -1017,7 +1017,7 @@ class ProjectGraphView(AuthenticatedAPIView):
 
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
-        entities = Entity.objects.filter(project=project).order_by('entity_type', 'canonical_name')
+        entities = Entity.objects.filter(project=project, is_flagged=False).order_by('entity_type', 'canonical_name')
         style_map = _active_entity_style_map()
         default_style = {'shape': 'ellipse', 'color': '#9ca3af'}
         entity_ids = {str(entity.id) for entity in entities}
@@ -1084,37 +1084,35 @@ class ProjectGraphView(AuthenticatedAPIView):
 class ProjectQueryView(AuthenticatedAPIView):
     """POST /api/v1/projects/{id}/query/
 
-    Accepts {"query": "..."} and returns matching entity IDs plus a plain-text answer.
-    Uses keyword matching on canonical_name and alias text for fast response.
+    Accepts {"query": "..."} and returns matching entity IDs via pgvector semantic search.
+    When the query looks like a natural language question, also calls the LLM for an answer.
     """
 
     def post(self, request, id):
+        from .services.semantic_search import search_entity_ids_for_project, search_chunks_for_entity
+        from .services.nl_query import is_nl_question, answer_nl_query
+
         project = _get_project_for_user_or_404(id, request.user)
         query = (request.data.get('query') or '').strip()
         if not query:
             return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from django.db.models import Q
-
-        # Keyword search across canonical_name
-        qs = Entity.objects.filter(project=project).filter(
-            Q(canonical_name__icontains=query)
-        ).order_by('entity_type', 'canonical_name')[:30]
-
-        entity_ids = [str(e.id) for e in qs]
+        entity_ids = search_entity_ids_for_project(project, query, top_k=20)
         count = len(entity_ids)
 
-        if count == 0:
-            answer = f"No entities found matching \"{query}\"."
-        elif count == 1:
-            answer = f"Found 1 entity matching \"{query}\": {qs[0].canonical_name}."
-        else:
-            names = ', '.join(e.canonical_name for e in qs[:5])
-            suffix = f' and {count - 5} more' if count > 5 else ''
-            answer = f"Found {count} entities matching \"{query}\": {names}{suffix}."
+        nl = is_nl_question(query)
+        answer = None
+
+        if nl:
+            top_k_chunks = search_chunks_for_entity(project, query, top_k=10)
+            chunk_texts = [c.text for c in top_k_chunks if c.text]
+            provider = (getattr(project, 'provider', '') or '').strip() or settings.NER_DEFAULT_PROVIDER
+            model = (getattr(project, 'model', '') or '').strip() or settings.NER_DEFAULT_MODEL
+            answer = answer_nl_query(project, query, chunk_texts, provider, model)
 
         return Response({
             'query': query,
+            'is_nl_query': nl,
             'answer': answer,
             'entity_ids': entity_ids,
             'count': count,
@@ -1166,11 +1164,15 @@ class EntitySummaryView(AuthenticatedAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        project_provider = (getattr(project, 'provider', '') or '').strip() or settings.NER_DEFAULT_PROVIDER
+        project_model = (getattr(project, 'model', '') or '').strip() or settings.NER_DEFAULT_MODEL
         summary_payload = get_or_generate_summary(
             entity=entity,
             project=project,
             refresh=refresh,
             timeout_seconds=8,
+            provider=project_provider,
+            model=project_model,
         )
 
         status_code = summary_payload.pop('status_code', status.HTTP_200_OK)
@@ -1214,6 +1216,288 @@ class DocumentRunsView(AuthenticatedAPIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+# ---------------------------------------------------------------------------
+# T017 — Entity Flag View
+# ---------------------------------------------------------------------------
+class EntityFlagView(AuthenticatedAPIView):
+    """POST /api/v1/entities/{id}/flag/"""
+
+    def post(self, request, id):
+        entity = get_object_or_404(Entity, id=id, project__owner=request.user)
+        is_flagged = request.data.get('is_flagged')
+        if is_flagged is None:
+            return Response({'error': 'is_flagged is required'}, status=status.HTTP_400_BAD_REQUEST)
+        entity.is_flagged = bool(is_flagged)
+        entity.save(update_fields=['is_flagged'])
+        return Response({
+            'id': str(entity.id),
+            'canonical_name': entity.canonical_name,
+            'is_flagged': entity.is_flagged,
+        }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# T013/T023 — Documents with stats + Dedup review views
+# ---------------------------------------------------------------------------
+class ProjectFlaggedCountView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/flagged-count/"""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        count = Entity.objects.filter(project=project, is_flagged=True).count()
+        return Response({'project_id': str(id), 'flagged_count': count}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# T023 — Dedup Review List
+# ---------------------------------------------------------------------------
+class DeduplicationReviewListView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/review/"""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        candidates = (
+            EntityReviewCandidate.objects
+            .filter(document__project=project, status='pending')
+            .select_related('left_entity', 'right_entity')
+            .order_by('-similarity_score')[:50]
+        )
+
+        results = []
+        for c in candidates:
+            left_chunk = None
+            if c.left_entity.chunk_id_id:
+                from ingestion.models import Chunk
+                chunk = getattr(c.left_entity, 'chunk_id', None)
+                if chunk:
+                    left_chunk = (chunk.text or '')[:280]
+
+            results.append({
+                'id': str(c.id),
+                'left_entity': {
+                    'id': str(c.left_entity.id),
+                    'name': c.left_entity.canonical_name,
+                    'type': c.left_entity.entity_type,
+                },
+                'right_entity': {
+                    'id': str(c.right_entity.id),
+                    'name': c.right_entity.canonical_name,
+                    'type': c.right_entity.entity_type,
+                },
+                'similarity_score': c.similarity_score,
+                'mention_context': left_chunk,
+            })
+
+        pending_count = EntityReviewCandidate.objects.filter(
+            document__project=project, status='pending'
+        ).count()
+
+        return Response({
+            'project_id': str(id),
+            'pending_count': pending_count,
+            'results': results,
+        }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# T024 — Review Candidate Resolve
+# ---------------------------------------------------------------------------
+class ReviewCandidateResolveView(AuthenticatedAPIView):
+    """POST /api/v1/review-candidates/{id}/resolve/"""
+
+    def post(self, request, id):
+        from .services.dedup_review import resolve_review_candidate
+
+        candidate = get_object_or_404(
+            EntityReviewCandidate,
+            id=id,
+            document__project__owner=request.user,
+        )
+        if candidate.status != 'pending':
+            return Response({'error': 'candidate already resolved'}, status=status.HTTP_409_CONFLICT)
+
+        action = (request.data.get('action') or '').strip()
+        if action not in ('merge', 'keep_separate'):
+            return Response(
+                {'error': 'action must be "merge" or "keep_separate"'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            candidate = resolve_review_candidate(candidate, action, request.user)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'id': str(candidate.id),
+            'status': candidate.status,
+            'resolved_at': candidate.resolved_at,
+        }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# T030 — Entity Mention Timeline
+# ---------------------------------------------------------------------------
+class EntityTimelineView(AuthenticatedAPIView):
+    """GET /api/v1/entities/{id}/timeline/?project_id={id}"""
+
+    def get(self, request, id):
+        from ingestion.models import Chunk
+
+        project_id = request.query_params.get('project_id')
+        if not project_id:
+            return Response({'error': 'project_id query param required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        entity = get_object_or_404(Entity, id=id)
+        project = _get_project_for_user_or_404(project_id, request.user)
+
+        chunks = (
+            Chunk.objects
+            .filter(document__project=project, text__icontains=entity.canonical_name)
+            .select_related('document')
+            .order_by('document__upload_timestamp')
+        )
+
+        seen_docs: set[str] = set()
+        timeline = []
+        for chunk in chunks:
+            doc_id = str(chunk.document_id)
+            if doc_id in seen_docs:
+                continue
+            seen_docs.add(doc_id)
+
+            text = chunk.text or ''
+            name_lower = entity.canonical_name.lower()
+            idx = text.lower().find(name_lower)
+            if idx >= 0:
+                start = max(0, idx - 100)
+                end = min(len(text), idx + len(entity.canonical_name) + 100)
+                snippet = text[start:end].strip()
+            else:
+                snippet = text[:280].strip()
+
+            timeline.append({
+                'document_id': doc_id,
+                'document_name': chunk.document.filename,
+                'uploaded_at': chunk.document.upload_timestamp,
+                'context_snippet': snippet,
+            })
+
+        return Response({
+            'entity_id': str(id),
+            'project_id': str(project_id),
+            'timeline': timeline,
+        }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# T033 — Global Entity List
+# ---------------------------------------------------------------------------
+class GlobalEntityListView(AuthenticatedAPIView):
+    """GET /api/v1/entities/ — cross-project entity list for authenticated user."""
+
+    def get(self, request):
+        from django.db.models import Count, Min, Max
+
+        entity_type = request.query_params.get('type')
+        qs = (
+            Entity.objects
+            .filter(project__owner=request.user, is_flagged=False)
+            .values('id', 'canonical_name', 'entity_type', 'project_id')
+        )
+
+        # Aggregate at canonical_name level across projects
+        agg = (
+            Entity.objects
+            .filter(project__owner=request.user, is_flagged=False)
+            .values('canonical_name', 'entity_type')
+            .annotate(
+                project_count=Count('project', distinct=True),
+                document_count=Count('document_id', distinct=True),
+                confidence_min=Min('confidence'),
+                confidence_max=Max('confidence'),
+            )
+            .order_by('-project_count', 'canonical_name')
+        )
+
+        if entity_type:
+            agg = agg.filter(entity_type=entity_type.upper())
+
+        page_size = 50
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+        except (ValueError, TypeError):
+            page = 1
+        offset = (page - 1) * page_size
+        total = agg.count()
+        results = list(agg[offset:offset + page_size])
+
+        # Attach a representative entity ID (first match) for linking
+        for item in results:
+            rep = (
+                Entity.objects
+                .filter(
+                    canonical_name=item['canonical_name'],
+                    entity_type=item['entity_type'],
+                    project__owner=request.user,
+                )
+                .values('id', 'project_id')
+                .first()
+            )
+            item['representative_id'] = str(rep['id']) if rep else None
+            item['representative_project_id'] = str(rep['project_id']) if rep else None
+
+        return Response({
+            'count': total,
+            'page': page,
+            'results': results,
+        }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# T038 — Project Provider View
+# ---------------------------------------------------------------------------
+_PROVIDER_MODELS: dict[str, list[str]] = {
+    'groq': ['llama-3.1-8b-instant', 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768'],
+    'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
+    'azure_openai': ['gpt-4o', 'gpt-35-turbo'],
+    'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro'],
+}
+
+_PROVIDER_ENV_KEYS: dict[str, str] = {
+    'groq': 'GROQ_API_KEY',
+    'openai': 'OPENAI_API_KEY',
+    'azure_openai': 'AZURE_OPENAI_API_KEY',
+    'gemini': 'GEMINI_API_KEY',
+}
+
+
+class ProjectProviderView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/providers/"""
+
+    def get(self, request, id):
+        import os
+        project = _get_project_for_user_or_404(id, request.user)
+        current_provider = (getattr(project, 'provider', '') or '').strip() or settings.NER_DEFAULT_PROVIDER
+        current_model = (getattr(project, 'model', '') or '').strip() or settings.NER_DEFAULT_MODEL
+
+        providers = []
+        for name, env_key in _PROVIDER_ENV_KEYS.items():
+            available = bool(os.environ.get(env_key, '').strip())
+            providers.append({
+                'name': name,
+                'available': available,
+                'models': _PROVIDER_MODELS.get(name, []),
+            })
+
+        return Response({
+            'project_id': str(id),
+            'current_provider': current_provider,
+            'current_model': current_model,
+            'providers': providers,
+        }, status=status.HTTP_200_OK)
 
 
 class ExtractionProgressView(AuthenticatedAPIView):

@@ -62,8 +62,8 @@ export function mapDegreeToSize(
   degree: number,
   minDeg: number,
   maxDeg: number,
-  minPx = 28,
-  maxPx = 72,
+  minPx = 36,
+  maxPx = 84,
 ): number {
   if (minDeg === maxDeg || maxDeg <= 0) return Math.round((minPx + maxPx) / 2);
   const ratio = Math.max(0, Math.min(1, (degree - minDeg) / (maxDeg - minDeg)));

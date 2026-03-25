@@ -28,38 +28,51 @@ def _build_evidence_hash(entity: Entity, project: Project) -> str:
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
-def _generate_summary_text(entity: Entity, project: Project) -> str:
+def _generate_summary_text(entity: Entity, project: Project, provider: str = '', model: str = '') -> str:
+    """Generate a grounded narrative summary using LLM + retrieved document chunks."""
+    from pathlib import Path
+    from django.conf import settings as django_settings
+    from .semantic_search import search_chunks_for_entity
+    from .nl_query import _call_provider
+
     concept_note = getattr(project, 'concept_note', None)
     concept_text = (concept_note.content or '').strip() if concept_note else ''
 
-    outgoing = list(
-        Relation.objects.filter(project=project, source_entity=entity)
-        .select_related('target_entity')
-        .order_by('-confidence', 'label')[:5]
-    )
-    incoming = list(
-        Relation.objects.filter(project=project, target_entity=entity)
-        .select_related('source_entity')
-        .order_by('-confidence', 'label')[:5]
+    chunks = list(search_chunks_for_entity(project, entity.canonical_name, top_k=8))
+    chunk_texts = [c.text for c in chunks if c.text]
+    chunks_block = '\n\n---\n\n'.join(chunk_texts) if chunk_texts else '(No document excerpts found for this entity.)'
+
+    source_refs = [
+        {'document_name': c.document.filename, 'snippet': (c.text or '')[:200]}
+        for c in chunks if c.text
+    ]
+
+    prompt_path = Path('prompts/entity_summary_rag.txt')
+    try:
+        template = prompt_path.read_text(encoding='utf-8').strip()
+    except FileNotFoundError:
+        template = (
+            "Summarize the role of {entity_name} ({entity_type}) in {project_name} "
+            "based only on these excerpts:\n{chunks}\nProject context: {concept_note}\nSummary:"
+        )
+
+    prompt = template.format(
+        entity_name=entity.canonical_name,
+        entity_type=entity.entity_type,
+        project_name=project.name,
+        concept_note=concept_text[:500] if concept_text else '(No concept note available.)',
+        chunks=chunks_block,
     )
 
-    relation_parts = []
-    for rel in outgoing:
-        relation_parts.append(f"{entity.canonical_name} {rel.label.lower().replace('_', ' ')} {rel.target_entity.canonical_name}")
-    for rel in incoming:
-        relation_parts.append(f"{rel.source_entity.canonical_name} {rel.label.lower().replace('_', ' ')} {entity.canonical_name}")
+    resolved_provider = (provider or '').strip() or django_settings.NER_DEFAULT_PROVIDER
+    resolved_model = (model or '').strip() or django_settings.NER_DEFAULT_MODEL
 
-    relation_sentence = '; '.join(relation_parts[:3]) if relation_parts else f"{entity.canonical_name} appears in project evidence with limited explicit relationships"
-    context_sentence = (
-        f" In this project context, {concept_text[:280].strip()}"
-        if concept_text
-        else ""
-    )
-
-    return (
-        f"{entity.canonical_name} is modeled as a {entity.entity_type.lower()} stakeholder in {project.name}. "
-        f"Key evidence indicates: {relation_sentence}.{context_sentence}"
-    ).strip()
+    try:
+        text = _call_provider(prompt, resolved_provider, resolved_model)
+        return text, source_refs
+    except Exception:
+        logger.exception("LLM summary call failed", extra={'entity_id': str(entity.id)})
+        raise
 
 
 def _upsert_cache(entity: Entity, project: Project, summary_text: str, provider: str = 'internal') -> ContextualEntitySummary:
@@ -84,6 +97,8 @@ def get_or_generate_summary(
     project: Project,
     refresh: bool = False,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    provider: str = '',
+    model: str = '',
 ) -> dict:
     now = timezone.now()
 
@@ -103,10 +118,13 @@ def get_or_generate_summary(
                 'expires_at': cached.expires_at,
             }
 
+    resolved_provider = (provider or '').strip()
+    resolved_model = (model or '').strip()
+
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_generate_summary_text, entity, project)
-            summary_text = future.result(timeout=max(1, timeout_seconds))
+            future = pool.submit(_generate_summary_text, entity, project, resolved_provider, resolved_model)
+            summary_text, source_refs = future.result(timeout=max(1, timeout_seconds))
     except FutureTimeoutError:
         logger.warning("Contextual summary timed out", extra={'entity_id': str(entity.id), 'project_id': str(project.id)})
         return {
@@ -130,7 +148,8 @@ def get_or_generate_summary(
             'status_code': 503,
         }
 
-    cache = _upsert_cache(entity, project, summary_text, provider='internal')
+    provider_label = resolved_provider or 'internal'
+    cache = _upsert_cache(entity, project, summary_text, provider=provider_label)
     return {
         'entity_id': str(entity.id),
         'project_id': str(project.id),
@@ -138,4 +157,5 @@ def get_or_generate_summary(
         'source': 'provider',
         'generated_at': cache.generated_at,
         'expires_at': cache.expires_at,
+        'source_chunks': source_refs,
     }

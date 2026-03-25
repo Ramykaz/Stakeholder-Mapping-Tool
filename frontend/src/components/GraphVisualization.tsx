@@ -129,25 +129,57 @@ function GraphVisualizationInner({
     }
   }, []);
 
+  const runInitialLayout = useCallback((cy: Core) => {
+    // Concentric layout: hub nodes (high degree) in centre, leaf nodes at perimeter.
+    // Guaranteed no overlap, instant, always fits the viewport.
+    if (!cy || cy.destroyed()) return;
+    try {
+      const layout = cy.layout({
+        name: 'concentric',
+        concentric: (node: any) => (node.data('degree') ?? 0) + 1,
+        levelWidth: () => 3,
+        minNodeSpacing: 48,
+        spacingFactor: 2.2,
+        avoidOverlap: true,
+        animate: true,
+        animationDuration: 700,
+        fit: true,
+        padding: 80,
+      } as any);
+      layoutRef.current = layout;
+      layout.run();
+    } catch {
+      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 80, fit: true }).run(); } catch { /* ignore */ }
+    }
+  }, []);
+
   const runLayout = useCallback((cy: Core, opts: Record<string, unknown> = {}) => {
+    // Force-directed cose layout — used for "reset layout" after user interaction.
     if (!cy || cy.destroyed()) return;
     try {
       const layout = cy.layout({
         name: 'cose',
         animate: true,
-        animationDuration: 600,
-        nodeRepulsion: () => 8000,
-        idealEdgeLength: () => 120,
-        edgeElasticity: () => 0.3,
-        gravity: 1,
-        numIter: 1000,
-        padding: 40,
+        animationDuration: 800,
+        nodeRepulsion: () => 480000,
+        idealEdgeLength: () => 200,
+        edgeElasticity: () => 0.45,
+        gravity: 0.1,
+        numIter: 2000,
+        randomize: false,
+        componentSpacing: 100,
+        padding: 80,
+        fit: true,
         ...opts,
       } as any);
       layoutRef.current = layout;
+      layout.on('layoutstop', () => {
+        if (!cy || cy.destroyed()) return;
+        cy.fit(undefined, 80);
+      });
       layout.run();
     } catch {
-      try { cy.layout({ name: 'grid', padding: 40 }).run(); } catch { /* ignore */ }
+      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 80, fit: true }).run(); } catch { /* ignore */ }
     }
   }, []);
 
@@ -191,8 +223,8 @@ function GraphVisualizationInner({
       ],
       style: buildCytoscapeStylesheet(isDark ? 'dark' : 'light') as any,
       layout: { name: 'preset' },
-      minZoom: 0.3,
-      maxZoom: 3,
+      minZoom: 0.08,
+      maxZoom: 4,
       userZoomingEnabled: true,
       userPanningEnabled: true,
       boxSelectionEnabled: false,
@@ -271,11 +303,39 @@ function GraphVisualizationInner({
       if (tooltipRef.current) tooltipRef.current.style.display = 'none';
     });
 
+    // Edge hover — show relationship label tooltip
+    cy.on('mouseover', 'edge', (evt) => {
+      const edge = evt.target;
+      if (tooltipRef.current) {
+        const src = edge.source().data('label') || edge.source().id();
+        const tgt = edge.target().data('label') || edge.target().id();
+        const lbl = edge.data('label') || '';
+        tooltipRef.current.innerHTML = `
+          <div style="font-size:12px;color:#e8eaf0;font-weight:500;margin-bottom:4px">${lbl || 'relates to'}</div>
+          <div style="font-size:11px;color:#5d6180;font-family:'DM Mono',monospace">${src} → ${tgt}</div>
+        `;
+        tooltipRef.current.style.display = 'block';
+      }
+    });
+
+    cy.on('mousemove', 'edge', (evt) => {
+      if (!tooltipRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (evt.originalEvent as MouseEvent).clientX - rect.left + 14;
+      const y = (evt.originalEvent as MouseEvent).clientY - rect.top + 14;
+      tooltipRef.current.style.left = `${x}px`;
+      tooltipRef.current.style.top  = `${y}px`;
+    });
+
+    cy.on('mouseout', 'edge', () => {
+      if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+    });
+
     requestAnimationFrame(() => {
       if (!cyRef.current || cyRef.current.destroyed()) return;
-      runLayout(cy);
+      runInitialLayout(cy);
     });
-  }, [nodes, edges, destroyCy, runLayout]);
+  }, [nodes, edges, destroyCy, runInitialLayout]);
 
   useEffect(() => {
     initGraph();

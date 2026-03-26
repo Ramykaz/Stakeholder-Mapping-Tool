@@ -15,7 +15,7 @@ interface GraphVisualizationProps {
   /** External focus (e.g. from search). Ignored when internal focus mode is active. */
   focusNodeIds?: string[];
   centerNodeId?: string | null;
-  command?: { type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset'; nonce: number } | null;
+  command?: { type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset' | 'png'; nonce: number } | null;
   fontSize?: number;
   showControls?: boolean;
   height?: number;
@@ -459,7 +459,18 @@ function GraphVisualizationInner({
     if (command.type === 'zoomIn')  { cyRef.current.zoom(Math.min(cyRef.current.maxZoom(), cyRef.current.zoom() + 0.2)); return; }
     if (command.type === 'zoomOut') { cyRef.current.zoom(Math.max(cyRef.current.minZoom(), cyRef.current.zoom() - 0.2)); return; }
     if (command.type === 'fit')     { handleFitView(); return; }
-    if (command.type === 'reset')   { handleResetLayout(); }
+    if (command.type === 'reset')   { handleResetLayout(); return; }
+    if (command.type === 'png') {
+      const png = cyRef.current.png({ output: 'blob', bg: '#12131a', full: true, scale: 2 });
+      const url = URL.createObjectURL(png as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'stakeholder-graph.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   }, [command, handleFitView, handleResetLayout]);
 
   // ── UI helpers ────────────────────────────────────────────────────────────

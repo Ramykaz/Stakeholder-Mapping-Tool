@@ -11,6 +11,7 @@ import {
   flagEntity,
   getProjectFlaggedCount,
   getStoredAuthToken,
+  downloadProjectExport,
   ProjectSummary,
   GlobalEntityProfile,
   ContextualSummaryResponse,
@@ -61,6 +62,10 @@ export default function MapPage() {
 
   // Entity flagging
   const [flaggedCount, setFlaggedCount] = useState(0);
+
+  // Entities tab pagination
+  const ENT_PAGE_SIZE = 50;
+  const [entPage, setEntPage] = useState(1);
 
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
@@ -187,8 +192,15 @@ export default function MapPage() {
     setFocusNodeIds([]);
   };
 
-  const cmd = (type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset') =>
+  const cmd = (type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset' | 'png') =>
     setGraphCommand({ type, nonce: Date.now() });
+
+  const [exportLoading, setExportLoading] = useState('');
+  const handleExport = async (type: 'entities' | 'relations' | 'report-docx' | 'report-pdf') => {
+    if (!id) return;
+    setExportLoading(type);
+    try { await downloadProjectExport(id, type); } catch {} finally { setExportLoading(''); }
+  };
 
   return (
     <>
@@ -217,6 +229,54 @@ export default function MapPage() {
                     </span>
                   )}
                 </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {tab === 'graph' && (
+                  <button
+                    onClick={() => cmd('png')}
+                    className="btn-ghost"
+                    style={{ fontSize: 11 }}
+                    title="Download graph as PNG"
+                  >
+                    PNG
+                  </button>
+                )}
+                <button
+                  onClick={() => void handleExport('entities')}
+                  className="btn-ghost"
+                  style={{ fontSize: 11 }}
+                  disabled={exportLoading === 'entities'}
+                  title="Download entities as CSV"
+                >
+                  {exportLoading === 'entities' ? '…' : 'Entities CSV'}
+                </button>
+                <button
+                  onClick={() => void handleExport('relations')}
+                  className="btn-ghost"
+                  style={{ fontSize: 11 }}
+                  disabled={exportLoading === 'relations'}
+                  title="Download relations as CSV"
+                >
+                  {exportLoading === 'relations' ? '…' : 'Relations CSV'}
+                </button>
+                <button
+                  onClick={() => void handleExport('report-pdf')}
+                  className="btn-ghost"
+                  style={{ fontSize: 11 }}
+                  disabled={exportLoading === 'report-pdf'}
+                  title="Download stakeholder report as PDF"
+                >
+                  {exportLoading === 'report-pdf' ? '…' : 'Report PDF'}
+                </button>
+                <button
+                  onClick={() => void handleExport('report-docx')}
+                  className="btn-ghost"
+                  style={{ fontSize: 11 }}
+                  disabled={exportLoading === 'report-docx'}
+                  title="Download stakeholder report as DOCX"
+                >
+                  {exportLoading === 'report-docx' ? '…' : 'Report DOCX'}
+                </button>
               </div>
               <button
                 onClick={() => void router.push(`/projects/${id}/analyze`)}
@@ -548,57 +608,76 @@ export default function MapPage() {
             {/* Entities tab */}
             {tab === 'entities' && (
               <div style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
-                <div style={{ maxWidth: 800, margin: '0 auto' }}>
-                  <h2 style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--text)', marginBottom: 20 }}>
-                    All Entities
-                  </h2>
-                  {loading ? (
-                    <div style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }}>Loading…</div>
-                  ) : nodes.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
-                      No entities yet. Run extraction in the workspace.
+                {(() => {
+                  const pagedNodes = nodes.slice((entPage - 1) * ENT_PAGE_SIZE, entPage * ENT_PAGE_SIZE);
+                  return (
+                  <div style={{ maxWidth: 800, margin: '0 auto' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 20 }}>
+                      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--text)', margin: 0 }}>
+                        All Entities
+                      </h2>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
+                        {nodes.length} total
+                      </span>
                     </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {nodes.map(node => (
-                        <div
-                          key={node.id}
-                          onClick={() => { setTab('graph'); handleNodeClick(node); }}
-                          style={{
-                            padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
-                            background: 'var(--bg2)', border: '1px solid var(--border)',
-                            display: 'flex', alignItems: 'center', gap: 12,
-                            transition: 'border-color .15s',
-                          }}
-                        >
-                          <div style={{
-                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                            background: node.data.color || '#7b8299',
-                          }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {node.label}
+                    {loading ? (
+                      <div style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }}>Loading…</div>
+                    ) : nodes.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 40, color: 'var(--text3)' }}>
+                        No entities yet. Run extraction in the workspace.
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {pagedNodes.map(node => (
+                            <div
+                              key={node.id}
+                              onClick={() => { setTab('graph'); handleNodeClick(node); }}
+                              style={{
+                                padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                                background: 'var(--bg2)', border: '1px solid var(--border)',
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                transition: 'border-color .15s',
+                              }}
+                            >
+                              <div style={{
+                                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                background: node.data.color || '#7b8299',
+                              }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {node.label}
+                                </div>
+                              </div>
+                              <span style={{
+                                fontFamily: 'var(--mono)', fontSize: 10,
+                                padding: '2px 8px', borderRadius: 4,
+                                background: `${node.data.color || '#7b8299'}22`,
+                                color: node.data.color || '#7b8299',
+                              }}>
+                                {node.data.entity_type}
+                              </span>
+                              <button
+                                onClick={e => { e.stopPropagation(); void router.push(`/projects/${id}/entities/${node.id}`); }}
+                                style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, padding: '2px 6px' }}
+                              >
+                                Detail →
+                              </button>
                             </div>
-                          </div>
-                          <span style={{
-                            fontFamily: 'var(--mono)', fontSize: 10,
-                            padding: '2px 8px', borderRadius: 4,
-                            background: `${node.data.color || '#7b8299'}22`,
-                            color: node.data.color || '#7b8299',
-                          }}>
-                            {node.data.entity_type}
-                          </span>
-                          <button
-                            onClick={e => { e.stopPropagation(); void router.push(`/projects/${id}/entities/${node.id}`); }}
-                            style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: 11, padding: '2px 6px' }}
-                          >
-                            Detail →
-                          </button>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                        {nodes.length > ENT_PAGE_SIZE && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <button className="btn-ghost" style={{ fontSize: 12 }} disabled={entPage === 1} onClick={() => setEntPage(p => p - 1)}>← Prev</button>
+                            <span style={{ fontSize: 12, color: 'var(--text3)' }}>Page {entPage} / {Math.ceil(nodes.length / ENT_PAGE_SIZE)}</span>
+                            <button className="btn-ghost" style={{ fontSize: 12 }} disabled={entPage * ENT_PAGE_SIZE >= nodes.length} onClick={() => setEntPage(p => p + 1)}>Next →</button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  );
+                })()}
               </div>
             )}
           </main>

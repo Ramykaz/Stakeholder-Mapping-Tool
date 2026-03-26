@@ -279,6 +279,18 @@ const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId }) => {
                   >
                     My Projects
                   </button>
+                  <button
+                    onClick={() => { setShowUserMenu(false); void router.push('/account'); }}
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 6,
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: 13, color: 'var(--text2)',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text2)'; }}
+                  >
+                    My Account
+                  </button>
                   {user?.is_admin && (
                     <button
                       onClick={() => { setShowUserMenu(false); void router.push('/admin'); }}

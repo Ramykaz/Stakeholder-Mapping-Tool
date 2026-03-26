@@ -13,6 +13,13 @@ import {
   ContextualSummaryResponse,
   TimelineEntry,
 } from '@/lib/api';
+
+interface WikiSummary {
+  title: string;
+  extract: string;
+  thumbnail?: { source: string };
+  content_urls?: { desktop?: { page?: string } };
+}
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 import ErrorMessage from '@/components/ErrorMessage';
@@ -42,6 +49,9 @@ export default function EntityDetailPage() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [isFlagged, setIsFlagged] = useState(false);
+  const [wiki, setWiki] = useState<WikiSummary | null>(null);
+  const [wikiLoading, setWikiLoading] = useState(false);
+  const [wikiNotFound, setWikiNotFound] = useState(false);
 
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
@@ -68,6 +78,34 @@ export default function EntityDetailPage() {
       .catch(() => setSummary(null))
       .finally(() => setLoadingSummary(false));
   };
+
+  const handleWikiSearch = async () => {
+    if (!profile) return;
+    setWikiLoading(true);
+    setWikiNotFound(false);
+    setWiki(null);
+    const query = encodeURIComponent(profile.canonical_name.replace(/\s+/g, '_'));
+    try {
+      const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${query}`);
+      if (res.ok) {
+        const data: WikiSummary = await res.json();
+        setWiki(data);
+      } else {
+        setWikiNotFound(true);
+      }
+    } catch {
+      setWikiNotFound(true);
+    } finally {
+      setWikiLoading(false);
+    }
+  };
+
+  // Influence metrics derived from relationships
+  const outDegree = profile ? (profile.relationships || []).filter(r => r.source_entity_name === profile.canonical_name).length : 0;
+  const inDegree  = profile ? (profile.relationships || []).filter(r => r.target_entity_name === profile.canonical_name).length : 0;
+  const totalDegree = outDegree + inDegree;
+  const mentionCount = timeline.length;
+  const influenceScore = totalDegree > 0 ? Math.min(100, Math.round((outDegree / Math.max(totalDegree, 1)) * 100)) : 0;
 
   const typeColor = profile ? (TYPE_COLORS[profile.entity_type] || '#7b8299') : '#7b8299';
   const confidencePercent = profile ? Math.round((profile.confidence || 0) * 100) : 0;
@@ -252,6 +290,84 @@ export default function EntityDetailPage() {
                           );
                         })}
                       </div>
+                    )}
+                  </div>
+
+                  {/* Influence & Engagement Metrics */}
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+                      Influence & Engagement
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10 }}>
+                      {[
+                        { label: 'Total Connections', value: totalDegree, color: '#3d6fff' },
+                        { label: 'Outgoing Links', value: outDegree, color: '#2ec4a5' },
+                        { label: 'Incoming Links', value: inDegree, color: '#9b6ef3' },
+                        { label: 'Doc Mentions', value: mentionCount, color: '#f5a623' },
+                      ].map(m => (
+                        <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: m.color, fontFamily: 'var(--mono)', marginBottom: 2 }}>{m.value}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{m.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {totalDegree > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 4 }}>
+                          <span>Outgoing influence</span>
+                          <span>{influenceScore}%</span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 2 }}>
+                          <div style={{ width: `${influenceScore}%`, height: '100%', background: 'var(--accent)', borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Wikipedia Cross-Reference */}
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        Wikipedia Reference
+                      </div>
+                      <button
+                        className="btn-ghost"
+                        style={{ fontSize: 11 }}
+                        onClick={() => void handleWikiSearch()}
+                        disabled={wikiLoading}
+                      >
+                        {wikiLoading ? '…' : wiki ? 'Refresh' : 'Look up'}
+                      </button>
+                    </div>
+                    {wiki ? (
+                      <div>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          {wiki.thumbnail?.source && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={wiki.thumbnail.source} alt={wiki.title} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                          )}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>{wiki.title}</div>
+                            <p style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6, margin: 0 }}>
+                              {wiki.extract.length > 400 ? wiki.extract.slice(0, 400) + '…' : wiki.extract}
+                            </p>
+                          </div>
+                        </div>
+                        {wiki.content_urls?.desktop?.page && (
+                          <a
+                            href={wiki.content_urls.desktop.page}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: 'inline-block', marginTop: 10, fontSize: 11, color: 'var(--accent)', textDecoration: 'none' }}
+                          >
+                            View on Wikipedia →
+                          </a>
+                        )}
+                      </div>
+                    ) : wikiNotFound ? (
+                      <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>No Wikipedia article found for &ldquo;{profile.canonical_name}&rdquo;.</p>
+                    ) : (
+                      <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>Click &ldquo;Look up&rdquo; to search Wikipedia for this entity.</p>
                     )}
                   </div>
 

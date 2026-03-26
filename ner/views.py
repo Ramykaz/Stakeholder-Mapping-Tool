@@ -1,9 +1,12 @@
 """REST API views for NER pipeline."""
 
+import csv
+import io
 import logging
 from django.conf import settings
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
-from django.http import Http404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
@@ -1399,19 +1402,18 @@ class GlobalEntityListView(AuthenticatedAPIView):
     """GET /api/v1/entities/ — cross-project entity list for authenticated user."""
 
     def get(self, request):
-        from django.db.models import Count, Min, Max
+        from django.db.models import Count, Min, Max, Q as DQ
 
         entity_type = request.query_params.get('type')
-        qs = (
-            Entity.objects
-            .filter(project__owner=request.user, is_flagged=False)
-            .values('id', 'canonical_name', 'entity_type', 'project_id')
-        )
+        search = (request.query_params.get('search') or '').strip()
+
+        # Admins can see all entities; regular users see only their own
+        base_filter = DQ() if (request.user.is_staff or request.user.is_superuser) else DQ(project__owner=request.user)
 
         # Aggregate at canonical_name level across projects
         agg = (
             Entity.objects
-            .filter(project__owner=request.user, is_flagged=False)
+            .filter(base_filter, is_flagged=False)
             .values('canonical_name', 'entity_type')
             .annotate(
                 project_count=Count('project', distinct=True),
@@ -1424,8 +1426,13 @@ class GlobalEntityListView(AuthenticatedAPIView):
 
         if entity_type:
             agg = agg.filter(entity_type=entity_type.upper())
+        if search:
+            agg = agg.filter(canonical_name__icontains=search)
 
-        page_size = 50
+        try:
+            page_size = max(1, min(100, int(request.query_params.get('page_size', 50))))
+        except (ValueError, TypeError):
+            page_size = 50
         try:
             page = max(1, int(request.query_params.get('page', 1)))
         except (ValueError, TypeError):
@@ -1439,9 +1446,9 @@ class GlobalEntityListView(AuthenticatedAPIView):
             rep = (
                 Entity.objects
                 .filter(
+                    base_filter,
                     canonical_name=item['canonical_name'],
                     entity_type=item['entity_type'],
-                    project__owner=request.user,
                 )
                 .values('id', 'project_id')
                 .first()
@@ -1452,6 +1459,8 @@ class GlobalEntityListView(AuthenticatedAPIView):
         return Response({
             'count': total,
             'page': page,
+            'next': None,
+            'previous': None,
             'results': results,
         }, status=status.HTTP_200_OK)
 
@@ -1531,3 +1540,338 @@ class ExtractionProgressView(AuthenticatedAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Export Views
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ProjectExportEntitiesCSVView(AuthenticatedAPIView):
+    """Export all entities for a project as CSV."""
+
+    def get(self, request, id):
+        try:
+            project = Project.objects.get(pk=id)
+        except Project.DoesNotExist:
+            return Response({'detail': 'Project not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        entities = (
+            Entity.objects.filter(document_id__project=project, is_flagged=False)
+            .select_related('document_id')
+            .order_by('canonical_name')
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['canonical_name', 'entity_type', 'confidence', 'document', 'is_flagged'])
+        for e in entities:
+            writer.writerow([
+                e.canonical_name,
+                e.entity_type,
+                round(e.confidence, 4) if e.confidence is not None else '',
+                e.document_id.filename if e.document_id else '',
+                e.is_flagged,
+            ])
+
+        filename = f"{project.name}_entities_{timezone.now().strftime('%Y%m%d')}.csv"
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+class ProjectExportRelationsCSVView(AuthenticatedAPIView):
+    """Export all relations for a project as CSV."""
+
+    def get(self, request, id):
+        try:
+            project = Project.objects.get(pk=id)
+        except Project.DoesNotExist:
+            return Response({'detail': 'Project not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        relations = (
+            Relation.objects.filter(project=project)
+            .select_related('source_entity', 'target_entity')
+            .order_by('label')
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['source_entity', 'relation_type', 'target_entity', 'confidence'])
+        for r in relations:
+            writer.writerow([
+                r.source_entity.canonical_name if r.source_entity else '',
+                r.label,
+                r.target_entity.canonical_name if r.target_entity else '',
+                round(r.confidence, 4) if r.confidence is not None else '',
+            ])
+
+        filename = f"{project.name}_relations_{timezone.now().strftime('%Y%m%d')}.csv"
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+def _build_project_report_docx(project):
+    """Build a DOCX stakeholder analysis report for the given project."""
+    from docx import Document as DocxDocument
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from django.db.models import Q, Count
+
+    doc = DocxDocument()
+
+    # Title
+    title = doc.add_heading(f'Stakeholder Analysis Report', level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_heading(project.name, level=1)
+    doc.add_paragraph(f'Generated: {timezone.now().strftime("%d %B %Y")}')
+    if project.description:
+        doc.add_paragraph(project.description)
+
+    doc.add_paragraph('')
+
+    # Summary statistics
+    doc.add_heading('Executive Summary', level=2)
+    documents = Document.objects.filter(project=project)
+    entities = Entity.objects.filter(document_id__project=project, is_flagged=False)
+    relations = Relation.objects.filter(project=project)
+
+    doc_count = documents.count()
+    entity_count = entities.count()
+    relation_count = relations.count()
+
+    summary_table = doc.add_table(rows=1, cols=2)
+    summary_table.style = 'Light List Accent 1'
+    hdr = summary_table.rows[0].cells
+    hdr[0].text = 'Metric'
+    hdr[1].text = 'Count'
+
+    for label, val in [
+        ('Documents analysed', doc_count),
+        ('Entities identified', entity_count),
+        ('Relationships mapped', relation_count),
+    ]:
+        row = summary_table.add_row().cells
+        row[0].text = label
+        row[1].text = str(val)
+
+    doc.add_paragraph('')
+
+    # Entity breakdown by type
+    doc.add_heading('Entity Breakdown by Type', level=2)
+    type_counts = (
+        entities.values('entity_type')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+    if type_counts:
+        type_table = doc.add_table(rows=1, cols=2)
+        type_table.style = 'Light List Accent 1'
+        hdr = type_table.rows[0].cells
+        hdr[0].text = 'Type'
+        hdr[1].text = 'Count'
+        for row_data in type_counts:
+            row = type_table.add_row().cells
+            row[0].text = row_data['entity_type']
+            row[1].text = str(row_data['count'])
+        doc.add_paragraph('')
+
+    # Top entities by confidence
+    doc.add_heading('Key Stakeholders (Top 20 by Confidence)', level=2)
+    top_entities = entities.order_by('-confidence')[:20]
+    if top_entities:
+        ent_table = doc.add_table(rows=1, cols=3)
+        ent_table.style = 'Light List Accent 1'
+        hdr = ent_table.rows[0].cells
+        hdr[0].text = 'Name'
+        hdr[1].text = 'Type'
+        hdr[2].text = 'Confidence'
+        for e in top_entities:
+            row = ent_table.add_row().cells
+            row[0].text = e.canonical_name
+            row[1].text = e.entity_type
+            row[2].text = f'{round((e.confidence or 0) * 100)}%'
+        doc.add_paragraph('')
+
+    # Key relationships
+    doc.add_heading('Key Relationships (Top 30)', level=2)
+    top_relations = relations.select_related('source_entity', 'target_entity').order_by('-confidence')[:30]
+    if top_relations:
+        rel_table = doc.add_table(rows=1, cols=4)
+        rel_table.style = 'Light List Accent 1'
+        hdr = rel_table.rows[0].cells
+        hdr[0].text = 'Source'
+        hdr[1].text = 'Relationship'
+        hdr[2].text = 'Target'
+        hdr[3].text = 'Confidence'
+        for r in top_relations:
+            row = rel_table.add_row().cells
+            row[0].text = r.source_entity.canonical_name if r.source_entity else ''
+            row[1].text = r.label
+            row[2].text = r.target_entity.canonical_name if r.target_entity else ''
+            row[3].text = f'{round((r.confidence or 0) * 100)}%'
+        doc.add_paragraph('')
+
+    # Document list
+    doc.add_heading('Source Documents', level=2)
+    for d in documents.order_by('uploaded_at'):
+        p = doc.add_paragraph(style='List Bullet')
+        p.add_run(d.filename).bold = True
+        p.add_run(f' — uploaded {d.uploaded_at.strftime("%d %b %Y") if d.uploaded_at else "unknown"}')
+
+    return doc
+
+
+class ProjectExportReportDOCXView(AuthenticatedAPIView):
+    """Export a full stakeholder analysis report as DOCX."""
+
+    def get(self, request, id):
+        try:
+            project = Project.objects.get(pk=id)
+        except Project.DoesNotExist:
+            return Response({'detail': 'Project not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        doc = _build_project_report_docx(project)
+
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+
+        filename = f"{project.name}_stakeholder_report_{timezone.now().strftime('%Y%m%d')}.docx"
+        response = HttpResponse(
+            buffer.read(),
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+
+class ProjectExportReportPDFView(AuthenticatedAPIView):
+    """Export a full stakeholder analysis report as PDF."""
+
+    def get(self, request, id):
+        try:
+            project = Project.objects.get(pk=id)
+        except Project.DoesNotExist:
+            return Response({'detail': 'Project not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from django.db.models import Count
+
+        buffer = io.BytesIO()
+        doc_pdf = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+        styles = getSampleStyleSheet()
+        story = []
+
+        title_style = ParagraphStyle('Title', parent=styles['Title'], fontSize=20, spaceAfter=6)
+        heading2_style = ParagraphStyle('Heading2', parent=styles['Heading2'], fontSize=14, spaceBefore=12, spaceAfter=6)
+        normal_style = styles['Normal']
+
+        story.append(Paragraph('Stakeholder Analysis Report', title_style))
+        story.append(Paragraph(project.name, styles['Heading1']))
+        story.append(Paragraph(f'Generated: {timezone.now().strftime("%d %B %Y")}', normal_style))
+        if project.description:
+            story.append(Paragraph(project.description, normal_style))
+        story.append(Spacer(1, 12))
+
+        # Stats
+        story.append(Paragraph('Executive Summary', heading2_style))
+        documents = Document.objects.filter(project=project)
+        entities = Entity.objects.filter(document_id__project=project, is_flagged=False)
+        relations = Relation.objects.filter(project=project)
+
+        stats_data = [
+            ['Metric', 'Count'],
+            ['Documents analysed', str(documents.count())],
+            ['Entities identified', str(entities.count())],
+            ['Relationships mapped', str(relations.count())],
+        ]
+        stats_table = Table(stats_data, colWidths=[10*cm, 5*cm])
+        stats_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3d6fff')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f7fa')]),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(stats_table)
+        story.append(Spacer(1, 12))
+
+        # Entity type breakdown
+        story.append(Paragraph('Entity Breakdown by Type', heading2_style))
+        type_counts = list(entities.values('entity_type').annotate(count=Count('id')).order_by('-count'))
+        if type_counts:
+            type_data = [['Type', 'Count']] + [[r['entity_type'], str(r['count'])] for r in type_counts]
+            type_table = Table(type_data, colWidths=[10*cm, 5*cm])
+            type_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3d6fff')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f7fa')]),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+                ('PADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(type_table)
+            story.append(Spacer(1, 12))
+
+        # Top entities
+        story.append(Paragraph('Key Stakeholders (Top 20 by Confidence)', heading2_style))
+        top_entities = list(entities.order_by('-confidence')[:20])
+        if top_entities:
+            ent_data = [['Name', 'Type', 'Confidence']] + [
+                [e.canonical_name, e.entity_type, f'{round((e.confidence or 0) * 100)}%']
+                for e in top_entities
+            ]
+            ent_table = Table(ent_data, colWidths=[8*cm, 4*cm, 3*cm])
+            ent_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3d6fff')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f7fa')]),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+                ('PADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(ent_table)
+            story.append(Spacer(1, 12))
+
+        # Top relations
+        story.append(Paragraph('Key Relationships (Top 30)', heading2_style))
+        top_relations = list(
+            relations.select_related('source_entity', 'target_entity').order_by('-confidence')[:30]
+        )
+        if top_relations:
+            rel_data = [['Source', 'Relationship', 'Target', 'Confidence']] + [
+                [
+                    r.source_entity.canonical_name if r.source_entity else '',
+                    r.label,
+                    r.target_entity.canonical_name if r.target_entity else '',
+                    f'{round((r.confidence or 0) * 100)}%',
+                ]
+                for r in top_relations
+            ]
+            rel_table = Table(rel_data, colWidths=[5*cm, 4*cm, 5*cm, 2*cm])
+            rel_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3d6fff')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f7fa')]),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+                ('PADDING', (0, 0), (-1, -1), 6),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('WORDWRAP', (0, 0), (-1, -1), True),
+            ]))
+            story.append(rel_table)
+
+        doc_pdf.build(story)
+        buffer.seek(0)
+
+        filename = f"{project.name}_stakeholder_report_{timezone.now().strftime('%Y%m%d')}.pdf"
+        response = HttpResponse(buffer.read(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response

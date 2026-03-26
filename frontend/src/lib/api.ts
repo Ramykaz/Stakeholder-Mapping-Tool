@@ -952,6 +952,7 @@ export async function getGlobalEntities(params?: {
   page?: number;
   page_size?: number;
   type?: string;
+  search?: string;
 }): Promise<{ count: number; next: string | null; previous: string | null; results: GlobalEntitySummary[] }> {
   const response = await apiClient.get('/api/v1/entities/', { params });
   return response.data;
@@ -983,6 +984,117 @@ export async function updateProjectProvider(
 ): Promise<ProjectSummary> {
   const response = await apiClient.patch(`/api/v1/projects/${projectId}/`, { provider, model });
   return response.data;
+}
+
+// ── Auth: profile, password, forgot/reset ─────────────────────────────────────
+
+export async function updateUserProfile(payload: { username?: string; email?: string }): Promise<AuthUser> {
+  const response = await apiClient.patch('/api/v1/auth/me/', payload);
+  const data = response.data as { user: AuthUser };
+  const token = getStoredAuthToken();
+  if (token && data.user) setStoredAuth(token, data.user);
+  return data.user;
+}
+
+export async function changePassword(payload: {
+  current_password: string;
+  new_password: string;
+}): Promise<{ token: string; user: AuthUser }> {
+  const response = await apiClient.post('/api/v1/auth/change-password/', payload);
+  const data = response.data as { token: string; user: AuthUser };
+  if (data.token && data.user) setStoredAuth(data.token, data.user);
+  return data;
+}
+
+export async function forgotPassword(email: string): Promise<{ detail: string; _debug_reset_path?: string }> {
+  const response = await apiClient.post('/api/v1/auth/forgot-password/', { email });
+  return response.data;
+}
+
+export async function resetPassword(payload: {
+  uid: string;
+  token: string;
+  new_password: string;
+}): Promise<{ detail: string }> {
+  const response = await apiClient.post('/api/v1/auth/reset-password/', payload);
+  return response.data;
+}
+
+// ── Admin API ─────────────────────────────────────────────────────────────────
+
+export interface AdminUserRecord {
+  id: number;
+  username: string;
+  email: string;
+  is_admin: boolean;
+  is_active: boolean;
+  date_joined: string | null;
+}
+
+export interface AdminUserList {
+  count: number;
+  page: number;
+  results: AdminUserRecord[];
+}
+
+export interface AdminStats {
+  users: number;
+  active_users: number;
+  admin_users: number;
+  projects: number;
+  documents: number;
+  entities: number;
+  flagged_entities: number;
+  relations: number;
+}
+
+export async function adminListUsers(params?: { page?: number; search?: string }): Promise<AdminUserList> {
+  const response = await apiClient.get('/api/v1/auth/admin/users/', { params });
+  return response.data;
+}
+
+export async function adminUpdateUser(
+  userId: number,
+  payload: { is_admin?: boolean; is_active?: boolean }
+): Promise<AdminUserRecord> {
+  const response = await apiClient.patch(`/api/v1/auth/admin/users/${userId}/`, payload);
+  return (response.data as { user: AdminUserRecord }).user;
+}
+
+export async function adminDeleteUser(userId: number): Promise<void> {
+  await apiClient.delete(`/api/v1/auth/admin/users/${userId}/`);
+}
+
+export async function adminGetStats(): Promise<AdminStats> {
+  const response = await apiClient.get('/api/v1/auth/admin/stats/');
+  return response.data;
+}
+
+// ── Export helpers ────────────────────────────────────────────────────────────
+
+export async function downloadProjectExport(
+  projectId: string,
+  type: 'entities' | 'relations' | 'report-docx' | 'report-pdf'
+): Promise<void> {
+  const map: Record<string, string> = {
+    entities: 'entities.csv',
+    relations: 'relations.csv',
+    'report-docx': 'report.docx',
+    'report-pdf': 'report.pdf',
+  };
+  const url = `/api/v1/projects/${projectId}/export/${map[type]}`;
+  const response = await apiClient.get(url, { responseType: 'blob' });
+  const blob = new Blob([response.data as BlobPart]);
+  const disposition = response.headers['content-disposition'] || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : `export_${type}`;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
 }
 
 export default apiClient;

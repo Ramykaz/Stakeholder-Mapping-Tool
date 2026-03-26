@@ -32,4 +32,8 @@ urlpatterns = [
     path('projects/<uuid:id>/providers/', views.ProjectProviderView.as_view(), name='project-providers'),
     path('review-candidates/<uuid:id>/resolve/', views.ReviewCandidateResolveView.as_view(), name='review-candidate-resolve'),
     path('graph/', views.GraphNodesView.as_view(), name='graph-nodes'),
+    path('projects/<uuid:id>/export/entities.csv', views.ProjectExportEntitiesCSVView.as_view(), name='project-export-entities-csv'),
+    path('projects/<uuid:id>/export/relations.csv', views.ProjectExportRelationsCSVView.as_view(), name='project-export-relations-csv'),
+    path('projects/<uuid:id>/export/report.docx', views.ProjectExportReportDOCXView.as_view(), name='project-export-report-docx'),
+    path('projects/<uuid:id>/export/report.pdf', views.ProjectExportReportPDFView.as_view(), name='project-export-report-pdf'),
 ]

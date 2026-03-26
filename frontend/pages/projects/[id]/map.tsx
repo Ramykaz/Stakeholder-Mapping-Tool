@@ -50,7 +50,7 @@ export default function MapPage() {
   const [centerNodeId, setCenterNodeId] = useState<string | null>(null);
 
   // Graph controls
-  const [graphCommand, setGraphCommand] = useState<{ type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset'; nonce: number } | null>(null);
+  const [graphCommand, setGraphCommand] = useState<{ type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset' | 'png'; nonce: number } | null>(null);
   const [highlightNodeIds, setHighlightNodeIds] = useState<string[]>([]);
   const [focusNodeIds, setFocusNodeIds] = useState<string[]>([]);
 

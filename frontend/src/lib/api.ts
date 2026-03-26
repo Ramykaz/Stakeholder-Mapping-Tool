@@ -1084,8 +1084,9 @@ export async function downloadProjectExport(
   };
   const url = `/api/v1/projects/${projectId}/export/${map[type]}`;
   const response = await apiClient.get(url, { responseType: 'blob' });
-  const blob = new Blob([response.data as BlobPart]);
-  const disposition = response.headers['content-disposition'] || '';
+  const contentType = (response.headers['content-type'] as string) || 'application/octet-stream';
+  const blob = new Blob([response.data as BlobPart], { type: contentType });
+  const disposition = (response.headers['content-disposition'] as string) || '';
   const match = disposition.match(/filename="?([^"]+)"?/);
   const filename = match ? match[1] : `export_${type}`;
   const link = document.createElement('a');

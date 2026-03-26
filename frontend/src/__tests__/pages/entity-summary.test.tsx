@@ -33,7 +33,7 @@ describe('Entity summary UI states', () => {
       />,
     );
 
-    expect(screen.getByText('No summary generated yet.')).toBeTruthy();
+    expect(screen.getByText('No summary yet.')).toBeTruthy();
     fireEvent.click(screen.getByText('Generate'));
     fireEvent.click(screen.getByText('Refresh'));
     expect(onGenerateSummary).toHaveBeenCalledWith(false);
@@ -55,7 +55,7 @@ describe('Entity summary UI states', () => {
       />,
     );
 
-    expect(screen.getByText('Loading…')).toBeTruthy();
+    expect(screen.getByText('…')).toBeTruthy();
 
     rerender(
       <EntitySidePanel

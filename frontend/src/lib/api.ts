@@ -881,8 +881,8 @@ export async function flagEntity(
 }
 
 export async function getProjectFlaggedCount(projectId: string): Promise<number> {
-  const response = await apiClient.get(`/api/v1/projects/${projectId}/entities/?is_flagged=true`);
-  return (response.data.entities || []).length;
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/flagged-count/`);
+  return response.data.flagged_count ?? 0;
 }
 
 // ── Dedup review queue ────────────────────────────────────────────────────────
@@ -1070,6 +1070,21 @@ export async function adminGetStats(): Promise<AdminStats> {
   return response.data;
 }
 
+export async function adminGetAllProjects(params?: { page?: number; search?: string }): Promise<{ results: any[]; count: number }> {
+  const response = await apiClient.get('/api/v1/auth/admin/projects/', { params });
+  return response.data;
+}
+
+export async function adminGetActivity(params?: { page?: number }): Promise<{ results: any[]; count: number }> {
+  const response = await apiClient.get('/api/v1/auth/admin/activity/', { params });
+  return response.data;
+}
+
+export async function getUserFlaggedEntities(): Promise<{ flagged_entities: any[]; count: number }> {
+  const response = await apiClient.get('/api/v1/entities/flagged/');
+  return response.data;
+}
+
 // ── Export helpers ────────────────────────────────────────────────────────────
 
 export async function downloadProjectExport(
@@ -1098,4 +1113,4 @@ export async function downloadProjectExport(
   URL.revokeObjectURL(link.href);
 }
 
-export default apiClient;
+export { apiClient };

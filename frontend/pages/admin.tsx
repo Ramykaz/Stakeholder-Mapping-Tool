@@ -8,30 +8,15 @@ import {
   adminListUsers,
   adminUpdateUser,
   adminDeleteUser,
-  getGlobalEntities,
-  flagEntity,
+  adminGetAllProjects,
+  adminGetActivity,
   AdminStats,
   AdminUserRecord,
-  GlobalEntitySummary,
 } from '@/lib/api';
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
-import EntityLabelsPanel from '@/components/admin/EntityLabelsPanel';
-import RelationshipTypesPanel from '@/components/admin/RelationshipTypesPanel';
-import {
-  EntityLabelConfig,
-  RelationshipTypeConfig,
-  getEntityLabels,
-  createEntityLabel,
-  updateEntityLabel,
-  deleteEntityLabel,
-  getRelationshipTypes,
-  createRelationshipType,
-  updateRelationshipType,
-  deleteRelationshipType,
-} from '@/lib/api';
 
-type Tab = 'stats' | 'users' | 'entities' | 'taxonomy';
+type Tab = 'stats' | 'users' | 'projects' | 'activity' | 'config';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -49,18 +34,18 @@ export default function AdminPage() {
   const [userSearch, setUserSearch] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
 
-  // Global entities
-  const [entities, setEntities] = useState<GlobalEntitySummary[]>([]);
-  const [entitiesLoading, setEntitiesLoading] = useState(false);
-  const [entityPage, setEntityPage] = useState(1);
-  const [entitySearch, setEntitySearch] = useState('');
-  const ENTITY_PAGE_SIZE = 20;
+  // All projects (admin view)
+  const [projects, setProjects] = useState<any[]>([]);
+  const [projectCount, setProjectCount] = useState(0);
+  const [projectPage, setProjectPage] = useState(1);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
-  // Taxonomy
-  const [labels, setLabels] = useState<EntityLabelConfig[]>([]);
-  const [relTypes, setRelTypes] = useState<RelationshipTypeConfig[]>([]);
-  const [taxLoading, setTaxLoading] = useState(false);
-  const [taxError, setTaxError] = useState('');
+  // Activity log
+  const [activity, setActivity] = useState<any[]>([]);
+  const [activityCount, setActivityCount] = useState(0);
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityLoading, setActivityLoading] = useState(false);
 
   useEffect(() => {
     const token = getStoredAuthToken();
@@ -86,36 +71,32 @@ export default function AdminPage() {
     } catch {} finally { setUsersLoading(false); }
   }, []);
 
-  const loadEntities = useCallback(async (page = 1, search = '') => {
-    setEntitiesLoading(true);
+  const loadProjects = useCallback(async (page = 1, search = '') => {
+    setProjectsLoading(true);
     try {
-      const res = await getGlobalEntities({ page, search, page_size: ENTITY_PAGE_SIZE });
-      setEntities(res.results);
-      setEntityPage(page);
-    } catch {} finally { setEntitiesLoading(false); }
+      const res = await adminGetAllProjects({ page, search });
+      setProjects(res.results);
+      setProjectCount(res.count);
+      setProjectPage(page);
+    } catch {} finally { setProjectsLoading(false); }
   }, []);
 
-  const loadTaxonomy = useCallback(async () => {
-    setTaxLoading(true);
-    setTaxError('');
+  const loadActivity = useCallback(async (page = 1) => {
+    setActivityLoading(true);
     try {
-      const [l, r] = await Promise.all([getEntityLabels(), getRelationshipTypes()]);
-      setLabels(l);
-      setRelTypes(r);
-    } catch { setTaxError('Failed to load taxonomy.'); } finally { setTaxLoading(false); }
+      const res = await adminGetActivity({ page });
+      setActivity(res.results);
+      setActivityCount(res.count);
+      setActivityPage(page);
+    } catch {} finally { setActivityLoading(false); }
   }, []);
 
   useEffect(() => {
     if (tab === 'users') void loadUsers(1, userSearch);
-    if (tab === 'entities') void loadEntities(1, entitySearch);
-    if (tab === 'taxonomy') void loadTaxonomy();
+    if (tab === 'projects') void loadProjects(1, projectSearch);
+    if (tab === 'activity') void loadActivity(1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-
-  const onUserSearch = (v: string) => {
-    setUserSearch(v);
-    void loadUsers(1, v);
-  };
 
   const toggleAdmin = async (u: AdminUserRecord) => {
     await adminUpdateUser(u.id, { is_admin: !u.is_admin });
@@ -132,11 +113,6 @@ export default function AdminPage() {
     await adminDeleteUser(u.id);
     void loadUsers(userPage, userSearch);
     void loadStats();
-  };
-
-  const taxWrap = async (fn: () => Promise<void>) => {
-    setTaxError('');
-    try { await fn(); await loadTaxonomy(); } catch { setTaxError('Action failed.'); }
   };
 
   if (accessDenied) {
@@ -158,8 +134,9 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'stats', label: 'System Overview' },
     { key: 'users', label: 'User Management' },
-    { key: 'entities', label: 'Global Entities' },
-    { key: 'taxonomy', label: 'Taxonomy' },
+    { key: 'projects', label: 'All Projects' },
+    { key: 'activity', label: 'Extraction Activity' },
+    { key: 'config', label: 'System Config' },
   ];
 
   const pill = (color: string, text: string) => (
@@ -170,6 +147,19 @@ export default function AdminPage() {
     }}>{text}</span>
   );
 
+  const statusColor = (s: string) => {
+    if (s === 'completed') return '#2ec4a5';
+    if (s === 'failed') return '#f0614a';
+    if (s === 'running') return '#3d6fff';
+    return '#7b8299';
+  };
+
+  const thStyle: React.CSSProperties = {
+    padding: '10px 14px', textAlign: 'left',
+    fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)',
+    textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 400,
+  };
+
   return (
     <>
       <Head><title>Admin Dashboard — UNDP Stakeholder Analysis</title></Head>
@@ -178,16 +168,16 @@ export default function AdminPage() {
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           <Sidebar />
           <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
-            <div style={{ maxWidth: 960, margin: '0 auto' }}>
+            <div style={{ maxWidth: 1020, margin: '0 auto' }}>
 
               {/* Page header */}
               <div style={{ marginBottom: 28 }}>
                 <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 4 }}>Admin Dashboard</h1>
-                <p style={{ fontSize: 13, color: 'var(--text3)' }}>System management and oversight</p>
+                <p style={{ fontSize: 13, color: 'var(--text3)' }}>System-wide oversight and management</p>
               </div>
 
               {/* Tabs */}
-              <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+              <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)' }}>
                 {tabs.map(t => (
                   <button
                     key={t.key}
@@ -206,7 +196,7 @@ export default function AdminPage() {
                 ))}
               </div>
 
-              {/* ── Stats tab ── */}
+              {/* ── System Overview ── */}
               {tab === 'stats' && (
                 <div>
                   {statsLoading && <p style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }}>Loading…</p>}
@@ -244,7 +234,7 @@ export default function AdminPage() {
                 </div>
               )}
 
-              {/* ── Users tab ── */}
+              {/* ── User Management ── */}
               {tab === 'users' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -254,7 +244,7 @@ export default function AdminPage() {
                     <input
                       placeholder="Search by name or email…"
                       value={userSearch}
-                      onChange={e => onUserSearch(e.target.value)}
+                      onChange={e => { setUserSearch(e.target.value); void loadUsers(1, e.target.value); }}
                       style={{ width: 240, fontSize: 12 }}
                     />
                   </div>
@@ -268,11 +258,7 @@ export default function AdminPage() {
                           <thead>
                             <tr style={{ borderBottom: '1px solid var(--border)' }}>
                               {['Username', 'Email', 'Role', 'Status', 'Joined', 'Actions'].map(h => (
-                                <th key={h} style={{
-                                  padding: '10px 14px', textAlign: 'left',
-                                  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)',
-                                  textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 400,
-                                }}>{h}</th>
+                                <th key={h} style={thStyle}>{h}</th>
                               ))}
                             </tr>
                           </thead>
@@ -323,7 +309,6 @@ export default function AdminPage() {
                         </table>
                       </div>
 
-                      {/* Pagination */}
                       {userCount > 50 && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
                           <button className="btn-ghost" style={{ fontSize: 12 }} disabled={userPage === 1} onClick={() => void loadUsers(userPage - 1, userSearch)}>← Prev</button>
@@ -336,55 +321,59 @@ export default function AdminPage() {
                 </div>
               )}
 
-              {/* ── Global Entities tab ── */}
-              {tab === 'entities' && (
+              {/* ── All Projects ── */}
+              {tab === 'projects' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <p style={{ fontSize: 13, color: 'var(--text3)', margin: 0 }}>
-                      Review and curate entities across all projects
-                    </p>
+                    <div style={{ fontSize: 13, color: 'var(--text3)' }}>
+                      {projectCount} project{projectCount !== 1 ? 's' : ''} across all users
+                    </div>
                     <input
-                      placeholder="Search entities…"
-                      value={entitySearch}
-                      onChange={e => { setEntitySearch(e.target.value); void loadEntities(1, e.target.value); }}
-                      style={{ width: 220, fontSize: 12 }}
+                      placeholder="Search by name or owner…"
+                      value={projectSearch}
+                      onChange={e => { setProjectSearch(e.target.value); void loadProjects(1, e.target.value); }}
+                      style={{ width: 240, fontSize: 12 }}
                     />
                   </div>
 
-                  {entitiesLoading ? (
+                  {projectsLoading ? (
                     <p style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }}>Loading…</p>
+                  ) : projects.length === 0 ? (
+                    <p style={{ color: 'var(--text3)', fontSize: 13 }}>No projects found.</p>
                   ) : (
                     <>
                       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                           <thead>
                             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                              {['Name', 'Type', 'Projects', 'Documents', 'Confidence'].map(h => (
-                                <th key={h} style={{
-                                  padding: '10px 14px', textAlign: 'left',
-                                  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)',
-                                  textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 400,
-                                }}>{h}</th>
+                              {['Project Name', 'Owner', 'Documents', 'Entities', 'Created', 'Last Updated'].map(h => (
+                                <th key={h} style={thStyle}>{h}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {entities.map(e => (
-                              <tr
-                                key={e.id}
-                                style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                                onClick={() => void router.push(`/entities`)}
-                              >
-                                <td style={{ padding: '10px 14px', color: 'var(--text)', fontWeight: 500 }}>{e.canonical_name}</td>
-                                <td style={{ padding: '10px 14px' }}>
-                                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{e.entity_type}</span>
+                            {projects.map((p: any) => (
+                              <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '10px 14px', color: 'var(--text)', fontWeight: 500 }}>
+                                  {p.name}
                                 </td>
-                                <td style={{ padding: '10px 14px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 12 }}>{e.project_count}</td>
-                                <td style={{ padding: '10px 14px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 12 }}>{e.document_count}</td>
+                                <td style={{ padding: '10px 14px' }}>
+                                  <div style={{ fontSize: 12, color: 'var(--text2)' }}>{p.owner_username || '—'}</div>
+                                  {p.owner_email && (
+                                    <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{p.owner_email}</div>
+                                  )}
+                                </td>
                                 <td style={{ padding: '10px 14px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 12 }}>
-                                  {e.confidence_min !== undefined && e.confidence_max !== undefined
-                                    ? `${Math.round(e.confidence_min * 100)}–${Math.round(e.confidence_max * 100)}%`
-                                    : '—'}
+                                  {p.document_count ?? '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 12 }}>
+                                  {p.entity_count ?? '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 11 }}>
+                                  {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 11 }}>
+                                  {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '—'}
                                 </td>
                               </tr>
                             ))}
@@ -392,39 +381,138 @@ export default function AdminPage() {
                         </table>
                       </div>
 
-                      <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
-                        <button className="btn-ghost" style={{ fontSize: 12 }} disabled={entityPage === 1} onClick={() => void loadEntities(entityPage - 1, entitySearch)}>← Prev</button>
-                        <span style={{ fontSize: 12, color: 'var(--text3)' }}>Page {entityPage}</span>
-                        <button className="btn-ghost" style={{ fontSize: 12 }} disabled={entities.length < ENTITY_PAGE_SIZE} onClick={() => void loadEntities(entityPage + 1, entitySearch)}>Next →</button>
-                      </div>
+                      {projectCount > 25 && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
+                          <button className="btn-ghost" style={{ fontSize: 12 }} disabled={projectPage === 1} onClick={() => void loadProjects(projectPage - 1, projectSearch)}>← Prev</button>
+                          <span style={{ fontSize: 12, color: 'var(--text3)' }}>Page {projectPage}</span>
+                          <button className="btn-ghost" style={{ fontSize: 12 }} disabled={projects.length < 25} onClick={() => void loadProjects(projectPage + 1, projectSearch)}>Next →</button>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
               )}
 
-              {/* ── Taxonomy tab ── */}
-              {tab === 'taxonomy' && (
+              {/* ── Extraction Activity ── */}
+              {tab === 'activity' && (
                 <div>
-                  {taxError && <p style={{ color: 'var(--coral)', fontSize: 13, marginBottom: 16 }}>{taxError}</p>}
-                  {taxLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <p style={{ fontSize: 13, color: 'var(--text3)', margin: 0 }}>
+                      Recent extraction runs across all users and projects
+                    </p>
+                    <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => void loadActivity(activityPage)}>
+                      Refresh
+                    </button>
+                  </div>
+
+                  {activityLoading ? (
                     <p style={{ color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 12 }}>Loading…</p>
+                  ) : activity.length === 0 ? (
+                    <p style={{ color: 'var(--text3)', fontSize: 13 }}>No extraction activity found.</p>
                   ) : (
-                    <div className="space-y-6">
-                      <EntityLabelsPanel
-                        labels={labels}
-                        onCreate={(payload) => taxWrap(async () => { await createEntityLabel(payload); })}
-                        onUpdate={(id, payload) => taxWrap(async () => { await updateEntityLabel(id, payload); })}
-                        onDelete={(id) => taxWrap(async () => { await deleteEntityLabel(id); })}
-                      />
-                      <RelationshipTypesPanel
-                        types={relTypes}
-                        onCreate={(payload) => taxWrap(async () => { await createRelationshipType(payload); })}
-                        onUpdate={(id, payload) => taxWrap(async () => { await updateRelationshipType(id, payload); })}
-                        onDelete={(id) => taxWrap(async () => { await deleteRelationshipType(id); })}
-                      />
-                      <p style={{ fontSize: 11, color: 'var(--text3)' }}>Changes apply to the next extraction run.</p>
-                    </div>
+                    <>
+                      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                              {['Document', 'Project', 'Owner', 'Provider', 'Model', 'Status', 'Cost', 'Date'].map(h => (
+                                <th key={h} style={thStyle}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activity.map((run: any) => (
+                              <tr key={run.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '10px 14px', color: 'var(--text)', fontWeight: 500, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {run.document_name || '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text2)', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {run.project_name || '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text2)', fontSize: 12 }}>
+                                  {run.owner_username || '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px' }}>
+                                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                                    {run.provider || '—'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '10px 14px' }}>
+                                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                                    {run.model || '—'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '10px 14px' }}>
+                                  {pill(statusColor(run.status || ''), run.status || 'unknown')}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 11 }}>
+                                  {run.cost_usd != null && Number(run.cost_usd) > 0 ? `$${Number(run.cost_usd).toFixed(4)}` : '—'}
+                                </td>
+                                <td style={{ padding: '10px 14px', color: 'var(--text3)', fontFamily: 'var(--mono)', fontSize: 11 }}>
+                                  {run.created_at ? new Date(run.created_at).toLocaleString() : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {activityCount > 50 && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
+                          <button className="btn-ghost" style={{ fontSize: 12 }} disabled={activityPage === 1} onClick={() => void loadActivity(activityPage - 1)}>← Prev</button>
+                          <span style={{ fontSize: 12, color: 'var(--text3)' }}>Page {activityPage}</span>
+                          <button className="btn-ghost" style={{ fontSize: 12 }} disabled={activity.length < 50} onClick={() => void loadActivity(activityPage + 1)}>Next →</button>
+                        </div>
+                      )}
+                    </>
                   )}
+                </div>
+              )}
+
+              {/* ── System Config ── */}
+              {tab === 'config' && (
+                <div>
+                  <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 24 }}>
+                    Read-only system configuration. These values are set via environment variables on the server.
+                  </p>
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 24, marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                      LLM Configuration
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Default Provider</div>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px' }}>
+                          {process.env.NEXT_PUBLIC_NER_DEFAULT_PROVIDER || 'configured via NER_DEFAULT_PROVIDER env var'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Default Model</div>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 12px' }}>
+                          {process.env.NEXT_PUBLIC_NER_DEFAULT_MODEL || 'configured via NER_DEFAULT_MODEL env var'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 24, marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                      Available Providers
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {['groq', 'openai', 'azure_openai', 'gemini'].map(p => (
+                        <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text)', width: 120 }}>{p}</span>
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                            API key required via environment variable
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--text3)' }}>
+                    To change these values, update environment variables on the backend server and restart the service.
+                    Project-level provider overrides can be configured on each project&apos;s settings page.
+                  </p>
                 </div>
               )}
 

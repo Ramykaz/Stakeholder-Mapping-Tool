@@ -1,28 +1,27 @@
 /**
- * Tests for the Entities page (pages/entities.tsx).
+ * Tests for the Global Entities page (pages/entities.tsx).
  *
  * Covers:
- * - Initial render (document ID input, empty state)
- * - Entity table after loading
+ * - Initial render with loading state
+ * - Entity list rendering after load
  * - Entity type filter buttons
- * - Error state with retry
+ * - Navigation to entity profile on click
  */
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import EntitiesPage from '../../../pages/entities';
+import GlobalEntitiesPage from '../../../pages/entities';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
-let mockQuery: Record<string, string> = {};
 
 jest.mock('next/router', () => ({
   useRouter: () => ({
     pathname: '/entities',
-    query: mockQuery,
+    query: {},
     push: mockPush,
     replace: mockReplace,
   }),
@@ -37,22 +36,20 @@ jest.mock('next/link', () => {
 });
 
 jest.mock('@/lib/api', () => ({
-  getEntities: jest.fn(),
-  getDocumentRuns: jest.fn().mockResolvedValue([]),
-  getEntityReviewCandidates: jest.fn().mockResolvedValue([]),
-  resolveEntityReviewCandidate: jest.fn().mockResolvedValue({ status: 'resolved' }),
+  getStoredAuthToken: jest.fn().mockReturnValue('test-token'),
+  getStoredAuthUser: jest.fn().mockReturnValue({ id: 1, username: 'testuser', is_admin: false }),
+  getProjects: jest.fn().mockResolvedValue([]),
+  getProject: jest.fn().mockResolvedValue({ id: 'p1', name: 'Test Project' }),
+  logoutUser: jest.fn(),
+  getProjectReviewCandidates: jest.fn().mockResolvedValue({ results: [], count: 0 }),
+  getGlobalEntities: jest.fn(),
 }));
 
-import { getEntities, getDocumentRuns, getEntityReviewCandidates, resolveEntityReviewCandidate } from '@/lib/api';
-
-const mockGetEntities = getEntities as jest.Mock;
-const mockGetDocumentRuns = getDocumentRuns as jest.Mock;
-const mockGetEntityReviewCandidates = getEntityReviewCandidates as jest.Mock;
-const mockResolveEntityReviewCandidate = resolveEntityReviewCandidate as jest.Mock;
+import { getGlobalEntities } from '@/lib/api';
+const mockGetGlobalEntities = getGlobalEntities as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockQuery = {};
 });
 
 // ---------------------------------------------------------------------------
@@ -63,250 +60,91 @@ const SAMPLE_ENTITIES = [
     id: 'e1',
     canonical_name: 'Alice Johnson',
     entity_type: 'PERSON',
-    confidence: 0.92,
-    raw_mentions: ['Alice', 'A. Johnson'],
-    chunk_id: 'c1',
-    document_id: 'doc-1',
-    created_at: '2026-03-10T00:00:00Z',
-    aliases: ['A. Johnson'],
-    mention_count_dedup: 2,
+    project_count: 2,
+    document_count: 4,
+    confidence_min: 0.85,
+    confidence_max: 0.95,
   },
   {
     id: 'e2',
     canonical_name: 'UNDP',
     entity_type: 'ORGANIZATION',
-    confidence: 0.98,
-    raw_mentions: ['UNDP', 'United Nations Development Programme'],
-    chunk_id: 'c1',
-    document_id: 'doc-1',
-    created_at: '2026-03-10T00:00:00Z',
-    aliases: ['United Nations Development Programme'],
-    mention_count_dedup: 2,
+    project_count: 5,
+    document_count: 12,
+    confidence_min: 0.9,
+    confidence_max: 0.99,
   },
   {
     id: 'e3',
-    canonical_name: 'New York',
+    canonical_name: 'Nairobi',
     entity_type: 'LOCATION',
-    confidence: 0.85,
-    raw_mentions: ['New York', 'NYC'],
-    chunk_id: 'c2',
-    document_id: 'doc-1',
-    created_at: '2026-03-10T00:00:00Z',
-    aliases: ['NYC'],
-    mention_count_dedup: 2,
+    project_count: 1,
+    document_count: 3,
+    confidence_min: 0.8,
+    confidence_max: 0.88,
   },
 ];
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-describe('EntitiesPage', () => {
-  it('renders the document ID input and Load button', () => {
-    render(<EntitiesPage />);
+describe('GlobalEntitiesPage', () => {
+  it('renders entity list after loading', async () => {
+    mockGetGlobalEntities.mockResolvedValueOnce({ results: SAMPLE_ENTITIES, count: 3 });
 
-    expect(screen.getByPlaceholderText(/document id/i)).toBeInTheDocument();
-    expect(screen.getByText('Load')).toBeInTheDocument();
-  });
-
-  it('shows empty state when no document is loaded', () => {
-    render(<EntitiesPage />);
-    expect(screen.getByText(/enter a document id/i)).toBeInTheDocument();
-  });
-
-  it('loads and displays entities from query param', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
+    render(<GlobalEntitiesPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Johnson')).toBeInTheDocument();
+      expect(screen.getByText('Alice Johnson')).toBeTruthy();
     });
 
-    expect(screen.getByText('UNDP')).toBeInTheDocument();
-    expect(screen.getByText('New York')).toBeInTheDocument();
-    expect(mockGetEntities).toHaveBeenCalledWith('doc-1', undefined);
-    expect(mockGetDocumentRuns).toHaveBeenCalledWith('doc-1');
+    expect(screen.getByText('UNDP')).toBeTruthy();
+    expect(screen.getByText('Nairobi')).toBeTruthy();
   });
 
-  it('shows entity type summary cards', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
+  it('shows empty state when no entities found', async () => {
+    mockGetGlobalEntities.mockResolvedValueOnce({ results: [], count: 0 });
 
-    render(<EntitiesPage />);
+    render(<GlobalEntitiesPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Johnson')).toBeInTheDocument();
+      expect(screen.queryByText('Loading')).toBeFalsy();
     });
 
-    // Summary cards should show counts — multiple elements per type (card + filter + table)
-    expect(screen.getAllByText('PERSON').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('ORGANIZATION').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('LOCATION').length).toBeGreaterThanOrEqual(1);
+    // No entity names should be shown
+    expect(screen.queryByText('Alice Johnson')).toBeFalsy();
   });
 
-  it('renders filter buttons for entity types', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValue(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValue([]);
-    mockGetEntityReviewCandidates.mockResolvedValue([]);
+  it('renders entity type filter dropdown', async () => {
+    mockGetGlobalEntities.mockResolvedValue({ results: SAMPLE_ENTITIES, count: 3 });
 
-    render(<EntitiesPage />);
+    render(<GlobalEntitiesPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Johnson')).toBeInTheDocument();
+      expect(screen.getByText('Alice Johnson')).toBeTruthy();
     });
 
-    // Filter buttons
-    expect(screen.getByText('All')).toBeInTheDocument();
-    // The entity type buttons in the filter bar
-    const personButtons = screen.getAllByText('PERSON');
-    expect(personButtons.length).toBeGreaterThanOrEqual(1);
+    // Filter is a select with an "All types" default option
+    const select = screen.getByRole('combobox');
+    expect(select).toBeTruthy();
+    expect(screen.getByText('All types')).toBeTruthy();
   });
 
-  it('loads entities when submitting document ID form', async () => {
-    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
+  it('filters entities by type when select changes', async () => {
+    mockGetGlobalEntities.mockResolvedValue({ results: SAMPLE_ENTITIES, count: 3 });
 
-    render(<EntitiesPage />);
-
-    const input = screen.getByPlaceholderText(/document id/i);
-    fireEvent.change(input, { target: { value: 'doc-xyz' } });
-    fireEvent.click(screen.getByText('Load'));
+    render(<GlobalEntitiesPage />);
 
     await waitFor(() => {
-      expect(mockGetEntities).toHaveBeenCalledWith('doc-xyz', undefined);
-    });
-  });
-
-  it('shows error message on API failure', async () => {
-    mockQuery = { document_id: 'doc-bad' };
-    mockGetEntities.mockRejectedValueOnce(new Error('Failed to load entities'));
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Failed to load entities')).toBeInTheDocument();
-    });
-  });
-
-  it('shows empty table message when no entities found', async () => {
-    mockQuery = { document_id: 'doc-empty' };
-    mockGetEntities.mockResolvedValueOnce([]);
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/no entities found/i)).toBeInTheDocument();
-    });
-  });
-
-  it('shows View as Graph button when entities exist', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/view graph/i)).toBeInTheDocument();
+      expect(screen.getByText('Alice Johnson')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText(/view graph/i));
-    expect(mockPush).toHaveBeenCalledWith('/graph?document_id=doc-1');
-  });
-
-  it('renders run history metadata when available', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValueOnce([
-      {
-        id: 'run-1',
-        document_id: 'doc-1',
-        provider: 'openai',
-        model: 'gpt-5-mini',
-        status: 'completed',
-        tokens_input: 500,
-        tokens_output: 80,
-        tokens_cached: 120,
-        cost_usd: '0.000246',
-        created_at: '2026-03-14T00:00:00Z',
-      },
-    ]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
+    // Change the select to filter by PERSON
+    const select = screen.getByRole('combobox');
+    fireEvent.change(select, { target: { value: 'PERSON' } });
 
     await waitFor(() => {
-      expect(screen.getByText('Extraction Runs')).toBeInTheDocument();
-    });
-
-    const providerLabel = screen.getByText('Provider:');
-    const metadataRow = providerLabel.closest('div');
-    expect(metadataRow).toHaveTextContent('Provider: openai');
-    expect(metadataRow).toHaveTextContent('Model: gpt-5-mini');
-    expect(screen.getByText(/Cost:\s*0.000246\s*USD/i)).toBeInTheDocument();
-  });
-
-  it('renders aliases under canonical name', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValueOnce(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValueOnce([]);
-    mockGetEntityReviewCandidates.mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Alice Johnson')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/Aliases: A\. Johnson/i)).toBeInTheDocument();
-  });
-
-  it('shows review banner and resolves candidate action', async () => {
-    mockQuery = { document_id: 'doc-1' };
-    mockGetEntities.mockResolvedValue(SAMPLE_ENTITIES);
-    mockGetDocumentRuns.mockResolvedValue([]);
-    mockGetEntityReviewCandidates
-      .mockResolvedValueOnce([
-        {
-          id: 'cand-1',
-          document: 'doc-1',
-          left_entity: 'e1',
-          left_entity_name: 'UNDP',
-          right_entity: 'e2',
-          right_entity_name: 'United Nations Development Programme',
-          entity_type: 'ORGANIZATION',
-          similarity_score: 0.78,
-          status: 'pending',
-          resolved_by: null,
-          resolved_by_username: null,
-          resolved_at: null,
-          created_at: '2026-03-10T00:00:00Z',
-        },
-      ])
-      .mockResolvedValueOnce([]);
-
-    render(<EntitiesPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Review Needed')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText('Merge'));
-
-    await waitFor(() => {
-      expect(mockResolveEntityReviewCandidate).toHaveBeenCalledWith('doc-1', 'cand-1', { action: 'merge' });
+      expect(mockGetGlobalEntities).toHaveBeenCalledTimes(2);
     });
   });
 });

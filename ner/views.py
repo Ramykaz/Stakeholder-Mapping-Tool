@@ -71,9 +71,9 @@ def _active_entity_style_map() -> dict:
 
 
 class EntityLabelAdminView(APIView):
-    """Admin-only list/create endpoint for entity labels."""
+    """List/create endpoint for entity labels. GET is open to all authenticated users; write operations require admin."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         queryset = EntityLabel.objects.all().order_by('display_order', 'name')
@@ -81,6 +81,8 @@ class EntityLabelAdminView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         serializer = EntityLabelSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -89,11 +91,13 @@ class EntityLabelAdminView(APIView):
 
 
 class EntityLabelAdminDetailView(APIView):
-    """Admin-only patch/delete endpoint for entity labels."""
+    """Patch/delete endpoint for entity labels. Requires admin."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated]
 
     def patch(self, request, id):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         obj = get_object_or_404(EntityLabel, id=id)
         serializer = EntityLabelSerializer(obj, data=request.data, partial=True)
         if not serializer.is_valid():
@@ -102,6 +106,8 @@ class EntityLabelAdminDetailView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request, id):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         obj = get_object_or_404(EntityLabel, id=id)
         in_use = Entity.objects.filter(entity_type__iexact=obj.name).exists()
         if in_use:
@@ -117,9 +123,9 @@ class EntityLabelAdminDetailView(APIView):
 
 
 class RelationshipTypeAdminView(APIView):
-    """Admin-only list/create endpoint for relationship types."""
+    """List/create endpoint for relationship types. GET is open to all authenticated users; write operations require admin."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         queryset = RelationshipType.objects.all().order_by('display_order', 'name')
@@ -127,6 +133,8 @@ class RelationshipTypeAdminView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         serializer = RelationshipTypeSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -135,11 +143,13 @@ class RelationshipTypeAdminView(APIView):
 
 
 class RelationshipTypeAdminDetailView(APIView):
-    """Admin-only patch/delete endpoint for relationship types."""
+    """Patch/delete endpoint for relationship types. Requires admin."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAuthenticated]
 
     def patch(self, request, id):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         obj = get_object_or_404(RelationshipType, id=id)
         serializer = RelationshipTypeSerializer(obj, data=request.data, partial=True)
         if not serializer.is_valid():
@@ -148,6 +158,8 @@ class RelationshipTypeAdminDetailView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request, id):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response({'detail': 'Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
         obj = get_object_or_404(RelationshipType, id=id)
         in_use = Relation.objects.filter(label__iexact=obj.name).exists()
         if in_use:
@@ -1253,6 +1265,33 @@ class ProjectFlaggedCountView(AuthenticatedAPIView):
         return Response({'project_id': str(id), 'flagged_count': count}, status=status.HTTP_200_OK)
 
 
+class UserFlaggedEntitiesView(AuthenticatedAPIView):
+    """GET /api/v1/entities/flagged/ — all entities flagged in projects owned by the current user."""
+
+    def get(self, request):
+        from ingestion.models import Project as ProjectModel
+        user_projects = ProjectModel.objects.filter(owner=request.user)
+        entities = (
+            Entity.objects
+            .filter(document_id__project__in=user_projects, is_flagged=True)
+            .select_related('document_id', 'document_id__project')
+            .order_by('-document_id__project__name', 'canonical_name')
+        )
+        results = [
+            {
+                'id': str(e.id),
+                'canonical_name': e.canonical_name,
+                'entity_type': e.entity_type,
+                'confidence': e.confidence,
+                'project_id': str(e.document_id.project.id),
+                'project_name': e.document_id.project.name,
+                'document_name': e.document_id.filename,
+            }
+            for e in entities
+        ]
+        return Response({'flagged_entities': results, 'count': len(results)}, status=status.HTTP_200_OK)
+
+
 # ---------------------------------------------------------------------------
 # T023 — Dedup Review List
 # ---------------------------------------------------------------------------
@@ -1613,7 +1652,7 @@ class ProjectExportRelationsCSVView(AuthenticatedAPIView):
 
 def _gather_report_data(project):
     """Collect all structured data needed for report generation."""
-    from django.db.models import Count, Q as DQ
+    from django.db.models import Count, Avg, Q as DQ
     from ingestion.models import Chunk
 
     documents = list(Document.objects.filter(project=project).order_by('upload_timestamp'))
@@ -1629,15 +1668,42 @@ def _gather_report_data(project):
         entities.values('entity_type').annotate(count=Count('id')).order_by('-count')
     )
 
-    # Top entities by confidence (deduplicated by canonical name)
-    top_entities = list(
-        entities.values('canonical_name', 'entity_type')
-        .annotate(max_conf=Count('id'))
-        .order_by('-max_conf')[:25]
+    # Most influential entities: ranked by number of relations (degree centrality)
+    from django.db.models import OuterRef, Subquery
+    entity_ids = list(entities.values_list('id', flat=True).distinct())
+    rel_counts = {}
+    for eid in entity_ids:
+        cnt = Relation.objects.filter(
+            project=project
+        ).filter(
+            DQ(source_entity_id=eid) | DQ(target_entity_id=eid)
+        ).count()
+        rel_counts[eid] = cnt
+
+    # Get top 25 entities by relation count, then by avg confidence
+    top_entity_qs = list(
+        entities.values('id', 'canonical_name', 'entity_type')
+        .annotate(avg_conf=Avg('confidence'))
+        .distinct()
     )
+    for e in top_entity_qs:
+        e['relation_count'] = rel_counts.get(e['id'], 0)
+    top_entity_qs.sort(key=lambda x: (x['relation_count'], x.get('avg_conf', 0)), reverse=True)
+    top_entities = top_entity_qs[:25]
+
+    # Influential entities: top 10 by relation degree for narrative
+    influential_entities = [
+        {
+            'name': e['canonical_name'],
+            'type': e['entity_type'],
+            'connections': e['relation_count'],
+            'confidence': round(e.get('avg_conf', 0) * 100),
+        }
+        for e in top_entities[:10]
+    ]
 
     # Key relations
-    top_relations = list(relations.order_by('-confidence')[:30])
+    top_relations = list(relations.order_by('-confidence')[:40])
 
     # Per-document entity highlights
     doc_entities = {}
@@ -1649,13 +1715,13 @@ def _gather_report_data(project):
         )
         doc_entities[d.id] = ents
 
-    # Representative chunks from each document (for LLM context)
+    # Representative chunks from each document — more context for LLM
     doc_chunks = {}
     for d in documents:
         chunks = list(
             Chunk.objects.filter(document=d)
             .order_by('chunk_index')
-            .values_list('text', flat=True)[:6]
+            .values_list('text', flat=True)[:10]
         )
         doc_chunks[d.id] = chunks
 
@@ -1673,6 +1739,7 @@ def _gather_report_data(project):
         'relation_count': relation_count,
         'type_counts': type_counts,
         'top_entities': top_entities,
+        'influential_entities': influential_entities,
         'top_relations': top_relations,
         'doc_entities': doc_entities,
         'doc_chunks': doc_chunks,
@@ -1692,71 +1759,106 @@ def _generate_report_narrative(project, data: dict) -> dict:
     provider = (getattr(project, 'provider', '') or '').strip() or settings.NER_DEFAULT_PROVIDER
     model = (getattr(project, 'model', '') or '').strip() or settings.NER_DEFAULT_MODEL
 
-    # Build context for LLM
+    # Build context
     doc_names = [d.filename for d in data['documents']]
-    entity_list = ', '.join(
-        f"{e['canonical_name']} ({e['entity_type']})" for e in data['top_entities'][:20]
+
+    # Influential entities block with connection counts
+    influential_block = '\n'.join(
+        f"  {i+1}. {e['name']} ({e['type']}) — {e['connections']} connections, {e['confidence']}% confidence"
+        for i, e in enumerate(data.get('influential_entities', data['top_entities'])[:15])
     )
+
+    entity_type_summary = ', '.join(
+        f"{r['entity_type']}: {r['count']}" for r in data['type_counts']
+    )
+
     relation_list = '\n'.join(
-        f"- {r.source_entity.canonical_name if r.source_entity else '?'} "
+        f"  • {r.source_entity.canonical_name if r.source_entity else '?'} "
         f"[{r.label}] "
         f"{r.target_entity.canonical_name if r.target_entity else '?'}"
-        for r in data['top_relations'][:20]
+        for r in data['top_relations'][:30]
     )
 
-    # Gather representative document excerpts (up to 400 chars each, max 6 docs)
+    # Document excerpts — more context, up to 10 docs × 800 chars
     excerpts_block = ''
-    for d in data['documents'][:6]:
+    for d in data['documents'][:10]:
         chunks = data['doc_chunks'].get(d.id, [])
         if chunks:
-            excerpt = ' '.join(chunks)[:600]
+            excerpt = ' '.join(chunks)[:800]
             excerpts_block += f"\n\n[Document: {d.filename}]\n{excerpt}"
 
-    concept_block = f"\nProject context: {data['concept_text'][:500]}" if data['concept_text'] else ''
+    concept_block = f"\nProject mandate/concept note:\n{data['concept_text'][:800]}" if data['concept_text'] else ''
 
-    prompt = f"""You are a professional analyst. Write a comprehensive stakeholder analysis report for the project "{project.name}".{concept_block}
+    prompt = f"""You are a senior development sector analyst. Write a comprehensive, professional stakeholder analysis report for: "{project.name}".
+{concept_block}
 
-The analysis is based on {data['doc_count']} document(s): {', '.join(doc_names)}.
+ANALYSIS BASE:
+- Documents analysed: {data['doc_count']} ({', '.join(doc_names)})
+- Total stakeholders identified: {data['entity_count']}
+- Total relationships mapped: {data['relation_count']}
+- Stakeholder types: {entity_type_summary}
 
-EXTRACTED STAKEHOLDERS ({data['entity_count']} total):
-{entity_list}
+MOST INFLUENTIAL STAKEHOLDERS (ranked by network connections):
+{influential_block}
 
-KEY RELATIONSHIPS ({data['relation_count']} total):
+KEY RELATIONSHIPS IDENTIFIED:
 {relation_list}
 
-DOCUMENT EXCERPTS:
+DOCUMENT EXCERPTS (source evidence):
 {excerpts_block}
 
-Write the following sections using ONLY the information above. Be specific, reference actual names and relationships from the data. Do not fabricate information. Each section must be substantive and grounded in the documents.
+---
 
-Section 1 — EXECUTIVE SUMMARY (3-4 sentences): Overall picture of the stakeholder landscape.
-Section 2 — KEY STAKEHOLDERS (3-5 paragraphs): Analyse the main actors by category (persons, organisations, governments, etc.), their roles and significance.
-Section 3 — RELATIONSHIP NETWORK (2-3 paragraphs): Describe the most significant relationships and power dynamics between stakeholders, citing specific connections.
-Section 4 — CROSS-DOCUMENT ANALYSIS (2-3 paragraphs): How do stakeholders and themes appear across the different documents? Note patterns or recurring actors.
-Section 5 — CONCLUSIONS & RECOMMENDATIONS (2-3 bullet points): Key findings and suggested next steps.
+Write ALL FIVE sections below. Use ONLY evidence from the data above. Reference specific stakeholder names and relationships. Be analytical, not generic. Write full paragraphs with substance.
 
-Format each section with its heading on its own line followed by the text. Keep language professional and analytical."""
+SECTION 1 — EXECUTIVE SUMMARY
+Write 3-5 sentences summarising: what this stakeholder landscape looks like, who the dominant actors are, and the overall relationship dynamics. Be specific.
+
+SECTION 2 — KEY STAKEHOLDERS
+Write 4-6 paragraphs. Group actors by type (organisations, individuals, governments, etc.). For the top 5 most connected stakeholders, describe their specific role, their key relationships, and their significance to the project. Name them explicitly.
+
+SECTION 3 — RELATIONSHIP NETWORK
+Write 3-4 paragraphs analysing the most significant relationships. Describe power dynamics, funding flows, oversight structures, and implementation chains. Cite specific relationships from the data (e.g. "X funds Y", "A oversees B").
+
+SECTION 4 — CROSS-DOCUMENT ANALYSIS
+Write 2-3 paragraphs. Which stakeholders appear across multiple documents? What themes recur? Are there contradictions or complementary narratives between documents?
+
+SECTION 5 — CONCLUSIONS & RECOMMENDATIONS
+Write exactly 4-6 bullet points (start each with •). Include: 2-3 key findings about the stakeholder landscape, and 2-3 concrete recommended next steps or areas for further investigation. Be specific to this project.
+
+Format: Write each section heading in ALL CAPS on its own line, then the text immediately below."""
 
     try:
-        raw = _call_provider(prompt, provider, model)
+        raw = _call_provider(prompt, provider, model, max_tokens=3000)
     except Exception as e:
         logger.warning('Report LLM call failed: %s', e)
         raw = None
 
     if not raw:
-        # Structured fallback without LLM
-        entity_summary = ', '.join(
-            f"{e['canonical_name']} ({e['entity_type']})" for e in data['top_entities'][:10]
-        ) or 'No entities extracted.'
+        influential = data.get('influential_entities', [])
+        top_names = ', '.join(e.get('name', e.get('canonical_name', '')) for e in influential[:8]) or 'None extracted'
+        rel_examples = '; '.join(
+            f"{r.source_entity.canonical_name if r.source_entity else '?'} {r.label} {r.target_entity.canonical_name if r.target_entity else '?'}"
+            for r in data['top_relations'][:5]
+        ) or 'None found'
         return {
             'executive_summary': (
-                f"This report covers {data['doc_count']} document(s) for project \"{project.name}\". "
-                f"A total of {data['entity_count']} stakeholders and {data['relation_count']} relationships were identified."
+                f"This report analyses the stakeholder landscape for \"{project.name}\" based on "
+                f"{data['doc_count']} document(s). A total of {data['entity_count']} stakeholders and "
+                f"{data['relation_count']} relationships were identified. The most connected actors are: {top_names}."
             ),
-            'stakeholder_analysis': f"Key stakeholders identified: {entity_summary}.",
-            'relationship_analysis': 'See relationship table below.',
+            'stakeholder_analysis': (
+                f"Key stakeholders by connection count: {influential_block or top_names}."
+            ),
+            'relationship_analysis': f"Key relationships identified: {rel_examples}. See relationship table below for full list.",
             'cross_references': 'See per-document entity breakdown below.',
-            'conclusions': 'Review the extracted entities and relationships for detailed insights.',
+            'conclusions': (
+                f"• {data['entity_count']} stakeholders identified across {data['doc_count']} documents.\n"
+                f"• Most connected actors: {top_names}.\n"
+                f"• {data['relation_count']} relationships mapped.\n"
+                f"• Further investigation recommended for low-confidence entities.\n"
+                f"• Review flagged entities to improve extraction quality."
+            ),
         }
 
     # Parse sections from LLM output
@@ -1769,11 +1871,11 @@ Format each section with its heading on its own line followed by the text. Keep 
     }
     import re
     markers = [
-        ('executive_summary',    r'EXECUTIVE SUMMARY'),
-        ('stakeholder_analysis', r'KEY STAKEHOLDERS'),
-        ('relationship_analysis',r'RELATIONSHIP NETWORK'),
-        ('cross_references',     r'CROSS-DOCUMENT ANALYSIS'),
-        ('conclusions',          r'CONCLUSIONS'),
+        ('executive_summary',    r'SECTION\s+1\s*[—\-–]?\s*EXECUTIVE SUMMARY|EXECUTIVE SUMMARY'),
+        ('stakeholder_analysis', r'SECTION\s+2\s*[—\-–]?\s*KEY STAKEHOLDERS|KEY STAKEHOLDERS'),
+        ('relationship_analysis',r'SECTION\s+3\s*[—\-–]?\s*RELATIONSHIP NETWORK|RELATIONSHIP NETWORK'),
+        ('cross_references',     r'SECTION\s+4\s*[—\-–]?\s*CROSS-DOCUMENT ANALYSIS|CROSS-DOCUMENT ANALYSIS'),
+        ('conclusions',          r'SECTION\s+5\s*[—\-–]?\s*CONCLUSIONS|CONCLUSIONS'),
     ]
     for i, (key, pattern) in enumerate(markers):
         next_pattern = markers[i + 1][1] if i + 1 < len(markers) else None
@@ -1785,80 +1887,137 @@ Format each section with its heading on its own line followed by the text. Keep 
                 end = start + m2.start() if m2 else len(raw)
             else:
                 end = len(raw)
-            sections[key] = raw[start:end].strip().lstrip(':—-\n').strip()
+            sections[key] = raw[start:end].strip().lstrip(':—-\n ').strip()
 
-    # Fill any empty sections with a slice of the raw text
+    # Fill any completely empty sections
     if not any(sections.values()):
-        sections['executive_summary'] = raw[:1500]
+        sections['executive_summary'] = raw[:2000]
+
+    # If conclusions is empty, extract last portion of raw text
+    if not sections['conclusions']:
+        # Try to find bullet points anywhere in the raw text
+        bullet_matches = re.findall(r'[•\-\*]\s+.+', raw)
+        if bullet_matches:
+            sections['conclusions'] = '\n'.join(bullet_matches[-6:])
+        else:
+            sections['conclusions'] = raw[-600:].strip()
 
     return sections
+
+
+def _clean_narrative(text: str) -> str:
+    """Strip markdown formatting from LLM output for clean report rendering."""
+    import re
+    if not text:
+        return ''
+    # Remove bold/italic markers (triple → double → single, order matters)
+    text = re.sub(r'\*{3}(.+?)\*{3}', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'\*{2}(.+?)\*{2}', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'_{2}(.+?)_{2}', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'_(.+?)_', r'\1', text)
+    # Remove heading markers
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    # Remove stray asterisks
+    text = text.replace('*', '')
+    return text.strip()
+
+
+def _pdf_safe(text: str) -> str:
+    """Normalise text for safe rendering in ReportLab when Unicode fonts are unavailable."""
+    import unicodedata
+    if not text:
+        return ''
+    normalized = unicodedata.normalize('NFKD', str(text))
+    result = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn' and ord(c) < 256)
+    # If too much was lost (e.g. Arabic/CJK), fall back to ASCII replacement
+    if len(result.strip()) < max(1, len(text.strip()) * 0.4):
+        return text.encode('ascii', errors='replace').decode('ascii')
+    return result or text
 
 
 def _build_project_report_docx(project):
     """Build an LLM-narrated DOCX stakeholder analysis report."""
     from docx import Document as DocxDocument
+    from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from django.db.models import Count
 
     data = _gather_report_data(project)
     narrative = _generate_report_narrative(project, data)
 
     doc = DocxDocument()
 
+    # ── Cover ─────────────────────────────────────────────────────────────────
     title = doc.add_heading('Stakeholder Analysis Report', level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    doc.add_heading(project.name, level=1)
-    doc.add_paragraph(f'Generated: {timezone.now().strftime("%d %B %Y")}')
+    h1 = doc.add_heading(project.name, level=1)
+    h1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    meta = doc.add_paragraph(f'Generated: {timezone.now().strftime("%d %B %Y")}')
+    meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if project.description:
         doc.add_paragraph(project.description)
-    doc.add_paragraph('')
-
-    # ── Executive Summary ──────────────────────────────────────────────────────
-    doc.add_heading('Executive Summary', level=2)
-    doc.add_paragraph(narrative['executive_summary'])
-    doc.add_paragraph('')
 
     # Stats table
-    summary_table = doc.add_table(rows=1, cols=2)
+    doc.add_paragraph('')
+    summary_table = doc.add_table(rows=1, cols=3)
     summary_table.style = 'Light List Accent 1'
     hdr = summary_table.rows[0].cells
-    hdr[0].text = 'Metric'; hdr[1].text = 'Count'
-    for label, val in [
-        ('Documents analysed', data['doc_count']),
-        ('Stakeholders identified', data['entity_count']),
-        ('Relationships mapped', data['relation_count']),
-    ]:
-        row = summary_table.add_row().cells
-        row[0].text = label; row[1].text = str(val)
+    hdr[0].text = 'Documents'; hdr[1].text = 'Stakeholders'; hdr[2].text = 'Relationships'
+    row = summary_table.add_row().cells
+    row[0].text = str(data['doc_count'])
+    row[1].text = str(data['entity_count'])
+    row[2].text = str(data['relation_count'])
     doc.add_paragraph('')
 
-    # ── Key Stakeholders ───────────────────────────────────────────────────────
+    # ── Executive Summary ─────────────────────────────────────────────────────
+    doc.add_heading('Executive Summary', level=2)
+    doc.add_paragraph(_clean_narrative(narrative['executive_summary']))
+    doc.add_paragraph('')
+
+    # ── Key Stakeholders ──────────────────────────────────────────────────────
     doc.add_heading('Key Stakeholders', level=2)
-    doc.add_paragraph(narrative['stakeholder_analysis'])
+    doc.add_paragraph(_clean_narrative(narrative['stakeholder_analysis']))
     doc.add_paragraph('')
 
-    # Entity type breakdown
+    # Stakeholder type breakdown
     if data['type_counts']:
+        doc.add_heading('Stakeholder Types', level=3)
         type_table = doc.add_table(rows=1, cols=2)
         type_table.style = 'Light List Accent 1'
         hdr = type_table.rows[0].cells
-        hdr[0].text = 'Entity Type'; hdr[1].text = 'Count'
+        hdr[0].text = 'Type'; hdr[1].text = 'Count'
         for row_data in data['type_counts']:
             row = type_table.add_row().cells
             row[0].text = row_data['entity_type']; row[1].text = str(row_data['count'])
         doc.add_paragraph('')
 
+    # Most influential stakeholders
+    if data.get('influential_entities'):
+        doc.add_heading('Most Influential Stakeholders', level=3)
+        inf_table = doc.add_table(rows=1, cols=4)
+        inf_table.style = 'Light List Accent 1'
+        hdr = inf_table.rows[0].cells
+        hdr[0].text = 'Stakeholder'; hdr[1].text = 'Type'; hdr[2].text = 'Connections'; hdr[3].text = 'Confidence'
+        for e in data['influential_entities'][:12]:
+            row = inf_table.add_row().cells
+            row[0].text = e['name']
+            row[1].text = e['type']
+            row[2].text = str(e['connections'])
+            row[3].text = f"{e['confidence']}%"
+        doc.add_paragraph('')
+
     # ── Relationship Network ───────────────────────────────────────────────────
     doc.add_heading('Relationship Network', level=2)
-    doc.add_paragraph(narrative['relationship_analysis'])
+    doc.add_paragraph(_clean_narrative(narrative['relationship_analysis']))
     doc.add_paragraph('')
 
     if data['top_relations']:
+        doc.add_heading('Key Relationships', level=3)
         rel_table = doc.add_table(rows=1, cols=3)
         rel_table.style = 'Light List Accent 1'
         hdr = rel_table.rows[0].cells
         hdr[0].text = 'Source'; hdr[1].text = 'Relationship'; hdr[2].text = 'Target'
-        for r in data['top_relations']:
+        for r in data['top_relations'][:30]:
             row = rel_table.add_row().cells
             row[0].text = r.source_entity.canonical_name if r.source_entity else ''
             row[1].text = r.label
@@ -1867,25 +2026,30 @@ def _build_project_report_docx(project):
 
     # ── Cross-Document Analysis ────────────────────────────────────────────────
     doc.add_heading('Cross-Document Analysis', level=2)
-    doc.add_paragraph(narrative['cross_references'])
+    doc.add_paragraph(_clean_narrative(narrative['cross_references']))
     doc.add_paragraph('')
 
-    # Per-document entity breakdown
     doc.add_heading('Per-Document Stakeholder Breakdown', level=3)
     for d in data['documents']:
         p = doc.add_paragraph(style='List Bullet')
         p.add_run(d.filename).bold = True
         uploaded = d.upload_timestamp.strftime('%d %b %Y') if d.upload_timestamp else 'unknown'
-        p.add_run(f' (uploaded {uploaded})')
+        p.add_run(f' — uploaded {uploaded}')
         ents = data['doc_entities'].get(d.id, [])
         if ents:
-            names = ', '.join(e['canonical_name'] for e in ents)
-            doc.add_paragraph(f'   Top entities: {names}', style='List Bullet 2')
+            names = ', '.join(e['canonical_name'] for e in ents[:5])
+            doc.add_paragraph(f'Top stakeholders: {names}', style='List Bullet 2')
     doc.add_paragraph('')
 
     # ── Conclusions ────────────────────────────────────────────────────────────
     doc.add_heading('Conclusions & Recommendations', level=2)
-    doc.add_paragraph(narrative['conclusions'])
+    conclusions_text = _clean_narrative(narrative['conclusions'])
+    import re as _re
+    for line in _re.split(r'\n|(?<=\.) ', conclusions_text):
+        line = line.strip().lstrip('•-–').strip()
+        if line:
+            p = doc.add_paragraph(style='List Bullet')
+            p.add_run(line)
 
     return doc
 
@@ -1923,11 +2087,49 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
         except Project.DoesNotExist:
             return Response({'detail': 'Project not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+        import re as _re
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import cm
         from reportlab.lib import colors
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+
+        # ── Register Unicode font (DejaVu) if available ────────────────────────
+        FONT_REGULAR = 'Helvetica'
+        FONT_BOLD    = 'Helvetica-Bold'
+        _dejavu_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+        ]
+        _dejavu_bold_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+        ]
+        for _p in _dejavu_paths:
+            try:
+                import os
+                if os.path.exists(_p):
+                    pdfmetrics.registerFont(TTFont('DejaVuSans', _p))
+                    FONT_REGULAR = 'DejaVuSans'
+                    break
+            except Exception:
+                pass
+        for _p in _dejavu_bold_paths:
+            try:
+                import os
+                if os.path.exists(_p):
+                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', _p))
+                    FONT_BOLD = 'DejaVuSans-Bold'
+                    break
+            except Exception:
+                pass
+
+        # Use _pdf_safe only when DejaVu is unavailable
+        use_unicode = FONT_REGULAR == 'DejaVuSans'
+        def _s(text: str) -> str:
+            return str(text) if use_unicode else _pdf_safe(text)
 
         data = _gather_report_data(project)
         narrative = _generate_report_narrative(project, data)
@@ -1939,42 +2141,72 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
         )
         styles = getSampleStyleSheet()
 
-        title_style   = ParagraphStyle('RTitle',   parent=styles['Title'],   fontSize=22, spaceAfter=6, textColor=colors.HexColor('#1a1f35'))
-        h1_style      = ParagraphStyle('RH1',      parent=styles['Heading1'], fontSize=16, spaceAfter=4, textColor=colors.HexColor('#3d6fff'))
-        h2_style      = ParagraphStyle('RH2',      parent=styles['Heading2'], fontSize=13, spaceBefore=14, spaceAfter=4, textColor=colors.HexColor('#1a1f35'))
-        h3_style      = ParagraphStyle('RH3',      parent=styles['Heading3'], fontSize=11, spaceBefore=10, spaceAfter=3, textColor=colors.HexColor('#3d6fff'))
-        body_style    = ParagraphStyle('RBody',    parent=styles['Normal'],   fontSize=10, leading=15, spaceAfter=6)
-        meta_style    = ParagraphStyle('RMeta',    parent=styles['Normal'],   fontSize=9,  textColor=colors.HexColor('#7b8299'))
-        bullet_style  = ParagraphStyle('RBullet',  parent=styles['Normal'],   fontSize=10, leading=14, leftIndent=14, spaceAfter=3)
+        DARK   = colors.HexColor('#1a1f35')
+        ACCENT = colors.HexColor('#3d6fff')
+        GREY   = colors.HexColor('#6b7280')
+        STRIPE = colors.HexColor('#f5f7fa')
+        GRID_C = colors.HexColor('#d0d5e8')
+
+        title_style  = ParagraphStyle('RTitle', parent=styles['Title'],
+                            fontName=FONT_BOLD, fontSize=22, spaceAfter=4, textColor=DARK)
+        h1_style     = ParagraphStyle('RH1',    parent=styles['Normal'],
+                            fontName=FONT_BOLD, fontSize=16, spaceAfter=4, textColor=ACCENT)
+        h2_style     = ParagraphStyle('RH2',    parent=styles['Normal'],
+                            fontName=FONT_BOLD, fontSize=13, spaceBefore=16, spaceAfter=5, textColor=DARK)
+        h3_style     = ParagraphStyle('RH3',    parent=styles['Normal'],
+                            fontName=FONT_BOLD, fontSize=11, spaceBefore=10, spaceAfter=4, textColor=DARK)
+        body_style   = ParagraphStyle('RBody',  parent=styles['Normal'],
+                            fontName=FONT_REGULAR, fontSize=10, leading=15, spaceAfter=5)
+        meta_style   = ParagraphStyle('RMeta',  parent=styles['Normal'],
+                            fontName=FONT_REGULAR, fontSize=9, textColor=GREY)
+        bullet_style = ParagraphStyle('RBullet', parent=styles['Normal'],
+                            fontName=FONT_REGULAR, fontSize=10, leading=14, leftIndent=16, spaceAfter=4)
+        # White text for table column headers (rendered on blue background)
+        tbl_hdr_style = ParagraphStyle('RTblHdr', parent=styles['Normal'],
+                            fontName=FONT_BOLD, fontSize=9, textColor=colors.white)
 
         def tbl_style():
             return TableStyle([
-                ('BACKGROUND',   (0, 0), (-1, 0), colors.HexColor('#3d6fff')),
-                ('TEXTCOLOR',    (0, 0), (-1, 0), colors.white),
-                ('FONTNAME',     (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE',     (0, 0), (-1, -1), 9),
-                ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f7fa')]),
-                ('GRID',         (0, 0), (-1, -1), 0.4, colors.HexColor('#d0d5e8')),
-                ('PADDING',      (0, 0), (-1, -1), 5),
-                ('VALIGN',       (0, 0), (-1, -1), 'TOP'),
-                ('WORDWRAP',     (0, 0), (-1, -1), True),
+                ('BACKGROUND',    (0, 0), (-1, 0), ACCENT),
+                ('FONTNAME',      (0, 0), (-1, 0), FONT_BOLD),
+                ('FONTSIZE',      (0, 0), (-1, -1), 9),
+                ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, STRIPE]),
+                ('GRID',          (0, 0), (-1, -1), 0.4, GRID_C),
+                ('TOPPADDING',    (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING',  (0, 0), (-1, -1), 6),
+                ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
             ])
+
+        def section_text(raw: str):
+            """Yield Paragraph flowables for a cleaned narrative section."""
+            cleaned = _clean_narrative(raw)
+            for para in cleaned.split('\n\n'):
+                para = para.strip()
+                if para:
+                    yield Paragraph(_s(para), body_style)
 
         story = []
 
         # ── Cover ─────────────────────────────────────────────────────────────
         story.append(Paragraph('Stakeholder Analysis Report', title_style))
-        story.append(Paragraph(project.name, h1_style))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(_s(project.name), h1_style))
         story.append(Paragraph(f'Generated: {timezone.now().strftime("%d %B %Y")}', meta_style))
         if project.description:
             story.append(Spacer(1, 6))
-            story.append(Paragraph(project.description, body_style))
-        story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#3d6fff'), spaceAfter=12))
+            story.append(Paragraph(_s(project.description), body_style))
+        story.append(HRFlowable(width='100%', thickness=1, color=ACCENT, spaceAfter=14))
 
-        # Stats row
+        # Stats summary table
         stats_data = [
-            ['Documents', 'Stakeholders', 'Relationships'],
-            [str(data['doc_count']), str(data['entity_count']), str(data['relation_count'])],
+            [Paragraph('Documents', tbl_hdr_style),
+             Paragraph('Stakeholders', tbl_hdr_style),
+             Paragraph('Relationships', tbl_hdr_style)],
+            [Paragraph(str(data['doc_count']), body_style),
+             Paragraph(str(data['entity_count']), body_style),
+             Paragraph(str(data['relation_count']), body_style)],
         ]
         stats_tbl = Table(stats_data, colWidths=[5*cm, 5*cm, 5*cm])
         stats_tbl.setStyle(tbl_style())
@@ -1983,75 +2215,103 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
 
         # ── Executive Summary ─────────────────────────────────────────────────
         story.append(Paragraph('Executive Summary', h2_style))
-        for para in narrative['executive_summary'].split('\n\n'):
-            if para.strip():
-                story.append(Paragraph(para.strip(), body_style))
+        story.extend(section_text(narrative['executive_summary']))
         story.append(Spacer(1, 10))
 
-        # ── Key Stakeholders ─────────────────────────────────────────────────
+        # ── Key Stakeholders ──────────────────────────────────────────────────
         story.append(Paragraph('Key Stakeholders', h2_style))
-        for para in narrative['stakeholder_analysis'].split('\n\n'):
-            if para.strip():
-                story.append(Paragraph(para.strip(), body_style))
+        story.extend(section_text(narrative['stakeholder_analysis']))
         story.append(Spacer(1, 8))
 
-        # Entity type breakdown table
+        # Stakeholder type breakdown
         if data['type_counts']:
-            story.append(Paragraph('Stakeholder Breakdown by Type', h3_style))
-            type_data = [['Entity Type', 'Count']] + [
-                [r['entity_type'], str(r['count'])] for r in data['type_counts']
+            story.append(Paragraph('Stakeholder Types', h3_style))
+            type_data = [[Paragraph('Type', tbl_hdr_style), Paragraph('Count', tbl_hdr_style)]] + [
+                [Paragraph(_s(r['entity_type']), body_style), Paragraph(str(r['count']), body_style)]
+                for r in data['type_counts']
             ]
-            type_tbl = Table(type_data, colWidths=[10*cm, 5*cm])
+            type_tbl = Table(type_data, colWidths=[11*cm, 4*cm])
             type_tbl.setStyle(tbl_style())
             story.append(type_tbl)
             story.append(Spacer(1, 10))
 
+        # Influential entities
+        if data.get('influential_entities'):
+            story.append(Paragraph('Most Influential Stakeholders', h3_style))
+            inf_data = [[
+                Paragraph('Stakeholder', tbl_hdr_style),
+                Paragraph('Type', tbl_hdr_style),
+                Paragraph('Connections', tbl_hdr_style),
+                Paragraph('Confidence', tbl_hdr_style),
+            ]] + [
+                [
+                    Paragraph(_s(e['name']), body_style),
+                    Paragraph(_s(e['type']), body_style),
+                    Paragraph(str(e['connections']), body_style),
+                    Paragraph(f"{e['confidence']}%", body_style),
+                ]
+                for e in data['influential_entities'][:12]
+            ]
+            inf_tbl = Table(inf_data, colWidths=[6*cm, 3.5*cm, 2.5*cm, 2.5*cm])
+            inf_tbl.setStyle(tbl_style())
+            story.append(inf_tbl)
+            story.append(Spacer(1, 10))
+
         # ── Relationship Network ──────────────────────────────────────────────
         story.append(Paragraph('Relationship Network', h2_style))
-        for para in narrative['relationship_analysis'].split('\n\n'):
-            if para.strip():
-                story.append(Paragraph(para.strip(), body_style))
+        story.extend(section_text(narrative['relationship_analysis']))
         story.append(Spacer(1, 8))
 
         if data['top_relations']:
             story.append(Paragraph('Key Relationships', h3_style))
-            rel_data = [['Source', 'Relationship', 'Target']] + [
+            rel_data = [[
+                Paragraph('Source', tbl_hdr_style),
+                Paragraph('Relationship', tbl_hdr_style),
+                Paragraph('Target', tbl_hdr_style),
+            ]] + [
                 [
-                    (r.source_entity.canonical_name if r.source_entity else ''),
-                    r.label,
-                    (r.target_entity.canonical_name if r.target_entity else ''),
+                    Paragraph(_s(r.source_entity.canonical_name if r.source_entity else ''), body_style),
+                    Paragraph(_s(r.label), body_style),
+                    Paragraph(_s(r.target_entity.canonical_name if r.target_entity else ''), body_style),
                 ]
-                for r in data['top_relations'][:25]
+                for r in data['top_relations'][:30]
             ]
-            rel_tbl = Table(rel_data, colWidths=[5.5*cm, 4*cm, 5.5*cm])
+            rel_tbl = Table(rel_data, colWidths=[5*cm, 5*cm, 5*cm])
             rel_tbl.setStyle(tbl_style())
             story.append(rel_tbl)
             story.append(Spacer(1, 10))
 
         # ── Cross-Document Analysis ───────────────────────────────────────────
         story.append(Paragraph('Cross-Document Analysis', h2_style))
-        for para in narrative['cross_references'].split('\n\n'):
-            if para.strip():
-                story.append(Paragraph(para.strip(), body_style))
+        story.extend(section_text(narrative['cross_references']))
         story.append(Spacer(1, 8))
 
-        # Per-document breakdown
         story.append(Paragraph('Per-Document Stakeholder Breakdown', h3_style))
         for d in data['documents']:
             uploaded = d.upload_timestamp.strftime('%d %b %Y') if d.upload_timestamp else 'unknown'
-            story.append(Paragraph(f'<b>{d.filename}</b> <font color="#7b8299" size="8">(uploaded {uploaded})</font>', bullet_style))
+            doc_para = Paragraph(
+                f'<b>{_s(d.filename)}</b> '
+                f'<font size="8" color="#6b7280">uploaded {uploaded}</font>',
+                bullet_style,
+            )
+            story.append(doc_para)
             ents = data['doc_entities'].get(d.id, [])
             if ents:
-                names = ', '.join(e['canonical_name'] for e in ents)
-                story.append(Paragraph(f'Top stakeholders: {names}', ParagraphStyle('indent', parent=body_style, leftIndent=24, fontSize=9, textColor=colors.HexColor('#444'))))
+                names = ', '.join(_s(e['canonical_name']) for e in ents[:5])
+                story.append(Paragraph(
+                    f'Top stakeholders: {names}',
+                    ParagraphStyle('indent', parent=body_style,
+                                   fontName=FONT_REGULAR, leftIndent=28, fontSize=9, textColor=GREY),
+                ))
         story.append(Spacer(1, 10))
 
-        # ── Conclusions ───────────────────────────────────────────────────────
+        # ── Conclusions & Recommendations ─────────────────────────────────────
         story.append(Paragraph('Conclusions & Recommendations', h2_style))
-        for line in narrative['conclusions'].split('\n'):
-            line = line.strip().lstrip('•-–*').strip()
+        conclusions_text = _clean_narrative(narrative['conclusions'])
+        for line in _re.split(r'\n', conclusions_text):
+            line = line.strip().lstrip('•-–').strip()
             if line:
-                story.append(Paragraph(f'• {line}', bullet_style))
+                story.append(Paragraph(f'\u2022 {_s(line)}', bullet_style))
 
         doc_pdf.build(story)
         buffer.seek(0)

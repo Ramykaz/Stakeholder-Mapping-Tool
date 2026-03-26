@@ -1,7 +1,7 @@
 // Cytoscape.js stylesheet — theme-adaptive, advanced visualization
 import { Theme } from '@/lib/uiState';
 
-const TYPE_PALETTE: Record<string, string> = {
+export const TYPE_PALETTE: Record<string, string> = {
   PERSON:       '#2edfb8',
   ORGANIZATION: '#5b8fff',
   GOVERNMENT:   '#5b8fff',
@@ -23,17 +23,18 @@ function hex2rgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function buildTypeSelector(entityType: string, isDark: boolean): cytoscape.StylesheetStyle {
+function buildTypeSelector(entityType: string): cytoscape.StylesheetStyle {
   const color = TYPE_PALETTE[entityType] || DEFAULT_COLOR;
   return {
     selector: `node[entity_type="${entityType}"]`,
     style: {
       'background-color': color,
-      'background-opacity': isDark ? 0.22 : 0.15,
+      'background-opacity': 0.88,
       'border-color': color,
+      'border-opacity': 0.35,
       'shadow-blur': 18,
       'shadow-color': color,
-      'shadow-opacity': isDark ? 0.5 : 0.22,
+      'shadow-opacity': 0.45,
       'shadow-offset-x': 0,
       'shadow-offset-y': 0,
     } as any,
@@ -42,12 +43,14 @@ function buildTypeSelector(entityType: string, isDark: boolean): cytoscape.Style
 
 export function buildCytoscapeStylesheet(theme: Theme): cytoscape.StylesheetStyle[] {
   const isDark = theme === 'dark';
-
-  const nodeTextColor   = isDark ? '#e8eaf6' : '#1a1f2e';
-  const labelBg         = isDark ? '#0d1220' : '#f5f3ee';
-  const edgeLineColor   = isDark ? '#3a4a72' : '#9aa4c4';
-  const edgeTextBg      = isDark ? '#080c18' : '#eeeae0';
-  const edgeTextColor   = isDark ? '#6b7aa0' : '#5a6480';
+  const edgeLineColor    = isDark ? '#3a4a72'  : '#2a3a70';
+  const labelColor       = isDark ? '#c8cad8'  : '#1a1f2e';
+  const edgeLabelColor   = isDark ? '#7a8099'  : '#1e2850';
+  const focusBorderColor = isDark ? '#ffffff'  : '#1a1f2e';
+  const selectedShadow   = isDark ? '#ffffff'  : '#1a1f2e';
+  const edgeOpacity      = isDark
+    ? 'mapData(confidence, 0, 1, 0.25, 0.70)'
+    : 'mapData(confidence, 0, 1, 0.50, 0.90)';
 
   return [
     // ── Base node ──────────────────────────────────────────────────────────
@@ -58,49 +61,51 @@ export function buildCytoscapeStylesheet(theme: Theme): cytoscape.StylesheetStyl
         label: 'data(label)',
         'text-valign': 'bottom' as any,
         'text-halign': 'center' as any,
-        'text-margin-y': 8,
+        'text-margin-y': 6,
         'font-size': '11px',
-        'font-weight': '600' as any,
-        'font-family': 'Figtree, Outfit, system-ui, sans-serif',
+        'font-weight': '400' as any,
+        'font-family': 'system-ui, sans-serif',
         width: 'data(node_size)',
         height: 'data(node_size)',
         'text-wrap': 'ellipsis' as any,
-        'text-max-width': '88px',
-        'border-width': 2.5,
-        'border-opacity': 1,
+        'text-max-width': '100px',
+        'border-width': 1.5,
+        'border-opacity': 0.35,
         'overlay-padding': '6px',
         'background-color': DEFAULT_COLOR,
-        'background-opacity': isDark ? 0.22 : 0.15,
+        'background-opacity': 0.88,
         'border-color': DEFAULT_COLOR,
-        color: nodeTextColor,
+        color: labelColor,
         'text-outline-width': 0,
-        'text-background-color': labelBg,
-        'text-background-opacity': 0.82,
-        'text-background-padding': '3px' as any,
+        'text-background-opacity': isDark ? 0 : 0.75,
+        'text-background-color': isDark ? 'transparent' : '#f0ece2',
+        'text-background-padding': isDark ? '0px' : '2px',
         'text-background-shape': 'roundrectangle' as any,
+        'overlay-opacity': 0,
         'shadow-blur': 18,
         'shadow-color': DEFAULT_COLOR,
-        'shadow-opacity': isDark ? 0.4 : 0.18,
+        'shadow-opacity': 0.4,
         'shadow-offset-x': 0,
         'shadow-offset-y': 0,
+        'z-index': 10,
         'transition-property': 'opacity, border-width, shadow-blur' as any,
         'transition-duration': '0.15s' as any,
       },
     },
 
     // ── Per entity-type colour ──────────────────────────────────────────────
-    ...Object.keys(TYPE_PALETTE).map(t => buildTypeSelector(t, isDark)),
+    ...Object.keys(TYPE_PALETTE).map(t => buildTypeSelector(t)),
 
     // ── Selected node ──────────────────────────────────────────────────────
     {
       selector: 'node:selected',
       style: {
         'border-width': 4,
-        'border-color': '#ffffff',
+        'border-color': focusBorderColor,
         'shadow-blur': 28,
-        'shadow-color': '#ffffff',
+        'shadow-color': selectedShadow,
         'shadow-opacity': 0.55,
-        'overlay-color': '#ffffff',
+        'overlay-color': selectedShadow,
         'overlay-opacity': 0.08,
       } as any,
     },
@@ -110,9 +115,9 @@ export function buildCytoscapeStylesheet(theme: Theme): cytoscape.StylesheetStyl
       selector: '.focus-node',
       style: {
         'border-width': 4,
-        'border-color': '#ffffff',
+        'border-color': focusBorderColor,
         'shadow-blur': 32,
-        'shadow-color': '#ffffff',
+        'shadow-color': selectedShadow,
         'shadow-opacity': 0.65,
         'z-compound-depth': 'top' as any,
       } as any,
@@ -124,47 +129,67 @@ export function buildCytoscapeStylesheet(theme: Theme): cytoscape.StylesheetStyl
       style: {
         width: 'data(edge_width)',
         'line-color': edgeLineColor,
-        'line-opacity': 0.75,
+        opacity: edgeOpacity as any,
         'curve-style': 'bezier' as any,
+        'control-point-step-size': 40,
         'target-arrow-shape': 'triangle' as any,
         'target-arrow-color': edgeLineColor,
-        'arrow-scale': 1.1,
+        'arrow-scale': 0.75,
         label: 'data(label)',
         'font-size': '9px',
-        'font-family': 'DM Mono, JetBrains Mono, monospace',
-        'font-weight': '500' as any,
+        'font-family': 'monospace',
+        color: edgeLabelColor,
         'text-rotation': 'autorotate' as any,
-        'text-margin-y': -10,
-        'text-background-color': edgeTextBg,
-        'text-background-opacity': 0.88,
-        'text-background-padding': '2px' as any,
-        'text-background-shape': 'roundrectangle' as any,
-        color: edgeTextColor,
+        'text-margin-y': -7,
+        'text-background-opacity': 0,
+        'overlay-opacity': 0,
+        'z-index': 1,
         'transition-property': 'opacity, line-color' as any,
         'transition-duration': '0.15s' as any,
       },
     },
 
-    // ── Dimmed (unfocused) ─────────────────────────────────────────────────
+    // ── Dimmed node (unfocused/hover) ──────────────────────────────────────
     {
-      selector: '.dimmed',
-      style: { opacity: 0.08 },
-    },
-
-    // ── Neighbourhood highlight (hover) ────────────────────────────────────
-    {
-      selector: '.neighbour-node',
+      selector: 'node.dimmed',
       style: {
-        opacity: 1,
-        'border-width': 3.5,
+        'background-opacity': 0.10,
+        'border-opacity': 0.06,
+        color: 'rgba(0,0,0,0)',
+        'z-index': 0,
       } as any,
     },
+
+    // ── Dimmed edge (unfocused/hover) ──────────────────────────────────────
     {
-      selector: '.neighbour-edge',
+      selector: 'edge.dimmed',
       style: {
-        opacity: 1,
-        'line-opacity': 1,
-        width: 2.5,
+        opacity: 0.04,
+        'z-index': 0,
+      } as any,
+    },
+
+    // ── Highlighted node (hover neighbourhood) ─────────────────────────────
+    {
+      selector: 'node.highlighted',
+      style: {
+        'background-opacity': 1.0,
+        'border-width': 2.5,
+        'border-opacity': 0.9,
+        color: labelColor,
+        'z-index': 20,
+      } as any,
+    },
+
+    // ── Highlighted edge (hover neighbourhood) ─────────────────────────────
+    {
+      selector: 'edge.highlighted',
+      style: {
+        opacity: isDark ? 0.9 : 0.95,
+        'line-color': edgeLineColor,
+        'target-arrow-color': edgeLineColor,
+        color: edgeLabelColor,
+        'z-index': 15,
       } as any,
     },
 

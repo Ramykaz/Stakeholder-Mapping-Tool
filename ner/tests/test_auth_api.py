@@ -204,7 +204,8 @@ class TestAuthAPI(APITestCase):
         response_owner = self.client.get(f'/api/v1/projects/{project.id}/')
         assert response_owner.status_code == 200
 
-    def test_admin_taxonomy_requires_admin_role(self):
+    def test_taxonomy_read_open_write_admin_only(self):
+        """GET is open to all authenticated users; POST/PATCH/DELETE requires admin."""
         regular_user = User.objects.create_user(
             username='regular',
             email='regular@example.com',
@@ -212,9 +213,18 @@ class TestAuthAPI(APITestCase):
         )
         regular_token = Token.objects.create(user=regular_user)
 
+        # Regular user can READ taxonomy labels
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {regular_token.key}')
-        regular_response = self.client.get('/api/v1/admin/entity-labels/')
-        assert regular_response.status_code == 403
+        regular_get = self.client.get('/api/v1/admin/entity-labels/')
+        assert regular_get.status_code == 200
+
+        # Regular user cannot CREATE labels
+        regular_post = self.client.post(
+            '/api/v1/admin/entity-labels/',
+            {'name': 'TEST', 'color': '#ff0000', 'node_shape': 'ellipse', 'active': True, 'display_order': 99},
+            format='json',
+        )
+        assert regular_post.status_code == 403
 
         admin_user = User.objects.create_user(
             username='admin',
@@ -224,6 +234,14 @@ class TestAuthAPI(APITestCase):
         )
         admin_token = Token.objects.create(user=admin_user)
 
+        # Admin can READ and CREATE
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {admin_token.key}')
-        admin_response = self.client.get('/api/v1/admin/entity-labels/')
-        assert admin_response.status_code == 200
+        admin_get = self.client.get('/api/v1/admin/entity-labels/')
+        assert admin_get.status_code == 200
+
+        admin_post = self.client.post(
+            '/api/v1/admin/entity-labels/',
+            {'name': 'TEST_ADMIN', 'color': '#00ff00', 'node_shape': 'ellipse', 'active': True, 'display_order': 99},
+            format='json',
+        )
+        assert admin_post.status_code == 201

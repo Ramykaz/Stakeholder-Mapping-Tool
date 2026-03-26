@@ -47,7 +47,7 @@ def _load_prompt_template() -> str:
         )
 
 
-def _call_provider(prompt: str, provider: str, model: str) -> str:
+def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512) -> str:
     """Make a plain-text LLM completion using the resolved provider."""
     provider = provider.strip().lower()
 
@@ -57,7 +57,7 @@ def _call_provider(prompt: str, provider: str, model: str) -> str:
         resp = client.chat.completions.create(
             model=model,
             messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=512,
+            max_tokens=max_tokens,
             temperature=0.2,
         )
         return resp.choices[0].message.content.strip()
@@ -68,7 +68,7 @@ def _call_provider(prompt: str, provider: str, model: str) -> str:
         resp = client.chat.completions.create(
             model=model,
             messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=512,
+            max_tokens=max_tokens,
             temperature=0.2,
         )
         return resp.choices[0].message.content.strip()
@@ -85,7 +85,7 @@ def _call_provider(prompt: str, provider: str, model: str) -> str:
         resp = client.chat.completions.create(
             model=deployment,
             messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=512,
+            max_tokens=max_tokens,
             temperature=0.2,
         )
         return resp.choices[0].message.content.strip()
@@ -120,7 +120,7 @@ def answer_nl_query(
     )
 
     try:
-        return _call_provider(prompt, provider, model)
+        return _call_provider(prompt, provider, model, max_tokens=1024)
     except Exception:
         logger.exception("NL query LLM call failed", extra={'project_id': str(project.id)})
         return 'Unable to generate an answer right now. Please try again.'

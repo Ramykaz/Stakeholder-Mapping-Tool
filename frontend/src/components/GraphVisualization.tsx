@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import cytoscape, { Core, Layouts } from 'cytoscape';
-import { buildCytoscapeStylesheet } from '@/lib/cytoscapeStyle';
+import { buildCytoscapeStylesheet, TYPE_PALETTE } from '@/lib/cytoscapeStyle';
 import { computeTwoHopNeighborhood, computeClusterPositions } from '@/lib/graphFocus';
 import { getActiveTheme, Theme, DEFAULT_FILTER_STATE } from '@/lib/uiState';
 import { CytoscapeNode, CytoscapeEdge } from '@/types';
@@ -50,6 +50,7 @@ function GraphVisualizationInner({
   const cyRef = useRef<Core | null>(null);
   const layoutRef = useRef<Layouts | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
   const onNodeClickRef = useRef(onNodeClick);
   const onBackgroundClickRef = useRef(onBackgroundClick);
   const onFocusExitRef = useRef(onFocusExit);
@@ -73,7 +74,7 @@ function GraphVisualizationInner({
   useEffect(() => {
     if (!cyRef.current || cyRef.current.destroyed()) return;
     const isDark = theme === 'dark';
-    const bg = isDark ? '#080c14' : '#f0ece2';
+    const bg = isDark ? '#0d1220' : '#f0ece2';
     if (containerRef.current) containerRef.current.style.background = bg;
     cyRef.current.style(buildCytoscapeStylesheet(theme) as any);
     cyRef.current.style()
@@ -119,6 +120,7 @@ function GraphVisualizationInner({
 
   // ── Graph lifecycle ───────────────────────────────────────────────────────
   const destroyCy = useCallback(() => {
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
     if (layoutRef.current) {
       try { layoutRef.current.stop(); } catch { /* ignore */ }
       layoutRef.current = null;
@@ -138,18 +140,22 @@ function GraphVisualizationInner({
         name: 'concentric',
         concentric: (node: any) => (node.data('degree') ?? 0) + 1,
         levelWidth: () => 3,
-        minNodeSpacing: 48,
-        spacingFactor: 2.2,
+        minNodeSpacing: 28,
+        spacingFactor: 1.5,
         avoidOverlap: true,
         animate: true,
         animationDuration: 700,
         fit: true,
-        padding: 80,
+        padding: 60,
       } as any);
       layoutRef.current = layout;
+      layout.on('layoutstop', () => {
+        if (!cy || cy.destroyed()) return;
+        cy.fit(undefined, 60);
+      });
       layout.run();
     } catch {
-      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 80, fit: true }).run(); } catch { /* ignore */ }
+      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 60, fit: true }).run(); } catch { /* ignore */ }
     }
   }, []);
 
@@ -161,25 +167,29 @@ function GraphVisualizationInner({
         name: 'cose',
         animate: true,
         animationDuration: 800,
-        nodeRepulsion: () => 480000,
-        idealEdgeLength: () => 200,
-        edgeElasticity: () => 0.45,
-        gravity: 0.1,
-        numIter: 2000,
-        randomize: false,
-        componentSpacing: 100,
-        padding: 80,
+        nodeRepulsion: function() { return 8000; },
+        nodeOverlap: 20,
+        idealEdgeLength: function() { return 90; },
+        edgeElasticity: function() { return 100; },
+        nestingFactor: 1.2,
+        gravity: 80,
+        numIter: 1000,
+        initialTemp: 200,
+        coolingFactor: 0.95,
+        minTemp: 1.0,
         fit: true,
+        padding: 60,
+        randomize: false,
         ...opts,
       } as any);
       layoutRef.current = layout;
       layout.on('layoutstop', () => {
         if (!cy || cy.destroyed()) return;
-        cy.fit(undefined, 80);
+        cy.fit(undefined, 60);
       });
       layout.run();
     } catch {
-      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 80, fit: true }).run(); } catch { /* ignore */ }
+      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 60, fit: true }).run(); } catch { /* ignore */ }
     }
   }, []);
 
@@ -188,7 +198,7 @@ function GraphVisualizationInner({
     destroyCy();
 
     const isDark = getActiveTheme() === 'dark';
-    const bg = isDark ? '#080c14' : '#f0ece2';
+    const bg = isDark ? '#0d1220' : '#f0ece2';
 
     const nodeTypeMap = new Map(nodes.map(n => [n.id, n.data.entity_type || 'DEFAULT']));
 
@@ -223,8 +233,9 @@ function GraphVisualizationInner({
       ],
       style: buildCytoscapeStylesheet(isDark ? 'dark' : 'light') as any,
       layout: { name: 'preset' },
-      minZoom: 0.08,
-      maxZoom: 4,
+      minZoom: 0.25,
+      maxZoom: 3.5,
+      wheelSensitivity: 0.3,
       userZoomingEnabled: true,
       userPanningEnabled: true,
       boxSelectionEnabled: false,
@@ -232,6 +243,17 @@ function GraphVisualizationInner({
 
     if (containerRef.current) containerRef.current.style.background = bg;
     cyRef.current = cy;
+
+    // ResizeObserver — keep canvas sized to its container
+    if (containerRef.current) {
+      const ro = new ResizeObserver(() => {
+        if (!cyRef.current || cyRef.current.destroyed()) return;
+        cyRef.current.resize();
+        cyRef.current.fit(undefined, 60);
+      });
+      ro.observe(containerRef.current);
+      roRef.current = ro;
+    }
 
     // Node click → onNodeClick + enter/switch focus mode
     cy.on('tap', 'node', (evt) => {
@@ -276,9 +298,8 @@ function GraphVisualizationInner({
       if (focusModeRef.current) return;
       const node = evt.target;
       const neighbourhood = node.closedNeighborhood();
-      cy.elements().not(neighbourhood).addClass('dimmed');
-      neighbourhood.nodes().addClass('neighbour-node').removeClass('dimmed');
-      neighbourhood.edges().addClass('neighbour-edge').removeClass('dimmed');
+      cy.elements().addClass('dimmed').removeClass('highlighted');
+      neighbourhood.removeClass('dimmed').addClass('highlighted');
       if (tooltipRef.current) {
         tooltipRef.current.innerHTML = `
           <div style="font-size:14px;color:#e8eaf0;font-weight:500;margin-bottom:4px">${node.data('label') || ''}</div>
@@ -299,7 +320,7 @@ function GraphVisualizationInner({
 
     cy.on('mouseout', 'node', () => {
       if (focusModeRef.current) return;
-      cy.elements().removeClass('dimmed neighbour-node neighbour-edge');
+      cy.elements().removeClass('dimmed highlighted');
       if (tooltipRef.current) tooltipRef.current.style.display = 'none';
     });
 
@@ -365,7 +386,7 @@ function GraphVisualizationInner({
   useEffect(() => {
     if (!cyRef.current || cyRef.current.destroyed()) return;
     const cy = cyRef.current;
-    cy.elements().removeClass('dimmed neighbour-node neighbour-edge focus-node');
+    cy.elements().removeClass('dimmed highlighted focus-node');
 
     if (focusMode) {
       const neighborIds = computeTwoHopNeighborhood(focusMode.nodeId, nodes, edges, focusMode.hopRadius);
@@ -461,15 +482,14 @@ function GraphVisualizationInner({
     if (command.type === 'fit')     { handleFitView(); return; }
     if (command.type === 'reset')   { handleResetLayout(); return; }
     if (command.type === 'png') {
-      const png = cyRef.current.png({ output: 'blob', bg: '#12131a', full: true, scale: 2 });
-      const url = URL.createObjectURL(png as Blob);
+      const bg = getActiveTheme() === 'dark' ? '#0d1220' : '#f0ece2';
+      const dataUri = cyRef.current.png({ output: 'base64uri', bg, full: true, scale: 2 }) as string;
       const a = document.createElement('a');
-      a.href = url;
+      a.href = dataUri;
       a.download = 'stakeholder-graph.png';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
     }
   }, [command, handleFitView, handleResetLayout]);
 
@@ -630,32 +650,54 @@ function GraphVisualizationInner({
     </>
   ) : null;
 
-  // Size legend
+  // Legend — node types + size scale
   const sizeLegend = showLegend ? (
     <div style={{
       position: 'absolute', bottom: 16, left: 16, zIndex: 5,
       background: panelBg, border: `1px solid ${panelBorder}`,
-      borderRadius: 8, padding: '8px 12px',
-      display: 'flex', flexDirection: 'column', gap: 4,
-      pointerEvents: 'none',
+      borderRadius: 8, padding: '10px 14px',
+      display: 'flex', flexDirection: 'column', gap: 10,
+      pointerEvents: 'none', maxWidth: 160,
     }}>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>
-        Node size = connections
-      </div>
-      {[
-        { label: 'Few (1–2)', size: 14 },
-        { label: 'Moderate', size: 20 },
-        { label: 'Many',     size: 28 },
-      ].map(({ label, size }) => (
-        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: size, height: size, borderRadius: '50%', flexShrink: 0,
-            border: `2px solid ${text3Color}`,
-            background: isDark ? 'rgba(13,18,32,0.72)' : 'rgba(240,236,226,0.82)',
-          }} />
-          <span style={{ fontSize: 10, color: text3Color, fontFamily: 'var(--mono)' }}>{label}</span>
+      {/* Node type colours */}
+      <div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+          Entity Types
         </div>
-      ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {allEntityTypes.filter(t => TYPE_PALETTE[t]).map(type => (
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                background: TYPE_PALETTE[type],
+                boxShadow: `0 0 4px ${TYPE_PALETTE[type]}80`,
+              }} />
+              <span style={{ fontSize: 10, color: text3Color, fontFamily: 'var(--mono)' }}>{type}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Size scale */}
+      <div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+          Size = connections
+        </div>
+        {[
+          { label: 'Few',      size: 10 },
+          { label: 'Moderate', size: 16 },
+          { label: 'Many',     size: 22 },
+        ].map(({ label, size }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+            <div style={{
+              width: size, height: size, borderRadius: '50%', flexShrink: 0,
+              border: `1.5px solid ${text3Color}`,
+              background: 'transparent',
+            }} />
+            <span style={{ fontSize: 10, color: text3Color, fontFamily: 'var(--mono)' }}>{label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   ) : null;
 
@@ -718,7 +760,7 @@ function GraphVisualizationInner({
             id="cytoscape-container"
             role="img"
             aria-label="Stakeholder entity graph visualization"
-            style={{ width: '100%', height, borderRadius: 8, background: isDark ? '#080c14' : '#f0ece2' }}
+            style={{ width: '100%', height, borderRadius: 8, background: isDark ? '#0d1220' : '#f0ece2' }}
           />
           {tooltip}
         </div>
@@ -736,7 +778,7 @@ function GraphVisualizationInner({
         id="cytoscape-container"
         role="img"
         aria-label="Stakeholder entity graph visualization"
-        style={{ width: '100%', height: '100%', background: isDark ? '#080c14' : '#f0ece2' }}
+        style={{ width: '100%', height: '100%', minHeight: 600, background: isDark ? '#0d1220' : '#f0ece2' }}
       />
       {tooltip}
       {filterPanel}

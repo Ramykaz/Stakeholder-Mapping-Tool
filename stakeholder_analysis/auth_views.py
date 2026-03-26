@@ -403,3 +403,94 @@ class AdminStatsView(AdminRequiredMixin, APIView):
             'flagged_entities': Entity.objects.filter(is_flagged=True).count(),
             'relations': Relation.objects.count(),
         }, status=status.HTTP_200_OK)
+
+
+class AdminProjectListView(AdminRequiredMixin, APIView):
+    """GET /api/v1/auth/admin/projects/ — all projects across all users."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        err = self._check_admin(request)
+        if err:
+            return err
+
+        from ingestion.models import Project, Document
+        from django.db.models import Count
+
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        search = request.query_params.get('search', '').strip()
+
+        qs = (
+            Project.objects
+            .select_related('owner')
+            .annotate(document_count=Count('documents', distinct=True))
+            .annotate(entity_count=Count('documents__entities', distinct=True))
+            .order_by('-updated_at')
+        )
+        if search:
+            qs = qs.filter(name__icontains=search)
+
+        total = qs.count()
+        start = (page - 1) * page_size
+        projects = list(qs[start:start + page_size])
+
+        results = []
+        for p in projects:
+            results.append({
+                'id': str(p.id),
+                'name': p.name,
+                'description': p.description or '',
+                'owner_username': p.owner.username if p.owner else '—',
+                'owner_email': p.owner.email if p.owner else '',
+                'document_count': p.document_count,
+                'entity_count': p.entity_count,
+                'created_at': p.created_at.isoformat() if p.created_at else None,
+                'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+            })
+
+        return Response({'count': total, 'results': results}, status=status.HTTP_200_OK)
+
+
+class AdminActivityView(AdminRequiredMixin, APIView):
+    """GET /api/v1/auth/admin/activity/ — recent extraction runs across all projects."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        err = self._check_admin(request)
+        if err:
+            return err
+
+        from ner.models import NERRun
+
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 50))
+
+        qs = (
+            NERRun.objects
+            .select_related('document_id', 'document_id__project', 'document_id__project__owner')
+            .order_by('-created_at')
+        )
+        total = qs.count()
+        start = (page - 1) * page_size
+        runs = list(qs[start:start + page_size])
+
+        results = []
+        for r in runs:
+            doc = r.document_id
+            project = doc.project if doc else None
+            owner = project.owner if project else None
+            results.append({
+                'id': str(r.id),
+                'document_name': doc.filename if doc else '—',
+                'project_name': project.name if project else '—',
+                'owner_username': owner.username if owner else '—',
+                'provider': r.provider or '—',
+                'model': r.model or '—',
+                'status': r.status,
+                'entities_created': getattr(r, 'entities_created', None),
+                'cost_usd': str(r.cost_usd) if r.cost_usd else None,
+                'created_at': r.created_at.isoformat() if r.created_at else None,
+            })
+
+        return Response({'count': total, 'results': results}, status=status.HTTP_200_OK)

@@ -12,6 +12,8 @@ from .auth_views import (
     AdminUserListView,
     AdminUserDetailView,
     AdminStatsView,
+    AdminProjectListView,
+    AdminActivityView,
 )
 
 
@@ -26,4 +28,6 @@ urlpatterns = [
     path('admin/users/', AdminUserListView.as_view(), name='auth-admin-users'),
     path('admin/users/<int:user_id>/', AdminUserDetailView.as_view(), name='auth-admin-user-detail'),
     path('admin/stats/', AdminStatsView.as_view(), name='auth-admin-stats'),
+    path('admin/projects/', AdminProjectListView.as_view(), name='auth-admin-projects'),
+    path('admin/activity/', AdminActivityView.as_view(), name='auth-admin-activity'),
 ]

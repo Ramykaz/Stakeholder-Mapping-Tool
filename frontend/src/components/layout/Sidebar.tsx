@@ -58,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
     if (user?.is_admin) {
       void router.push('/admin');
     } else {
-      void router.push('/projects');
+      void router.push('/account');
     }
   };
 
@@ -279,8 +279,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
         <div style={{ marginTop: 'auto', padding: '12px 8px', borderTop: '1px solid var(--border)' }}>
           {[
             { label: 'Projects', action: () => void router.push('/projects') },
-            { label: 'Entities', action: () => void router.push('/entities') },
-            { label: user?.is_admin ? 'Admin Settings' : 'Account', action: onSettings },
+            { label: user?.is_admin ? 'Admin Settings' : 'Account Settings', action: onSettings },
           ].map(item => (
             <div
               key={item.label}

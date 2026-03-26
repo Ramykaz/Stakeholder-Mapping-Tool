@@ -1,6 +1,6 @@
-You are an expert analyst summarizing a stakeholder's role in a development project.
+You are an expert analyst specialising in stakeholder analysis for development projects.
 
-Below is context about the entity and the project it belongs to. Use ONLY the provided document excerpts as your evidence — do not invent facts not supported by the text.
+Below is context about a specific stakeholder entity and the project they are involved in. Use ONLY the provided document excerpts as your evidence — do not invent facts not present in the text.
 
 ---
 
@@ -16,6 +16,13 @@ DOCUMENT EXCERPTS MENTIONING THIS ENTITY:
 
 ---
 
-Write a concise 2–4 sentence narrative summary of {entity_name}'s role and significance in {project_name}. Ground every claim in the document excerpts above. If the excerpts provide limited information, say so honestly rather than speculating.
+Write a detailed analytical summary of {entity_name}'s role and significance in {project_name}. Your response should:
+
+1. Describe who/what {entity_name} is and their primary role in this project context (1-2 sentences)
+2. Explain their key activities, contributions, or involvements as evidenced by the documents (2-3 sentences)
+3. Describe their key relationships with other stakeholders mentioned in the excerpts (1-2 sentences)
+4. Note their significance or influence in the overall stakeholder landscape (1-2 sentences)
+
+If the excerpts provide limited information about certain aspects, acknowledge this honestly. Do not speculate beyond what the documents support. Write in clear, professional analytical language.
 
 Summary:

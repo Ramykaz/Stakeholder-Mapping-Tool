@@ -235,3 +235,6 @@ out/
 Thumbs.db
 *.tmp
 *.swp
+tsconfig.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+

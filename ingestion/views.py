@@ -170,6 +170,8 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
                 )
                 for e in top_entities:
                     e['id'] = str(e['id'])
+                    e['name'] = e.pop('canonical_name')
+                    e['type'] = e.pop('entity_type')
                 runs = NERRun.objects.filter(document_id=doc, status=NERRun.STATUS_COMPLETED)
                 total_relations = runs.aggregate(total=Sum('relations_created'))['total'] or 0
                 item['stats'] = {

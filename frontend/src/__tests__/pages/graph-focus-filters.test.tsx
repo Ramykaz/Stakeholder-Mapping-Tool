@@ -45,6 +45,13 @@ jest.mock('next/dynamic', () => {
 });
 
 jest.mock('@/lib/api', () => ({
+  getStoredAuthToken: jest.fn().mockReturnValue('test-token'),
+  getStoredAuthUser: jest.fn().mockReturnValue({ id: 1, username: 'testuser', is_admin: false }),
+  getProjects: jest.fn().mockResolvedValue([]),
+  getProject: jest.fn().mockResolvedValue({ id: 'p1', name: 'Test Project' }),
+  logoutUser: jest.fn(),
+  getProjectReviewCandidates: jest.fn().mockResolvedValue({ results: [], count: 0 }),
+  getGlobalEntities: jest.fn().mockResolvedValue({ results: [], count: 0 }),
   getGraphNodes: jest.fn(),
   getProjectGraph: jest.fn(),
   getEntityProfile: jest.fn(),

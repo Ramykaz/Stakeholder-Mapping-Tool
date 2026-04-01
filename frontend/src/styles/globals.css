@@ -22,18 +22,19 @@
   --amber-soft:   rgba(245,166,35,0.10);
   --coral:        #f0614a;
   --coral-soft:   rgba(240,97,74,0.10);
-  --serif: 'DM Serif Display', Georgia, serif;
-  --sans:  'Outfit', system-ui, sans-serif;
-  --mono:  'DM Mono', monospace;
+  /* Single corporate font stack — Inter everywhere, JetBrains Mono for code */
+  --sans:  'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --serif: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono:  'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
 
 /* ===== Light / Day Mode ===== */
 [data-theme="light"] {
-  --bg:           #f5f0e8;
-  --bg2:          #ede9df;
-  --bg3:          #e5dfd5;
-  --border:       rgba(0,0,0,0.07);
-  --border2:      rgba(0,0,0,0.13);
+  --bg:           #f0f2f5;
+  --bg2:          #ffffff;
+  --bg3:          #e8eaf0;
+  --border:       rgba(0,0,0,0.08);
+  --border2:      rgba(0,0,0,0.14);
   --text:         #1a1f2e;
   --text2:        #4a5370;
   --text3:        #8a91a8;
@@ -49,28 +50,26 @@
   --coral-soft:   rgba(212,64,48,0.12);
 }
 
-/* Headings: override both tag-level and inline-styled white text */
+/* ===== Light mode text overrides ===== */
 [data-theme="light"] h1,
 [data-theme="light"] h2,
 [data-theme="light"] h3,
-[data-theme="light"] h4 { color: #1a1f2e !important; }
+[data-theme="light"] h4,
+[data-theme="light"] h5,
+[data-theme="light"] h6 { color: #1a1f2e !important; }
 
-/* Elements using var(--serif) font family are virtually always white headings */
 [data-theme="light"] [style*="var(--serif)"] { color: #1a1f2e !important; }
+[data-theme="light"] [style*="color: #fff"]      { color: #1a1f2e !important; }
+[data-theme="light"] [style*="color: #ffffff"]   { color: #1a1f2e !important; }
+[data-theme="light"] [style*="color: white"]     { color: #1a1f2e !important; }
 
-/* Inline style="color: #fff" or "color: #ffffff" (React passes hex as-is) */
-[data-theme="light"] [style*="color: #fff"] { color: #1a1f2e !important; }
-[data-theme="light"] [style*="color: #ffffff"] { color: #1a1f2e !important; }
-[data-theme="light"] [style*="color: white"] { color: #1a1f2e !important; }
-
-/* em/italic teal highlights keep their color */
 [data-theme="light"] em { color: var(--teal) !important; }
 
 /* Inputs */
 [data-theme="light"] input,
 [data-theme="light"] textarea,
 [data-theme="light"] select {
-  background: #fff;
+  background: #ffffff;
   border-color: rgba(0,0,0,0.16);
   color: #1a1f2e;
 }
@@ -93,8 +92,30 @@
 [data-theme="light"] .badge-draft { color: #4a5370; background: transparent;           border-color: rgba(0,0,0,0.15); }
 [data-theme="light"] .badge-error { color: #d44030; background: rgba(212,64,48,0.12);  border-color: rgba(212,64,48,0.3); }
 
-/* Section label line */
+/* Section label */
 [data-theme="light"] .section-label::after { background: rgba(0,0,0,0.12); }
+
+/* Cards in light mode */
+[data-theme="light"] .card        { background: #ffffff; border-color: rgba(0,0,0,0.08); }
+[data-theme="light"] .stat-card   { background: #ffffff; border-color: rgba(0,0,0,0.08); }
+
+/* Input field component in light mode */
+[data-theme="light"] .input-field {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.16);
+  color: #1a1f2e;
+}
+[data-theme="light"] .input-field::placeholder { color: #9199b4; }
+
+/* Secondary button in light mode */
+[data-theme="light"] .btn-secondary {
+  background: #ffffff;
+  color: #2d5fe8;
+  border-color: rgba(45,95,232,0.25);
+}
+[data-theme="light"] .btn-secondary:hover {
+  background: rgba(45,95,232,0.05);
+}
 
 /* Scrollbar */
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); }
@@ -102,19 +123,23 @@
 /* ===== Base Styles ===== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+html { font-size: 15px; }
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
 
 /* ===== Scrollbars ===== */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
 /* ===== Animations ===== */
 @keyframes fadeUp {
@@ -134,22 +159,22 @@ body {
 .btn-primary {
   background: var(--accent); color: #fff; border: none;
   border-radius: 8px; padding: 10px 22px;
-  font-family: var(--sans); font-size: 13px; font-weight: 500;
+  font-family: var(--sans); font-size: 14px; font-weight: 500;
   cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
   transition: opacity .15s, transform .15s;
-  text-decoration: none;
+  text-decoration: none; letter-spacing: -0.01em;
 }
 .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 .btn-primary-lg {
-  padding: 13px 28px; font-size: 15px; border-radius: 10px;
+  padding: 13px 28px; font-size: 16px; border-radius: 10px;
 }
 
 .btn-ghost {
   background: transparent; border: 1px solid var(--border2);
   color: var(--text2); border-radius: 8px; padding: 9px 20px;
-  font-family: var(--sans); font-size: 13px; font-weight: 400;
+  font-family: var(--sans); font-size: 14px; font-weight: 400;
   cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
   transition: border-color .15s, color .15s;
   text-decoration: none;
@@ -160,7 +185,7 @@ body {
 input, textarea, select {
   background: var(--bg2); border: 1px solid var(--border2);
   border-radius: 8px; color: var(--text); font-family: var(--sans);
-  font-size: 14px; padding: 10px 14px; outline: none; width: 100%;
+  font-size: 15px; padding: 10px 14px; outline: none; width: 100%;
   transition: border-color .15s, box-shadow .15s;
 }
 input:focus, textarea:focus, select:focus {
@@ -179,7 +204,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 
 /* ===== Badges ===== */
 .badge {
-  font-family: var(--mono); font-size: 10px; padding: 3px 9px;
+  font-family: var(--mono); font-size: 11px; padding: 3px 9px;
   border-radius: 20px; border: 1px solid; display: inline-flex;
   align-items: center; gap: 5px; white-space: nowrap; flex-shrink: 0;
 }
@@ -190,7 +215,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 
 /* ===== Section label ===== */
 .section-label {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text3);
   display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
 }
@@ -202,7 +227,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 hr, .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
 
 /* ===== Typography ===== */
-.display { font-family: var(--serif); color: #fff; line-height: 1.1; }
+.display { font-family: var(--sans); font-weight: 700; color: var(--text); line-height: 1.15; letter-spacing: -0.02em; }
 .mono    { font-family: var(--mono); }
 .muted   { color: var(--text2); }
 .dimmed  { color: var(--text3); }
@@ -213,15 +238,14 @@ div:hover > .card-menu-btn { opacity: 1 !important; }
 /* ===== Cytoscape container ===== */
 #cytoscape-container {
   width: 100%;
-  height: 600px;
-  border: 1px solid var(--border);
-  border-radius: 0.875rem;
+  height: 100%;
+  min-height: 600px;
   background: var(--bg2);
 }
 
 /* ===== Component Layer ===== */
 @layer components {
-  /* Entity type badges — refined */
+  /* Entity type badges */
   .badge-person {
     @apply bg-blue-50 text-blue-700 border border-blue-200;
   }
@@ -241,12 +265,15 @@ div:hover > .card-menu-btn { opacity: 1 !important; }
     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* Card system */
+  /* Card — theme-aware via CSS custom properties */
   .card {
-    @apply bg-white rounded-xl border border-gray-200/80 p-6 transition-all duration-200;
+    @apply rounded-xl p-6 transition-all duration-200;
+    background: var(--bg2);
+    border: 1px solid var(--border);
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
   }
   .card:hover {
+    border-color: var(--border2);
     box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
   }
 
@@ -255,64 +282,79 @@ div:hover > .card-menu-btn { opacity: 1 !important; }
     @apply inline-flex items-center justify-center px-5 py-2.5 bg-primary-500 text-white font-medium rounded-lg
            hover:bg-primary-600 active:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed
            transition-all duration-150 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary-500/30;
+    font-size: 14px;
+    letter-spacing: -0.01em;
   }
 
-  /* Secondary button */
+  /* Secondary button — theme-aware */
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 bg-white text-primary-600 font-medium rounded-lg
-           border border-primary-200 hover:bg-primary-50 active:bg-primary-100
+    @apply inline-flex items-center justify-center px-5 py-2.5 font-medium rounded-lg
            disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150
            focus:outline-none focus:ring-2 focus:ring-primary-500/20;
+    background: var(--bg2);
+    color: var(--accent);
+    border: 1px solid var(--border2);
+    font-size: 14px;
+  }
+  .btn-secondary:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent);
   }
 
-  /* Ghost button */
+  /* Ghost button — theme-aware */
   .btn-ghost {
-    @apply inline-flex items-center justify-center px-4 py-2 text-gray-600 font-medium rounded-lg
-           hover:bg-gray-100 active:bg-gray-200 transition-all duration-150
-           focus:outline-none focus:ring-2 focus:ring-gray-300/30;
+    @apply inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg
+           transition-all duration-150 focus:outline-none;
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border2);
+    font-size: 14px;
+  }
+  .btn-ghost:hover {
+    background: var(--bg3);
+    color: var(--text);
   }
 
-  /* Input field */
+  /* Input field — theme-aware */
   .input-field {
-    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-navy-700
-           placeholder:text-gray-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500
-           outline-none transition-all duration-150;
+    @apply w-full px-4 py-2.5 rounded-lg outline-none transition-all duration-150;
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+  }
+  .input-field::placeholder { color: var(--text3); }
+  .input-field:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
-  /* Stat card for dashboard-style numbers */
+  /* Stat card — theme-aware */
   .stat-card {
-    @apply bg-white rounded-xl border border-gray-200/80 p-5 text-center transition-all duration-200;
+    @apply rounded-xl p-5 text-center transition-all duration-200;
+    background: var(--bg2);
+    border: 1px solid var(--border);
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
   }
   .stat-card:hover {
-    @apply border-gray-300;
+    border-color: var(--border2);
     box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06);
   }
 }
 
-/* ===== Cytoscape container ===== */
-#cytoscape-container {
-  width: 100%;
-  height: 600px;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.875rem;
-  background: #ffffff;
-  background-image:
-    radial-gradient(circle, #e5e7eb 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-
 /* ===== Custom scrollbar ===== */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  @apply bg-transparent;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded-full;
+  background: var(--border2);
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-400;
+  background: var(--text3);
 }

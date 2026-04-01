@@ -13,6 +13,14 @@ import {
   ContextualSummaryResponse,
   TimelineEntry,
 } from '@/lib/api';
+
+interface ExternalRef {
+  title: string;
+  extract: string;
+  thumbnail?: { source: string };
+  url?: string;
+  source: string;
+}
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 import ErrorMessage from '@/components/ErrorMessage';
@@ -42,6 +50,9 @@ export default function EntityDetailPage() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [isFlagged, setIsFlagged] = useState(false);
+  const [extRef, setExtRef] = useState<ExternalRef | null>(null);
+  const [extRefLoading, setExtRefLoading] = useState(false);
+  const [extRefNotFound, setExtRefNotFound] = useState(false);
 
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
@@ -68,6 +79,99 @@ export default function EntityDetailPage() {
       .catch(() => setSummary(null))
       .finally(() => setLoadingSummary(false));
   };
+
+  // Build a contextual search query using entity name + project name + entity type hints
+  const buildContextQuery = (entityName: string, entityType: string, projectName: string) => {
+    // Strip generic project words to get meaningful domain keywords
+    const projectKeywords = projectName
+      .replace(/\b(project|analysis|tool|system|platform|initiative|programme|program)\b/gi, '')
+      .trim();
+    // For generic entity types that would produce useless Wikipedia articles, add more context
+    const genericTypes = ['CONCEPT', 'THEME', 'ROLE', 'POLICY'];
+    if (genericTypes.includes(entityType)) {
+      return `${entityName} ${projectKeywords}`.trim();
+    }
+    return `${entityName} ${projectKeywords}`.trim();
+  };
+
+  const handleExtRefSearch = async () => {
+    if (!profile || !project) return;
+    setExtRefLoading(true);
+    setExtRefNotFound(false);
+    setExtRef(null);
+
+    const contextQuery = buildContextQuery(profile.canonical_name, profile.entity_type, project.name);
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(contextQuery)}&srlimit=3&format=json&origin=*`;
+
+    try {
+      // Step 1: search Wikipedia with contextual query to find best-matching article
+      const searchRes = await fetch(searchUrl);
+      let articleTitle: string | null = null;
+
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const hits: Array<{ title: string; snippet: string }> = searchData?.query?.search ?? [];
+        // Pick the first hit whose title or snippet overlaps with the entity name
+        const nameLower = profile.canonical_name.toLowerCase();
+        const best = hits.find(h => h.title.toLowerCase().includes(nameLower) || nameLower.includes(h.title.toLowerCase())) ?? hits[0];
+        if (best) articleTitle = best.title;
+      }
+
+      // Step 2: fetch summary for the matched article
+      if (articleTitle) {
+        const summaryRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(articleTitle.replace(/\s+/g, '_'))}`);
+        if (summaryRes.ok) {
+          const data = await summaryRes.json();
+          // Reject if the summary describes a generic concept unrelated to the context
+          // (detect by checking if entity name appears in the extract or title)
+          const nameLower = profile.canonical_name.toLowerCase();
+          const extractLower = (data.extract || '').toLowerCase();
+          const titleLower = (data.title || '').toLowerCase();
+          const isRelevant = titleLower.includes(nameLower) || nameLower.includes(titleLower) || extractLower.includes(nameLower);
+          if (isRelevant) {
+            setExtRef({
+              title: data.title,
+              extract: data.extract,
+              thumbnail: data.thumbnail,
+              url: data.content_urls?.desktop?.page,
+              source: 'Wikipedia',
+            });
+            return;
+          }
+        }
+      }
+
+      // Step 3: fallback — try Wikidata for structured entity lookup
+      const wikidataUrl = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(profile.canonical_name)}&language=en&limit=1&format=json&origin=*`;
+      const wdRes = await fetch(wikidataUrl);
+      if (wdRes.ok) {
+        const wdData = await wdRes.json();
+        const wdHit = wdData?.search?.[0];
+        if (wdHit?.description) {
+          setExtRef({
+            title: wdHit.label || profile.canonical_name,
+            extract: wdHit.description,
+            url: `https://www.wikidata.org/wiki/${wdHit.id}`,
+            source: 'Wikidata',
+          });
+          return;
+        }
+      }
+
+      setExtRefNotFound(true);
+    } catch {
+      setExtRefNotFound(true);
+    } finally {
+      setExtRefLoading(false);
+    }
+  };
+
+  // Influence metrics derived from relationships
+  const outDegree = profile ? (profile.relationships || []).filter(r => r.source_entity_name === profile.canonical_name).length : 0;
+  const inDegree  = profile ? (profile.relationships || []).filter(r => r.target_entity_name === profile.canonical_name).length : 0;
+  const totalDegree = outDegree + inDegree;
+  const mentionCount = timeline.length;
+  const influenceScore = totalDegree > 0 ? Math.min(100, Math.round((outDegree / Math.max(totalDegree, 1)) * 100)) : 0;
 
   const typeColor = profile ? (TYPE_COLORS[profile.entity_type] || '#7b8299') : '#7b8299';
   const confidencePercent = profile ? Math.round((profile.confidence || 0) * 100) : 0;
@@ -252,6 +356,112 @@ export default function EntityDetailPage() {
                           );
                         })}
                       </div>
+                    )}
+                  </div>
+
+                  {/* Influence & Engagement Metrics */}
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+                      Influence & Engagement
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10 }}>
+                      {[
+                        { label: 'Total Connections', value: totalDegree, color: '#3d6fff' },
+                        { label: 'Outgoing Links', value: outDegree, color: '#2ec4a5' },
+                        { label: 'Incoming Links', value: inDegree, color: '#9b6ef3' },
+                        { label: 'Doc Mentions', value: mentionCount, color: '#f5a623' },
+                      ].map(m => (
+                        <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: m.color, fontFamily: 'var(--mono)', marginBottom: 2 }}>{m.value}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{m.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {totalDegree > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginBottom: 4 }}>
+                          <span>Outgoing influence</span>
+                          <span>{influenceScore}%</span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 2 }}>
+                          <div style={{ width: `${influenceScore}%`, height: '100%', background: 'var(--accent)', borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* External Cross-Reference */}
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        External Reference
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button
+                          className="btn-ghost"
+                          style={{ fontSize: 11 }}
+                          onClick={() => void handleExtRefSearch()}
+                          disabled={extRefLoading}
+                        >
+                          {extRefLoading ? '…' : extRef ? 'Refresh' : 'Look up'}
+                        </button>
+                        {project && (
+                          <a
+                            href={`https://www.google.com/search?q=${encodeURIComponent(profile.canonical_name + ' ' + project.name)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-ghost"
+                            style={{ fontSize: 11 }}
+                          >
+                            Search web →
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    {extRef ? (
+                      <div>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          {extRef.thumbnail?.source && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={extRef.thumbnail.source} alt={extRef.title} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                          )}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{extRef.title}</div>
+                              <span style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase' }}>{extRef.source}</span>
+                            </div>
+                            <p style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.6, margin: 0 }}>
+                              {extRef.extract.length > 400 ? extRef.extract.slice(0, 400) + '…' : extRef.extract}
+                            </p>
+                          </div>
+                        </div>
+                        {extRef.url && (
+                          <a
+                            href={extRef.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: 'inline-block', marginTop: 10, fontSize: 11, color: 'var(--accent)', textDecoration: 'none' }}
+                          >
+                            View source ({extRef.source}) →
+                          </a>
+                        )}
+                      </div>
+                    ) : extRefNotFound ? (
+                      <div>
+                        <p style={{ fontSize: 12, color: 'var(--text3)', margin: '0 0 8px' }}>No relevant external reference found for &ldquo;{profile.canonical_name}&rdquo; in this context.</p>
+                        {project && (
+                          <a
+                            href={`https://www.google.com/search?q=${encodeURIComponent(profile.canonical_name + ' ' + project.name)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none' }}
+                          >
+                            Try a web search →
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>Click &ldquo;Look up&rdquo; to search for contextual external references for this entity.</p>
                     )}
                   </div>
 

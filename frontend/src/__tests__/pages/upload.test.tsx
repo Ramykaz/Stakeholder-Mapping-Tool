@@ -17,7 +17,7 @@ import UploadPage from '../../../pages/upload';
 // ---------------------------------------------------------------------------
 const mockPush = jest.fn();
 jest.mock('next/router', () => ({
-  useRouter: () => ({ pathname: '/upload', push: mockPush, replace: jest.fn() }),
+  useRouter: () => ({ pathname: '/upload', query: {}, push: mockPush, replace: jest.fn() }),
 }));
 
 jest.mock('next/link', () => {
@@ -29,6 +29,13 @@ jest.mock('next/link', () => {
 });
 
 jest.mock('@/lib/api', () => ({
+  getStoredAuthToken: jest.fn().mockReturnValue('test-token'),
+  getStoredAuthUser: jest.fn().mockReturnValue({ id: 1, username: 'testuser', is_admin: false }),
+  getProjects: jest.fn().mockResolvedValue([]),
+  getProject: jest.fn().mockResolvedValue({ id: 'p1', name: 'Test Project' }),
+  logoutUser: jest.fn(),
+  getProjectReviewCandidates: jest.fn().mockResolvedValue({ results: [], count: 0 }),
+  getGlobalEntities: jest.fn().mockResolvedValue({ results: [], count: 0 }),
   uploadDocument: jest.fn(),
   extractEntities: jest.fn(),
   extractEntitiesRelations: jest.fn(),

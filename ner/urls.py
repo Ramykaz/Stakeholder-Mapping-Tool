@@ -21,6 +21,7 @@ urlpatterns = [
     path('projects/<uuid:id>/entities/', views.ProjectEntitiesView.as_view(), name='project-entities'),
     path('projects/<uuid:id>/graph/', views.ProjectGraphView.as_view(), name='project-graph'),
     path('projects/<uuid:id>/query/', views.ProjectQueryView.as_view(), name='project-query'),
+    path('entities/flagged/', views.UserFlaggedEntitiesView.as_view(), name='user-flagged-entities'),
     path('entities/', views.GlobalEntityListView.as_view(), name='global-entity-list'),
     path('entities/<uuid:id>/', views.GlobalEntityProfileView.as_view(), name='global-entity-profile'),
     path('entities/<uuid:id>/profile/', views.EntityProfileView.as_view(), name='entity-profile'),
@@ -32,4 +33,8 @@ urlpatterns = [
     path('projects/<uuid:id>/providers/', views.ProjectProviderView.as_view(), name='project-providers'),
     path('review-candidates/<uuid:id>/resolve/', views.ReviewCandidateResolveView.as_view(), name='review-candidate-resolve'),
     path('graph/', views.GraphNodesView.as_view(), name='graph-nodes'),
+    path('projects/<uuid:id>/export/entities.csv', views.ProjectExportEntitiesCSVView.as_view(), name='project-export-entities-csv'),
+    path('projects/<uuid:id>/export/relations.csv', views.ProjectExportRelationsCSVView.as_view(), name='project-export-relations-csv'),
+    path('projects/<uuid:id>/export/report.docx', views.ProjectExportReportDOCXView.as_view(), name='project-export-report-docx'),
+    path('projects/<uuid:id>/export/report.pdf', views.ProjectExportReportPDFView.as_view(), name='project-export-report-pdf'),
 ]

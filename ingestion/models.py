@@ -55,6 +55,52 @@ class ConceptNote(models.Model):
         return f"ConceptNote<{self.project_id}>"
 
 
+class InitiativeProfile(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='initiative_profile')
+    initiative_name = models.CharField(max_length=255, blank=True, default='')
+    geography = models.CharField(max_length=255, blank=True, default='')
+    thematic_area = models.CharField(max_length=255, blank=True, default='')
+    core_objectives = models.TextField(blank=True, default='')
+    expected_outcomes = models.TextField(blank=True, default='')
+    stakeholder_focus = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'initiative_profiles'
+
+    def __str__(self):
+        return f"InitiativeProfile<{self.project_id}>"
+
+    def to_context_string(self) -> str:
+        fields = [
+            ('Initiative Name', self.initiative_name),
+            ('Geography', self.geography),
+            ('Thematic Area', self.thematic_area),
+            ('Core Objectives', self.core_objectives),
+            ('Expected Outcomes', self.expected_outcomes),
+            ('Stakeholder Focus', self.stakeholder_focus),
+        ]
+        lines = [f"{label}: {value.strip()}" for label, value in fields if (value or '').strip()]
+        return '\n'.join(lines)
+
+
+class ExtractionGuidance(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='extraction_guidance_items')
+    text = models.TextField()
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'extraction_guidance'
+        ordering = ['order', 'created_at']
+
+    def __str__(self):
+        return f"ExtractionGuidance<{self.project_id}:{self.order}>"
+
+
 class Document(models.Model):
     STATUS_PENDING = 'pending'
     STATUS_COMPLETED = 'completed'

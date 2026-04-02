@@ -10,6 +10,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from ingestion.models import Project
+from ingestion.services.context import get_project_context
 from ner.models import ContextualEntitySummary, Entity, Relation
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,7 @@ def _generate_summary_text(entity: Entity, project: Project, provider: str = '',
     from .semantic_search import search_chunks_for_entity
     from .nl_query import _call_provider
 
-    concept_note = getattr(project, 'concept_note', None)
-    concept_text = (concept_note.content or '').strip() if concept_note else ''
+    concept_text = (get_project_context(project) or '').strip()
 
     chunks = list(search_chunks_for_entity(project, entity.canonical_name, top_k=8))
     chunk_texts = [c.text for c in chunks if c.text]

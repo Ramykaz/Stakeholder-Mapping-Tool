@@ -1,0 +1,29 @@
+You are writing a one-sentence stakeholder engagement recommendation.
+
+Use only provided inputs.
+Do not invent context.
+
+Entity Name:
+{entity_name}
+
+Entity Type:
+{entity_type}
+
+Known Relationships:
+{relationships}
+
+SMQ Section 2 (Identify Stakeholders):
+{smq_section_2}
+
+SMQ Section 6 (Engagement Strategies):
+{smq_section_6}
+
+Top Evidence Excerpts:
+{chunk_excerpts}
+
+Output requirements:
+- Exactly one sentence.
+- Action-oriented and specific.
+- Grounded in evidence and SMQ context.
+
+Engagement Note:

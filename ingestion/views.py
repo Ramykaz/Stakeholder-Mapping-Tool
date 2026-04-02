@@ -1,7 +1,8 @@
 """API views for the ingestion app."""
 import logging
+from django.db import transaction
 from django.db import connection, OperationalError
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
@@ -10,12 +11,14 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from ingestion.models import Project, ConceptNote, Document, get_or_create_default_project
+from ingestion.models import Project, ConceptNote, Document, InitiativeProfile, ExtractionGuidance, get_or_create_default_project
 from ingestion.serializers import (
     DocumentSerializer,
     ProjectSummarySerializer,
     ProjectWriteSerializer,
     ConceptNoteSerializer,
+    InitiativeProfileSerializer,
+    ExtractionGuidanceSerializer,
 )
 from ingestion.services.extractor import ExtractionError
 from ingestion.services.pipeline import ingest_document, IngestionError
@@ -137,6 +140,107 @@ class ProjectConceptNoteView(AuthenticatedAPIView):
         logger.info('[PROJECT] concept_note upsert project=%s owner=%s', project.id, request.user.id)
         response_serializer = ConceptNoteSerializer(saved_note, context={'request': request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED if is_create else status.HTTP_200_OK)
+
+
+class InitiativeProfileView(AuthenticatedAPIView):
+    """GET/PUT /api/v1/projects/{id}/intake/."""
+
+    parser_classes = [JSONParser]
+
+    def get(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        profile = getattr(project, 'initiative_profile', None)
+
+        if profile:
+            serializer = InitiativeProfileSerializer(profile)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        concept_note = getattr(project, 'concept_note', None)
+        defaults = {
+            'id': None,
+            'project': str(project.id),
+            'initiative_name': '',
+            'geography': '',
+            'thematic_area': '',
+            'core_objectives': (concept_note.content or '').strip() if concept_note else '',
+            'expected_outcomes': '',
+            'stakeholder_focus': '',
+            'updated_at': None,
+        }
+        return Response(defaults, status=status.HTTP_200_OK)
+
+    def put(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        profile, _ = InitiativeProfile.objects.get_or_create(project=project)
+        serializer = InitiativeProfileSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ExtractionGuidanceListView(AuthenticatedAPIView):
+    """GET/POST /api/v1/projects/{id}/guidance/."""
+
+    parser_classes = [JSONParser]
+
+    def get(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        queryset = ExtractionGuidance.objects.filter(project=project).order_by('order', 'created_at')
+        serializer = ExtractionGuidanceSerializer(queryset, many=True)
+        return Response({'count': len(serializer.data), 'results': serializer.data}, status=status.HTTP_200_OK)
+
+    def post(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        payload = dict(request.data or {})
+        if 'order' not in payload:
+            max_order = ExtractionGuidance.objects.filter(project=project).aggregate(max_order=Max('order')).get('max_order')
+            payload['order'] = (max_order + 1) if max_order is not None else 0
+        serializer = ExtractionGuidanceSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        obj = serializer.save(project=project)
+        return Response(ExtractionGuidanceSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+class ExtractionGuidanceDetailView(AuthenticatedAPIView):
+    """PATCH/DELETE /api/v1/projects/{id}/guidance/{guidance_id}/."""
+
+    parser_classes = [JSONParser]
+
+    def patch(self, request, id, guidance_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        obj = get_object_or_404(ExtractionGuidance, id=guidance_id, project=project)
+        serializer = ExtractionGuidanceSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def delete(self, request, id, guidance_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        obj = get_object_or_404(ExtractionGuidance, id=guidance_id, project=project)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExtractionGuidanceReorderView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/guidance/reorder/."""
+
+    parser_classes = [JSONParser]
+
+    def post(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        order_ids = request.data.get('order', []) if isinstance(request.data, dict) else []
+        if not isinstance(order_ids, list):
+            return Response({'error': 'validation_error', 'detail': 'order must be a list'}, status=status.HTTP_400_BAD_REQUEST)
+
+        queryset = ExtractionGuidance.objects.filter(project=project, id__in=order_ids)
+        if queryset.count() != len(order_ids):
+            return Response({'error': 'validation_error', 'detail': 'order contains unknown guidance ids'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            for index, item_id in enumerate(order_ids):
+                ExtractionGuidance.objects.filter(project=project, id=item_id).update(order=index)
+
+        return Response({'status': 'reordered'}, status=status.HTTP_200_OK)
 
 
 class ProjectDocumentUploadView(AuthenticatedAPIView):

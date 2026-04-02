@@ -1,0 +1,24 @@
+You are generating one section answer for a Stakeholder Mapping Questionnaire.
+
+Use only the provided project context and document excerpts.
+Do not invent facts.
+Write a concise, practical answer for the section.
+
+Section Title:
+{section_title}
+
+Question Prompts:
+{question_prompts}
+
+Project Context:
+{project_context}
+
+Evidence Excerpts:
+{chunk_excerpts}
+
+Output requirements:
+- 1 to 3 short paragraphs.
+- Include inline citations in the form [Doc: filename].
+- If evidence is insufficient, state what is missing.
+
+Answer:

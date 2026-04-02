@@ -416,3 +416,159 @@ class EntityReviewCandidate(models.Model):
 
     def __str__(self):
         return f"{self.left_entity_id}:{self.right_entity_id} ({self.status})"
+
+class SMQTemplate(models.Model):
+    """Global Stakeholder Mapping Questionnaire template."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_smq_template'
+
+    def __str__(self):
+        return self.title
+
+
+class SMQSection(models.Model):
+    """Section definition for an SMQ template."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    template = models.ForeignKey(
+        SMQTemplate,
+        on_delete=models.CASCADE,
+        related_name='sections',
+    )
+    section_number = models.PositiveIntegerField()
+    title = models.CharField(max_length=255)
+    question_prompts = models.TextField()
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'ner_smq_section'
+        ordering = ['order', 'section_number']
+        unique_together = [('template', 'section_number')]
+
+    def __str__(self):
+        return f"{self.section_number}. {self.title}"
+
+
+class ProjectSMQResponse(models.Model):
+    """Per-project container for SMQ answers."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='smq_response',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_project_smq_response'
+
+    def __str__(self):
+        return f"ProjectSMQResponse<{self.project_id}>"
+
+
+class ProjectSMQAnswer(models.Model):
+    """Per-section answer for a project's SMQ response."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    response = models.ForeignKey(
+        ProjectSMQResponse,
+        on_delete=models.CASCADE,
+        related_name='answers',
+    )
+    section = models.ForeignKey(
+        SMQSection,
+        on_delete=models.CASCADE,
+        related_name='project_answers',
+    )
+    answer_text = models.TextField(blank=True, default='')
+    ai_generated = models.BooleanField(default=False)
+    is_stale = models.BooleanField(default=False)
+    last_generated_at = models.DateTimeField(null=True, blank=True)
+    chunk_ids_used = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_project_smq_answer'
+        unique_together = [('response', 'section')]
+
+    def __str__(self):
+        return f"ProjectSMQAnswer<{self.response_id}:{self.section_id}>"
+
+
+class ReportSection(models.Model):
+    """Generated report content/status for one SMQ section in a project."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_GENERATING = 'generating'
+    STATUS_DONE = 'done'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_GENERATING, 'Generating'),
+        (STATUS_DONE, 'Done'),
+        (STATUS_ERROR, 'Error'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='report_sections',
+    )
+    section = models.ForeignKey(
+        SMQSection,
+        on_delete=models.CASCADE,
+        related_name='report_sections',
+    )
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    generated_text = models.TextField(blank=True, default='')
+    citations = models.JSONField(default=list)
+    error_message = models.TextField(blank=True, default='')
+    cache_key = models.CharField(max_length=64, blank=True, default='')
+    generated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ner_report_section'
+        unique_together = [('project', 'section')]
+
+    def __str__(self):
+        return f"ReportSection<{self.project_id}:{self.section_id}:{self.status}>"
+
+
+class EngagementNote(models.Model):
+    """Generated engagement recommendation for a project-scoped entity."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='engagement_notes',
+    )
+    entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name='engagement_notes',
+    )
+    note_text = models.TextField()
+    generated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_engagement_note'
+        unique_together = [('project', 'entity')]
+
+    def __str__(self):
+        return f"EngagementNote<{self.project_id}:{self.entity_id}>"

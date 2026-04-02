@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
+import GuidancePanel from '@/components/GuidancePanel';
 import { deleteProject, getProject, getProjectConceptNote, getProjectProviders, updateProjectProvider, updateProject, upsertProjectConceptNote, ProjectProviders, ProviderOption } from '@/lib/api';
 
 export default function ProjectSettingsPage() {
@@ -171,6 +172,8 @@ export default function ProjectSettingsPage() {
           </div>
         </div>
       )}
+
+      {projectId ? <GuidancePanel projectId={projectId} /> : null}
     </Layout>
   );
 }

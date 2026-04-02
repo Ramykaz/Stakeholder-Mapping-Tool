@@ -9,7 +9,7 @@ from time import perf_counter
 
 from django.conf import settings
 from django.db import transaction
-from ingestion.models import Document, Chunk
+from ingestion.models import Document, Chunk, ExtractionGuidance
 from ner.models import Entity, NERRun, Relation, EntityLabel
 from ner.services.entity_dedup_service import EntityDedupService
 from ner.services.relation_deduplicator import deduplicate_relations
@@ -117,6 +117,31 @@ def _extract_chunk_joint(
 
 def _normalize_text(value: str | None) -> str:
     return (value or '').strip().lower()
+
+
+def _compose_guided_context(document: Document, concept_note: str | None) -> str | None:
+    base_context = (concept_note or '').strip()
+    guidance_items = list(
+        ExtractionGuidance.objects
+        .filter(project=document.project)
+        .order_by('order', 'created_at')
+        .values_list('text', flat=True)
+    )
+    guidance_items = [str(item).strip() for item in guidance_items if str(item).strip()]
+    if not guidance_items:
+        return base_context or None
+
+    guidance_block = "\n".join(f"- {item}" for item in guidance_items)
+    if base_context:
+        return (
+            f"{base_context}\n\n"
+            "Additional extraction guidance (highest priority):\n"
+            f"{guidance_block}"
+        )
+    return (
+        "Additional extraction guidance (highest priority):\n"
+        f"{guidance_block}"
+    )
 
 
 def _entity_text_candidates(value: str | None) -> list[str]:
@@ -412,6 +437,8 @@ def extract_relations_for_document(
         logger.error(f"Document {document_id} not found")
         raise
 
+    effective_concept_note = _compose_guided_context(document, concept_note)
+
     _t_total_start = perf_counter()
     logger.info(
         "[NER+REL-JOINT] START  document=%s  provider=%s  model=%s",
@@ -502,7 +529,7 @@ def extract_relations_for_document(
                 chunk_data = _extract_chunk_joint(
                     chunk.text,
                     provider_config,
-                    concept_note=concept_note,
+                    concept_note=effective_concept_note,
                     entity_labels=active_entity_labels,
                     relationship_types=active_relationship_types,
                 )

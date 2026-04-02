@@ -64,10 +64,14 @@ class InitiativeProfileSerializer(serializers.ModelSerializer):
             'id',
             'project',
             'initiative_name',
+            'host_organization',
+            'country',
             'geography',
             'thematic_area',
             'core_objectives',
             'expected_outcomes',
+            'target_beneficiaries',
+            'success_metrics',
             'stakeholder_focus',
             'updated_at',
         ]
@@ -77,8 +81,8 @@ class InitiativeProfileSerializer(serializers.ModelSerializer):
 class ExtractionGuidanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExtractionGuidance
-        fields = ['id', 'text', 'order']
-        read_only_fields = ['id']
+        fields = ['id', 'text', 'order', 'enabled', 'source']
+        read_only_fields = ['id', 'source']
 
     def validate_text(self, value):
         text = (value or '').strip()

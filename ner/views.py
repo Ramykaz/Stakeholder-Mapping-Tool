@@ -3,7 +3,6 @@
 import csv
 import io
 import logging
-import threading
 from django.conf import settings
 from django.db import models
 from django.http import Http404, HttpResponse
@@ -51,8 +50,8 @@ from .services.entity_dedup_service import EntityDedupService
 from .services.pdf_utils import pdf_safe, resolve_pdf_fonts
 from .services.provider_runtime import ProviderConfigError
 from .services.smq_generator import generate_smq_section
-from .services.report_generator import generate_all_sections, generate_report_section
 from .services.priority_table import compute_priority_scores
+from .tasks import generate_report_sections_task, regenerate_report_section_task, generate_priority_notes_task
 
 logger = logging.getLogger(__name__)
 _entity_dedup_service = EntityDedupService()
@@ -90,6 +89,39 @@ def _get_project_concept_note_text(project: Project) -> str | None:
 
 def _active_entity_style_map() -> dict:
     return get_active_entity_style_map()
+
+
+def _default_smq_answer_from_context(project: Project, section: SMQSection) -> str:
+    context = get_project_context(project).strip()
+    if not context:
+        return ''
+
+    try:
+        profile = project.initiative_profile
+    except Exception:
+        profile = None
+
+    core_objectives = getattr(profile, 'core_objectives', '') if profile else ''
+    expected_outcomes = getattr(profile, 'expected_outcomes', '') if profile else ''
+    stakeholder_focus = getattr(profile, 'stakeholder_focus', '') if profile else ''
+    geography = getattr(profile, 'geography', '') if profile else ''
+    thematic_area = getattr(profile, 'thematic_area', '') if profile else ''
+    host_organization = getattr(profile, 'host_organization', '') if profile else ''
+    country = getattr(profile, 'country', '') if profile else ''
+    target_beneficiaries = getattr(profile, 'target_beneficiaries', '') if profile else ''
+    success_metrics = getattr(profile, 'success_metrics', '') if profile else ''
+
+    section_defaults = {
+        1: core_objectives or context,
+        2: stakeholder_focus or target_beneficiaries or context,
+        3: '\n'.join(filter(None, [host_organization, geography, country, thematic_area])) or context,
+        4: '\n'.join(filter(None, [stakeholder_focus, target_beneficiaries, thematic_area])) or context,
+        5: '\n'.join(filter(None, [expected_outcomes, success_metrics])) or context,
+        6: expected_outcomes or success_metrics or context,
+        7: '\n'.join(filter(None, [core_objectives, expected_outcomes, stakeholder_focus])) or context,
+        8: success_metrics or expected_outcomes or context,
+    }
+    return section_defaults.get(section.section_number, context).strip()
 
 
 class EntityLabelAdminView(APIView):
@@ -1173,6 +1205,20 @@ class ProjectSMQView(AuthenticatedAPIView):
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
         response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
+
+        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        if template:
+            sections = SMQSection.objects.filter(template=template, is_active=True).order_by('order', 'section_number')
+            for section in sections:
+                answer, _ = ProjectSMQAnswer.objects.get_or_create(response=response_obj, section=section)
+                if not (answer.answer_text or '').strip():
+                    default_answer = _default_smq_answer_from_context(project, section)
+                    if default_answer:
+                        answer.answer_text = default_answer
+                        answer.ai_generated = True
+                        answer.is_stale = False
+                        answer.save(update_fields=['answer_text', 'ai_generated', 'is_stale', 'updated_at'])
+
         serializer = ProjectSMQResponseSerializer(response_obj)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -1273,6 +1319,11 @@ class ProjectReportGenerateView(AuthenticatedAPIView):
             return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
 
         requested = (request.data or {}).get('sections', 'all')
+        custom_instruction = str(
+            (request.data or {}).get('custom_instruction')
+            or (request.data or {}).get('customInstruction')
+            or ''
+        ).strip()
         if requested == 'all':
             section_ids = [str(section.id) for section in SMQSection.objects.filter(template=template, is_active=True).order_by('order', 'section_number')]
         elif isinstance(requested, list):
@@ -1280,11 +1331,7 @@ class ProjectReportGenerateView(AuthenticatedAPIView):
         else:
             return Response({'error': 'validation_error', 'detail': 'sections must be "all" or an array of section ids'}, status=status.HTTP_400_BAD_REQUEST)
 
-        def _run_report_generation(project_id: str, ids: list[str]):
-            target_project = Project.objects.get(id=project_id)
-            generate_all_sections(target_project, ids)
-
-        threading.Thread(target=_run_report_generation, args=(str(project.id), section_ids), daemon=True).start()
+        generate_report_sections_task.delay(str(project.id), section_ids, custom_instruction)
         return Response(
             {
                 'status': 'generating',
@@ -1301,14 +1348,38 @@ class ProjectReportRegenerateView(AuthenticatedAPIView):
     def post(self, request, id, section_id):
         project = _get_project_for_user_or_404(id, request.user)
         section = get_object_or_404(SMQSection, id=section_id)
+        custom_instruction = str(
+            (request.data or {}).get('custom_instruction')
+            or (request.data or {}).get('customInstruction')
+            or ''
+        ).strip()
 
         report_section, _ = ReportSection.objects.get_or_create(project=project, section=section)
         report_section.status = ReportSection.STATUS_PENDING
         report_section.error_message = ''
         report_section.save(update_fields=['status', 'error_message', 'updated_at'])
 
-        threading.Thread(target=generate_report_section, args=(str(project.id), str(section.id)), daemon=True).start()
+        regenerate_report_section_task.delay(str(project.id), str(section.id), custom_instruction)
         return Response({'status': 'generating', 'section_id': str(section.id)}, status=status.HTTP_202_ACCEPTED)
+
+
+class ProjectReportSectionDetailView(AuthenticatedAPIView):
+    """PUT /api/v1/projects/{id}/report/{section_id}/."""
+
+    def put(self, request, id, section_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        section = get_object_or_404(SMQSection, id=section_id)
+        generated_text = str((request.data or {}).get('generated_text') or '').strip()
+
+        report_section, _ = ReportSection.objects.get_or_create(project=project, section=section)
+        report_section.generated_text = generated_text
+        report_section.status = ReportSection.STATUS_DONE
+        report_section.error_message = ''
+        report_section.generated_at = timezone.now()
+        report_section.save(update_fields=['generated_text', 'status', 'error_message', 'generated_at', 'updated_at'])
+
+        serializer = ReportSectionSerializer(report_section)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ProjectReportExportPDFView(AuthenticatedAPIView):
@@ -1410,103 +1481,11 @@ class ProjectPriorityTableView(AuthenticatedAPIView):
 class ProjectPriorityGenerateNotesView(AuthenticatedAPIView):
     """POST /api/v1/projects/{id}/stakeholders/priority/generate-notes/."""
 
-    @staticmethod
-    def _generate_notes_for_project(project_id: str) -> int:
-        from pathlib import Path
-        from django.conf import settings as django_settings
-        from django.db import close_old_connections
-        from .services.semantic_search import search_chunks_for_entity
-        from .services.nl_query import _call_provider
-
-        close_old_connections()
-
-        project = Project.objects.filter(id=project_id).first()
-        if not project:
-            return 0
-
-        top_rows = compute_priority_scores(project)[:50]
-
-        section_2 = ''
-        section_6 = ''
-        smq_response = ProjectSMQResponse.objects.filter(project=project).first()
-        if smq_response:
-            for answer in smq_response.answers.select_related('section').all():
-                if answer.section.section_number == 2:
-                    section_2 = answer.answer_text or ''
-                elif answer.section.section_number == 6:
-                    section_6 = answer.answer_text or ''
-
-        prompt_path = Path('prompts/engagement_note.txt')
-        try:
-            template = prompt_path.read_text(encoding='utf-8').strip()
-        except FileNotFoundError:
-            template = (
-                "Write one sentence recommending engagement for {entity_name} ({entity_type}).\n"
-                "Relationships: {relationships}\nSMQ2: {smq_section_2}\nSMQ6: {smq_section_6}\n"
-                "Evidence: {chunk_excerpts}\n"
-            )
-
-        provider = (project.provider or django_settings.NER_DEFAULT_PROVIDER).strip().lower()
-        model = (project.model or '').strip()
-        if not model:
-            model = django_settings.NER_PROVIDER_MODEL_ALLOWLIST.get(provider, [django_settings.NER_DEFAULT_MODEL])[0]
-
-        generated = 0
-        for row in top_rows:
-            entity = Entity.objects.filter(id=row['entity_id'], project=project).first()
-            if not entity:
-                continue
-
-            relations = Relation.objects.filter(project=project).filter(
-                models.Q(source_entity=entity) | models.Q(target_entity=entity)
-            ).select_related('source_entity', 'target_entity')[:10]
-            rel_lines = [
-                f"{rel.source_entity.canonical_name} -[{rel.label}]-> {rel.target_entity.canonical_name}"
-                for rel in relations
-            ]
-
-            chunks = list(search_chunks_for_entity(project, entity.canonical_name, top_k=3))
-            chunk_excerpts = '\n'.join(
-                f"[{chunk.document.filename}] {(chunk.text or '')[:220]}"
-                for chunk in chunks
-            )
-
-            prompt = template.format(
-                entity_name=entity.canonical_name,
-                entity_type=entity.entity_type,
-                relationships='\n'.join(rel_lines) if rel_lines else '(No known relations.)',
-                smq_section_2=section_2 or '(No section 2 answer yet.)',
-                smq_section_6=section_6 or '(No section 6 answer yet.)',
-                chunk_excerpts=chunk_excerpts or '(No supporting excerpts found.)',
-            )
-
-            try:
-                note_text = (_call_provider(prompt, provider, model, max_tokens=256) or '').strip()
-            except Exception:
-                note_text = ''
-
-            if not note_text:
-                continue
-
-            EngagementNote.objects.update_or_create(
-                project=project,
-                entity=entity,
-                defaults={'note_text': note_text},
-            )
-            generated += 1
-
-        close_old_connections()
-        return generated
-
     def post(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
         top_rows = compute_priority_scores(project)[:50]
 
-        threading.Thread(
-            target=self._generate_notes_for_project,
-            args=(str(project.id),),
-            daemon=True,
-        ).start()
+        generate_priority_notes_task.delay(str(project.id))
 
         return Response({'status': 'generating', 'entity_count': len(top_rows)}, status=status.HTTP_202_ACCEPTED)
 
@@ -1521,11 +1500,28 @@ class ProjectPriorityExportCSVView(AuthenticatedAPIView):
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['rank', 'name', 'entity_type', 'mention_count', 'avg_confidence', 'degree', 'priority_score', 'engagement_note'])
+        writer.writerow([
+            'rank',
+            'name',
+            'category',
+            'priority_level',
+            'reasoning',
+            'recommended_ask',
+            'entity_type',
+            'mention_count',
+            'avg_confidence',
+            'degree',
+            'priority_score',
+            'engagement_note',
+        ])
         for row in rows:
             writer.writerow([
                 row['rank'],
                 row['name'],
+                row.get('category') or '',
+                row.get('priority_level') or '',
+                row.get('reasoning') or '',
+                row.get('recommended_ask') or '',
                 row['entity_type'],
                 row['mention_count'],
                 row['avg_confidence'],

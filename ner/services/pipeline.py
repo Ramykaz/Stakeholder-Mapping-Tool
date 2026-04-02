@@ -123,7 +123,7 @@ def _compose_guided_context(document: Document, concept_note: str | None) -> str
     base_context = (concept_note or '').strip()
     guidance_items = list(
         ExtractionGuidance.objects
-        .filter(project=document.project)
+        .filter(project=document.project, enabled=True)
         .order_by('order', 'created_at')
         .values_list('text', flat=True)
     )

@@ -27,6 +27,7 @@ urlpatterns = [
     path('projects/<uuid:id>/smq/<uuid:section_id>/generate/', views.ProjectSMQGenerateView.as_view(), name='project-smq-generate'),
     path('projects/<uuid:id>/report/', views.ProjectReportView.as_view(), name='project-report'),
     path('projects/<uuid:id>/report/generate/', views.ProjectReportGenerateView.as_view(), name='project-report-generate'),
+    path('projects/<uuid:id>/report/<uuid:section_id>/', views.ProjectReportSectionDetailView.as_view(), name='project-report-section-detail'),
     path('projects/<uuid:id>/report/regenerate/<uuid:section_id>/', views.ProjectReportRegenerateView.as_view(), name='project-report-regenerate'),
     path('projects/<uuid:id>/report/export/pdf/', views.ProjectReportExportPDFView.as_view(), name='project-report-export-pdf'),
     path('projects/<uuid:id>/stakeholders/priority/', views.ProjectPriorityTableView.as_view(), name='project-priority-table'),

@@ -22,6 +22,7 @@ from ingestion.serializers import (
 )
 from ingestion.services.extractor import ExtractionError
 from ingestion.services.pipeline import ingest_document, IngestionError
+from ingestion.services.context import get_project_context
 
 logger = logging.getLogger(__name__)
 
@@ -160,10 +161,14 @@ class InitiativeProfileView(AuthenticatedAPIView):
             'id': None,
             'project': str(project.id),
             'initiative_name': '',
+            'host_organization': '',
+            'country': '',
             'geography': '',
             'thematic_area': '',
             'core_objectives': (concept_note.content or '').strip() if concept_note else '',
             'expected_outcomes': '',
+            'target_beneficiaries': '',
+            'success_metrics': '',
             'stakeholder_focus': '',
             'updated_at': None,
         }
@@ -174,8 +179,44 @@ class InitiativeProfileView(AuthenticatedAPIView):
         profile, _ = InitiativeProfile.objects.get_or_create(project=project)
         serializer = InitiativeProfileSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        saved_profile = serializer.save()
+
+        auto_items = []
+        if (saved_profile.thematic_area or '').strip():
+            auto_items.append(f"Prioritize entities and relationships related to thematic area: {saved_profile.thematic_area.strip()}.")
+        country_or_geo = (saved_profile.country or saved_profile.geography or '').strip()
+        if country_or_geo:
+            auto_items.append(f"Give extra attention to context and stakeholders in: {country_or_geo}.")
+        if (saved_profile.host_organization or '').strip():
+            auto_items.append(f"Treat {saved_profile.host_organization.strip()} as a primary implementing stakeholder.")
+        if (saved_profile.target_beneficiaries or '').strip():
+            auto_items.append(f"Highlight target beneficiary groups: {saved_profile.target_beneficiaries.strip()}.")
+        if (saved_profile.success_metrics or '').strip():
+            auto_items.append(f"Capture references to measurable success metrics: {saved_profile.success_metrics.strip()}.")
+        if (saved_profile.stakeholder_focus or '').strip():
+            auto_items.append(f"Apply stakeholder focus guidance: {saved_profile.stakeholder_focus.strip()}.")
+
+        ExtractionGuidance.objects.filter(project=project, source=ExtractionGuidance.SOURCE_AUTO).delete()
+        max_order = ExtractionGuidance.objects.filter(project=project).aggregate(max_order=Max('order')).get('max_order')
+        next_order = (max_order + 1) if max_order is not None else 0
+        for idx, text in enumerate(auto_items):
+            ExtractionGuidance.objects.create(
+                project=project,
+                text=text,
+                order=next_order + idx,
+                enabled=True,
+                source=ExtractionGuidance.SOURCE_AUTO,
+            )
+
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ProjectContextPreviewView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/context-preview/."""
+
+    def get(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        return Response({'project': str(project.id), 'context': get_project_context(project)}, status=status.HTTP_200_OK)
 
 
 class ExtractionGuidanceListView(AuthenticatedAPIView):

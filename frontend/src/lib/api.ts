@@ -427,18 +427,24 @@ export interface InitiativeProfileResponse {
   id: string | null;
   project: string;
   initiative_name: string;
+  host_organization: string;
+  country: string;
   geography: string;
   thematic_area: string;
   core_objectives: string;
   expected_outcomes: string;
+  target_beneficiaries: string;
+  success_metrics: string;
   stakeholder_focus: string;
   updated_at: string | null;
 }
 
 export interface ExtractionGuidanceItem {
-  id: number;
+  id: string;
   text: string;
   order: number;
+  enabled: boolean;
+  source: 'manual' | 'auto';
 }
 
 export interface ExtractionGuidanceListResponse {
@@ -501,11 +507,15 @@ export interface StakeholderPriorityRow {
   rank: number;
   entity_id: string;
   name: string;
+  category: string;
   entity_type: string;
   mention_count: number;
   avg_confidence: number;
   degree: number;
   priority_score: number;
+  priority_level: 'high' | 'medium' | 'low';
+  reasoning: string;
+  recommended_ask: string | null;
   engagement_note: string | null;
 }
 
@@ -615,14 +625,23 @@ export async function upsertProjectIntake(
   projectId: string,
   payload: Partial<Pick<InitiativeProfileResponse,
     'initiative_name' |
+    'host_organization' |
+    'country' |
     'geography' |
     'thematic_area' |
     'core_objectives' |
     'expected_outcomes' |
+    'target_beneficiaries' |
+    'success_metrics' |
     'stakeholder_focus'
   >>
 ): Promise<InitiativeProfileResponse> {
   const response = await apiClient.put(`/api/v1/projects/${projectId}/intake/`, payload);
+  return response.data;
+}
+
+export async function getProjectContextPreview(projectId: string): Promise<{ project: string; context: string }> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/context-preview/`);
   return response.data;
 }
 
@@ -633,7 +652,7 @@ export async function getProjectGuidance(projectId: string): Promise<ExtractionG
 
 export async function createProjectGuidance(
   projectId: string,
-  payload: { text: string; order?: number }
+  payload: { text: string; order?: number; enabled?: boolean }
 ): Promise<ExtractionGuidanceItem> {
   const response = await apiClient.post(`/api/v1/projects/${projectId}/guidance/`, payload);
   return response.data;
@@ -641,18 +660,18 @@ export async function createProjectGuidance(
 
 export async function updateProjectGuidance(
   projectId: string,
-  guidanceId: number,
-  payload: Partial<Pick<ExtractionGuidanceItem, 'text' | 'order'>>
+  guidanceId: string,
+  payload: Partial<Pick<ExtractionGuidanceItem, 'text' | 'order' | 'enabled'>>
 ): Promise<ExtractionGuidanceItem> {
   const response = await apiClient.patch(`/api/v1/projects/${projectId}/guidance/${guidanceId}/`, payload);
   return response.data;
 }
 
-export async function deleteProjectGuidance(projectId: string, guidanceId: number): Promise<void> {
+export async function deleteProjectGuidance(projectId: string, guidanceId: string): Promise<void> {
   await apiClient.delete(`/api/v1/projects/${projectId}/guidance/${guidanceId}/`);
 }
 
-export async function reorderProjectGuidance(projectId: string, order: number[]): Promise<{ status: string }> {
+export async function reorderProjectGuidance(projectId: string, order: string[]): Promise<{ status: string }> {
   const response = await apiClient.post(`/api/v1/projects/${projectId}/guidance/reorder/`, { order });
   return response.data;
 }
@@ -707,9 +726,23 @@ export async function generateProjectReport(
 
 export async function regenerateProjectReportSection(
   projectId: string,
-  sectionId: string
+  sectionId: string,
+  customInstruction?: string
 ): Promise<{ status: string; section_id: string }> {
-  const response = await apiClient.post(`/api/v1/projects/${projectId}/report/regenerate/${sectionId}/`, {});
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/report/regenerate/${sectionId}/`, {
+    custom_instruction: customInstruction || '',
+  });
+  return response.data;
+}
+
+export async function saveProjectReportSection(
+  projectId: string,
+  sectionId: string,
+  generatedText: string
+): Promise<ReportSectionResponse> {
+  const response = await apiClient.put(`/api/v1/projects/${projectId}/report/${sectionId}/`, {
+    generated_text: generatedText,
+  });
   return response.data;
 }
 

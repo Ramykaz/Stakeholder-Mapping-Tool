@@ -46,7 +46,7 @@ export default function GuidancePanel({ projectId }: GuidancePanelProps) {
     }
   };
 
-  const onDelete = async (id: number) => {
+  const onDelete = async (id: string) => {
     setSaving(true);
     setMessage('');
     try {
@@ -60,11 +60,18 @@ export default function GuidancePanel({ projectId }: GuidancePanelProps) {
     }
   };
 
-  const onEdit = async (id: number, text: string) => {
+  const onEdit = async (id: string, text: string, enabled?: boolean) => {
     setSaving(true);
     setMessage('');
     try {
-      const updated = await updateProjectGuidance(projectId, id, { text: text.trim() });
+      const payload: { text?: string; enabled?: boolean } = {};
+      if (typeof enabled === 'boolean') {
+        payload.enabled = enabled;
+      }
+      if (text.trim()) {
+        payload.text = text.trim();
+      }
+      const updated = await updateProjectGuidance(projectId, id, payload);
       setItems((prev) => prev.map((item) => (item.id === id ? updated : item)));
       setMessage('Guidance updated.');
     } catch {
@@ -74,7 +81,7 @@ export default function GuidancePanel({ projectId }: GuidancePanelProps) {
     }
   };
 
-  const onMove = async (id: number, direction: 'up' | 'down') => {
+  const onMove = async (id: string, direction: 'up' | 'down') => {
     const index = items.findIndex((item) => item.id === id);
     if (index < 0) return;
     const nextIndex = direction === 'up' ? index - 1 : index + 1;
@@ -160,9 +167,9 @@ function GuidanceRow({
   disableUp: boolean;
   disableDown: boolean;
   disabled: boolean;
-  onMove: (id: number, direction: 'up' | 'down') => Promise<void>;
-  onDelete: (id: number) => Promise<void>;
-  onEdit: (id: number, text: string) => Promise<void>;
+  onMove: (id: string, direction: 'up' | 'down') => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onEdit: (id: string, text: string, enabled?: boolean) => Promise<void>;
 }) {
   const [value, setValue] = useState(item.text);
 
@@ -181,6 +188,16 @@ function GuidanceRow({
         placeholder="Enter extraction guidance"
       />
       <div className="flex items-center gap-2 justify-end">
+        <label className="text-xs text-[var(--text3)] flex items-center gap-1 mr-auto">
+          <input
+            type="checkbox"
+            checked={item.enabled}
+            disabled={disabled}
+            onChange={(event) => void onEdit(item.id, value, event.target.checked)}
+          />
+          {item.enabled ? 'Enabled' : 'Disabled'}
+          <span className="opacity-70">({item.source})</span>
+        </label>
         <button className="btn-ghost" disabled={disableUp} onClick={() => void onMove(item.id, 'up')}>
           Move Up
         </button>

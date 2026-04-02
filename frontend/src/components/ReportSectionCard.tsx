@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ReportSectionResponse } from '@/lib/api';
 
 interface ReportSectionCardProps {
   section: ReportSectionResponse;
-  onRegenerate: (sectionId: string) => void;
+  onRegenerate: (sectionId: string, customInstruction?: string) => void;
+  onSaveEdit: (sectionId: string, generatedText: string) => void;
   busy?: boolean;
 }
 
@@ -14,7 +15,15 @@ function statusLabel(status: ReportSectionResponse['status']) {
   return 'Error';
 }
 
-export default function ReportSectionCard({ section, onRegenerate, busy = false }: ReportSectionCardProps) {
+export default function ReportSectionCard({ section, onRegenerate, onSaveEdit, busy = false }: ReportSectionCardProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftText, setDraftText] = useState(section.generated_text || '');
+  const [customInstruction, setCustomInstruction] = useState('');
+
+  useEffect(() => {
+    setDraftText(section.generated_text || '');
+  }, [section.generated_text]);
+
   return (
     <div className="card space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -24,13 +33,30 @@ export default function ReportSectionCard({ section, onRegenerate, busy = false 
         <span className="text-xs text-[var(--text2)]">{statusLabel(section.status)}</span>
       </div>
 
-      {section.status === 'done' && section.generated_text ? (
+      {isEditing ? (
+        <textarea
+          aria-label={`Edit report section ${section.section_number}`}
+          className="input-field min-h-[180px]"
+          value={draftText}
+          onChange={(event) => setDraftText(event.target.value)}
+        />
+      ) : section.status === 'done' && section.generated_text ? (
         <p className="text-sm text-[var(--text2)] whitespace-pre-wrap">{section.generated_text}</p>
       ) : section.status === 'error' ? (
         <p className="text-sm text-[var(--coral,#f0614a)]">{section.error_message || 'Generation failed.'}</p>
       ) : (
         <p className="text-sm text-[var(--text3)]">Section not generated yet.</p>
       )}
+
+      <div className="space-y-1">
+        <label className="text-xs text-[var(--text2)]">Refinement instruction (optional)</label>
+        <input
+          className="input-field"
+          value={customInstruction}
+          onChange={(event) => setCustomInstruction(event.target.value)}
+          placeholder="e.g. focus more on government stakeholders"
+        />
+      </div>
 
       {section.citations?.length > 0 && (
         <div className="space-y-1">
@@ -44,10 +70,39 @@ export default function ReportSectionCard({ section, onRegenerate, busy = false 
       )}
 
       <div className="flex justify-end">
+        {isEditing ? (
+          <>
+            <button
+              className="btn-ghost mr-2"
+              disabled={busy}
+              onClick={() => {
+                setIsEditing(false);
+                setDraftText(section.generated_text || '');
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn-primary mr-2"
+              disabled={busy || !draftText.trim()}
+              onClick={() => onSaveEdit(section.section_id, draftText)}
+            >
+              Save Edit
+            </button>
+          </>
+        ) : (
+          <button
+            className="btn-ghost mr-2"
+            disabled={busy || section.status === 'generating'}
+            onClick={() => setIsEditing(true)}
+          >
+            Edit
+          </button>
+        )}
         <button
           className="btn-ghost"
           disabled={busy || section.status === 'generating'}
-          onClick={() => onRegenerate(section.section_id)}
+          onClick={() => onRegenerate(section.section_id, customInstruction)}
         >
           Regenerate
         </button>

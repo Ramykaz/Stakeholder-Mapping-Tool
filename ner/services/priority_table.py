@@ -47,15 +47,32 @@ def compute_priority_scores(project, entity_type: str | None = None) -> list[dic
         mention_count = int(entity.mention_count_dedup or len(entity.raw_mentions or []))
         priority_score = round(degree * avg_confidence, 4)
 
+        if priority_score >= 2.0:
+            priority_level = 'high'
+        elif priority_score >= 0.8:
+            priority_level = 'medium'
+        else:
+            priority_level = 'low'
+
+        reasoning = (
+            f"Influence derives from degree {degree} and confidence {avg_confidence:.2f} "
+            f"with {mention_count} mentions in project evidence."
+        )
+        recommended_ask = note_map.get(str(entity.id))
+
         rows.append(
             {
                 'entity_id': str(entity.id),
                 'name': entity.canonical_name,
+                'category': entity.entity_type,
                 'entity_type': entity.entity_type,
                 'mention_count': mention_count,
                 'avg_confidence': round(avg_confidence, 4),
                 'degree': degree,
                 'priority_score': priority_score,
+                'priority_level': priority_level,
+                'reasoning': reasoning,
+                'recommended_ask': recommended_ask,
                 'engagement_note': note_map.get(str(entity.id)),
             }
         )

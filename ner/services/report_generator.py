@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from ingestion.models import Project
 from ingestion.services.context import get_project_context
-from ner.models import SMQSection, ProjectSMQResponse, ReportSection
+from ner.models import Entity, SMQSection, ProjectSMQResponse, ReportSection
 from ner.services.nl_query import _call_provider
 from ner.services.semantic_search import embed_query, search_chunks
 
@@ -31,7 +31,7 @@ def _load_prompt_template() -> str:
         )
 
 
-def generate_report_section(project_id: str, section_id: str) -> None:
+def generate_report_section(project_id: str, section_id: str, custom_instruction: str = '') -> None:
     close_old_connections()
 
     project = Project.objects.get(id=project_id)
@@ -66,11 +66,25 @@ def generate_report_section(project_id: str, section_id: str) -> None:
                 }
             )
 
+        entity_context_rows = list(
+            Entity.objects
+            .filter(project=project, is_flagged=False)
+            .order_by('-mention_count_dedup', '-confidence')
+            .values_list('canonical_name', 'entity_type', 'mention_count_dedup')[:12]
+        )
+        entity_context = '\n'.join(
+            f"- {name} ({entity_type}) mentions={mentions}"
+            for name, entity_type, mentions in entity_context_rows
+            if str(name).strip()
+        )
+
         prompt = _load_prompt_template().format(
             section_title=section.title,
             smq_answer=(answer.answer_text.strip() if answer and answer.answer_text else '(No SMQ answer provided.)'),
             project_context=(get_project_context(project) or '').strip() or '(No project context provided.)',
             chunk_excerpts='\n\n---\n\n'.join(excerpts) if excerpts else '(No supporting excerpts found.)',
+            entity_context=entity_context or '(No entity context available.)',
+            custom_instruction=(custom_instruction or '').strip() or '(No additional instruction.)',
         )
 
         provider = (project.provider or '').strip().lower() or 'groq'
@@ -95,7 +109,7 @@ def generate_report_section(project_id: str, section_id: str) -> None:
         report_section.save(update_fields=['status', 'error_message', 'updated_at'])
 
 
-def generate_all_sections(project: Project, section_ids: list[str]) -> None:
+def generate_all_sections(project: Project, section_ids: list[str], custom_instruction: str = '') -> None:
     section_ids = [str(section_id) for section_id in section_ids]
 
     for section_id in section_ids:
@@ -108,6 +122,15 @@ def generate_all_sections(project: Project, section_ids: list[str]) -> None:
         report_section.save(update_fields=['status', 'error_message', 'generated_text', 'citations', 'updated_at'])
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(generate_report_section, str(project.id), section_id) for section_id in section_ids]
+        if custom_instruction:
+            futures = [
+                executor.submit(generate_report_section, str(project.id), section_id, custom_instruction)
+                for section_id in section_ids
+            ]
+        else:
+            futures = [
+                executor.submit(generate_report_section, str(project.id), section_id)
+                for section_id in section_ids
+            ]
         for future in futures:
             future.result()

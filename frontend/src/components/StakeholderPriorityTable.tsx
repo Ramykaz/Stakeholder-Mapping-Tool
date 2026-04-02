@@ -116,19 +116,21 @@ export default function StakeholderPriorityTable({ projectId }: Props) {
             <tr>
               <th className="px-3 py-2 text-left">Rank</th>
               <th className="px-3 py-2 text-left">Name</th>
-              <th className="px-3 py-2 text-left">Type</th>
+              <th className="px-3 py-2 text-left">Category</th>
+              <th className="px-3 py-2 text-left">Priority</th>
               <th className="px-3 py-2 text-right">Mentions</th>
               <th className="px-3 py-2 text-right">Confidence</th>
               <th className="px-3 py-2 text-right">Connections</th>
               <th className="px-3 py-2 text-right">Score</th>
-              <th className="px-3 py-2 text-left">Engagement Note</th>
+              <th className="px-3 py-2 text-left">Reasoning</th>
+              <th className="px-3 py-2 text-left">Recommended Ask</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="px-3 py-4 text-[var(--text3)]">Loading…</td></tr>
+              <tr><td colSpan={10} className="px-3 py-4 text-[var(--text3)]">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={8} className="px-3 py-4 text-[var(--text3)]">No stakeholders found.</td></tr>
+              <tr><td colSpan={10} className="px-3 py-4 text-[var(--text3)]">No stakeholders found.</td></tr>
             ) : rows.map((row) => (
               <tr key={row.entity_id} className="border-t border-[var(--border)]">
                 <td className="px-3 py-2 text-[var(--text2)]">{row.rank}</td>
@@ -142,16 +144,24 @@ export default function StakeholderPriorityTable({ projectId }: Props) {
                 </td>
                 <td className="px-3 py-2">
                   <span className="px-2 py-1 rounded border border-[var(--border)] text-xs text-[var(--text2)] bg-[var(--bg3)]">
-                    {row.entity_type}
+                    {row.category || row.entity_type}
                   </span>
                 </td>
+                <td className="px-3 py-2 text-[var(--text2)] capitalize">{row.priority_level}</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.mention_count}</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{Math.round((row.avg_confidence || 0) * 100)}%</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.degree}</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.priority_score.toFixed(2)}</td>
-                <td className="px-3 py-2 text-[var(--text2)]" title={row.engagement_note || ''}>
-                  {row.engagement_note
-                    ? `${row.engagement_note.slice(0, 80)}${row.engagement_note.length > 80 ? '…' : ''}`
+                <td className="px-3 py-2 text-[var(--text2)]" title={row.reasoning || ''}>
+                  {row.reasoning
+                    ? `${row.reasoning.slice(0, 80)}${row.reasoning.length > 80 ? '…' : ''}`
+                    : '—'}
+                </td>
+                <td className="px-3 py-2 text-[var(--text2)]" title={row.recommended_ask || row.engagement_note || ''}>
+                  {row.recommended_ask
+                    ? `${row.recommended_ask.slice(0, 80)}${row.recommended_ask.length > 80 ? '…' : ''}`
+                    : row.engagement_note
+                      ? `${row.engagement_note.slice(0, 80)}${row.engagement_note.length > 80 ? '…' : ''}`
                     : generating
                       ? 'Generating…'
                       : '—'}

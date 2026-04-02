@@ -7,6 +7,7 @@ import {
   exportProjectReportPdf,
   generateProjectReport,
   getProjectReport,
+  saveProjectReportSection,
   regenerateProjectReportSection,
   ReportSectionResponse,
 } from '@/lib/api';
@@ -66,16 +67,31 @@ export default function ProjectReportPage() {
     }
   };
 
-  const onRegenerate = async (sectionId: string) => {
+  const onRegenerate = async (sectionId: string, customInstruction?: string) => {
     if (!projectId) return;
     setBusy(true);
     setMessage('');
     try {
-      await regenerateProjectReportSection(projectId, sectionId);
+      await regenerateProjectReportSection(projectId, sectionId, customInstruction);
       setMessage('Regeneration started.');
       await loadReport();
     } catch {
       setMessage('Failed to start regeneration.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSaveEdit = async (sectionId: string, generatedText: string) => {
+    if (!projectId) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await saveProjectReportSection(projectId, sectionId, generatedText);
+      setMessage('Section updated.');
+      await loadReport();
+    } catch {
+      setMessage('Failed to save section edits.');
     } finally {
       setBusy(false);
     }
@@ -128,7 +144,7 @@ export default function ProjectReportPage() {
 
         <div className="space-y-3">
           {sections.map((section) => (
-            <ReportSectionCard key={section.section_id} section={section} busy={busy} onRegenerate={onRegenerate} />
+            <ReportSectionCard key={section.section_id} section={section} busy={busy} onRegenerate={onRegenerate} onSaveEdit={onSaveEdit} />
           ))}
         </div>
       </Layout>

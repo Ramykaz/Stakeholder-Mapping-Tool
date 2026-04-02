@@ -59,10 +59,14 @@ class InitiativeProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name='initiative_profile')
     initiative_name = models.CharField(max_length=255, blank=True, default='')
+    host_organization = models.CharField(max_length=255, blank=True, default='')
+    country = models.CharField(max_length=255, blank=True, default='')
     geography = models.CharField(max_length=255, blank=True, default='')
     thematic_area = models.CharField(max_length=255, blank=True, default='')
     core_objectives = models.TextField(blank=True, default='')
     expected_outcomes = models.TextField(blank=True, default='')
+    target_beneficiaries = models.TextField(blank=True, default='')
+    success_metrics = models.TextField(blank=True, default='')
     stakeholder_focus = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -76,10 +80,14 @@ class InitiativeProfile(models.Model):
     def to_context_string(self) -> str:
         fields = [
             ('Initiative Name', self.initiative_name),
+            ('Host Organization', self.host_organization),
+            ('Country', self.country),
             ('Geography', self.geography),
             ('Thematic Area', self.thematic_area),
             ('Core Objectives', self.core_objectives),
             ('Expected Outcomes', self.expected_outcomes),
+            ('Target Beneficiaries', self.target_beneficiaries),
+            ('Success Metrics', self.success_metrics),
             ('Stakeholder Focus', self.stakeholder_focus),
         ]
         lines = [f"{label}: {value.strip()}" for label, value in fields if (value or '').strip()]
@@ -87,10 +95,19 @@ class InitiativeProfile(models.Model):
 
 
 class ExtractionGuidance(models.Model):
+    SOURCE_MANUAL = 'manual'
+    SOURCE_AUTO = 'auto'
+    SOURCE_CHOICES = [
+        (SOURCE_MANUAL, 'Manual'),
+        (SOURCE_AUTO, 'Auto'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='extraction_guidance_items')
     text = models.TextField()
     order = models.PositiveIntegerField(default=0)
+    enabled = models.BooleanField(default=True)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

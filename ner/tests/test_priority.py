@@ -117,5 +117,5 @@ class TestPriorityTable(APITestCase):
         self.assertGreaterEqual(len(csv_text), 2)
         self.assertEqual(
             csv_text[0],
-            'rank,name,entity_type,mention_count,avg_confidence,degree,priority_score,engagement_note',
+            'rank,name,category,priority_level,reasoning,recommended_ask,entity_type,mention_count,avg_confidence,degree,priority_score,engagement_note',
         )

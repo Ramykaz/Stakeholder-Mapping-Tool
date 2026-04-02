@@ -1,6 +1,6 @@
 """DRF serializers for the ingestion app."""
 from rest_framework import serializers
-from ingestion.models import Document, Project, ConceptNote
+from ingestion.models import Document, Project, ConceptNote, InitiativeProfile, ExtractionGuidance
 
 
 class ProjectSummarySerializer(serializers.ModelSerializer):
@@ -53,6 +53,38 @@ class ConceptNoteSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         url = obj.attachment.url
         return request.build_absolute_uri(url) if request else url
+
+
+class InitiativeProfileSerializer(serializers.ModelSerializer):
+    project = serializers.UUIDField(source='project.id', read_only=True)
+
+    class Meta:
+        model = InitiativeProfile
+        fields = [
+            'id',
+            'project',
+            'initiative_name',
+            'geography',
+            'thematic_area',
+            'core_objectives',
+            'expected_outcomes',
+            'stakeholder_focus',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'project', 'updated_at']
+
+
+class ExtractionGuidanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExtractionGuidance
+        fields = ['id', 'text', 'order']
+        read_only_fields = ['id']
+
+    def validate_text(self, value):
+        text = (value or '').strip()
+        if not text:
+            raise serializers.ValidationError('text must not be blank')
+        return text
 
 
 class DocumentSerializer(serializers.ModelSerializer):

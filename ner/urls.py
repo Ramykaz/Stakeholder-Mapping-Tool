@@ -4,6 +4,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path('smq/template/', views.SMQTemplateView.as_view(), name='smq-template'),
     path('admin/entity-labels/', views.EntityLabelAdminView.as_view(), name='admin-entity-labels'),
     path('admin/entity-labels/<uuid:id>/', views.EntityLabelAdminDetailView.as_view(), name='admin-entity-labels-detail'),
     path('admin/relationship-types/', views.RelationshipTypeAdminView.as_view(), name='admin-relationship-types'),
@@ -21,6 +22,16 @@ urlpatterns = [
     path('projects/<uuid:id>/entities/', views.ProjectEntitiesView.as_view(), name='project-entities'),
     path('projects/<uuid:id>/graph/', views.ProjectGraphView.as_view(), name='project-graph'),
     path('projects/<uuid:id>/query/', views.ProjectQueryView.as_view(), name='project-query'),
+    path('projects/<uuid:id>/smq/', views.ProjectSMQView.as_view(), name='project-smq'),
+    path('projects/<uuid:id>/smq/<uuid:section_id>/', views.ProjectSMQAnswerView.as_view(), name='project-smq-answer'),
+    path('projects/<uuid:id>/smq/<uuid:section_id>/generate/', views.ProjectSMQGenerateView.as_view(), name='project-smq-generate'),
+    path('projects/<uuid:id>/report/', views.ProjectReportView.as_view(), name='project-report'),
+    path('projects/<uuid:id>/report/generate/', views.ProjectReportGenerateView.as_view(), name='project-report-generate'),
+    path('projects/<uuid:id>/report/regenerate/<uuid:section_id>/', views.ProjectReportRegenerateView.as_view(), name='project-report-regenerate'),
+    path('projects/<uuid:id>/report/export/pdf/', views.ProjectReportExportPDFView.as_view(), name='project-report-export-pdf'),
+    path('projects/<uuid:id>/stakeholders/priority/', views.ProjectPriorityTableView.as_view(), name='project-priority-table'),
+    path('projects/<uuid:id>/stakeholders/priority/generate-notes/', views.ProjectPriorityGenerateNotesView.as_view(), name='project-priority-generate-notes'),
+    path('projects/<uuid:id>/stakeholders/priority/export/csv/', views.ProjectPriorityExportCSVView.as_view(), name='project-priority-export-csv'),
     path('entities/flagged/', views.UserFlaggedEntitiesView.as_view(), name='user-flagged-entities'),
     path('entities/', views.GlobalEntityListView.as_view(), name='global-entity-list'),
     path('entities/<uuid:id>/', views.GlobalEntityProfileView.as_view(), name='global-entity-profile'),

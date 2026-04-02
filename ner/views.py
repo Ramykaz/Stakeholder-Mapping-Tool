@@ -3,7 +3,9 @@
 import csv
 import io
 import logging
+import threading
 from django.conf import settings
+from django.db import models
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -12,7 +14,21 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ingestion.models import Document, Project, get_or_create_default_project
-from .models import Entity, NERRun, Relation, EntityLabel, RelationshipType, EntityReviewCandidate
+from ingestion.services.context import get_project_context
+from .models import (
+    Entity,
+    NERRun,
+    Relation,
+    EntityLabel,
+    RelationshipType,
+    EntityReviewCandidate,
+    SMQTemplate,
+    SMQSection,
+    ProjectSMQResponse,
+    ProjectSMQAnswer,
+    ReportSection,
+    EngagementNote,
+)
 from .serializers import (
     EntitySerializer,
     CytoscapeNodeSerializer,
@@ -23,11 +39,20 @@ from .serializers import (
     EntityReviewCandidateSerializer,
     GlobalEntityProfileSerializer,
     ContextualSummaryRequestSerializer,
+    SMQTemplateSerializer,
+    ProjectSMQResponseSerializer,
+    ProjectSMQAnswerSerializer,
+    ReportSectionSerializer,
+    StakeholderPrioritySerializer,
 )
 from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress, get_active_entity_style_map
 from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
+from .services.pdf_utils import pdf_safe, resolve_pdf_fonts
 from .services.provider_runtime import ProviderConfigError
+from .services.smq_generator import generate_smq_section
+from .services.report_generator import generate_all_sections, generate_report_section
+from .services.priority_table import compute_priority_scores
 
 logger = logging.getLogger(__name__)
 _entity_dedup_service = EntityDedupService()
@@ -59,10 +84,7 @@ def _resolve_document_project(document: Document, user=None) -> Project:
 
 
 def _get_project_concept_note_text(project: Project) -> str | None:
-    concept_note = getattr(project, 'concept_note', None)
-    if not concept_note:
-        return None
-    text = (concept_note.content or '').strip()
+    text = (get_project_context(project) or '').strip()
     return text or None
 
 
@@ -1134,6 +1156,389 @@ class ProjectQueryView(AuthenticatedAPIView):
         }, status=status.HTTP_200_OK)
 
 
+class SMQTemplateView(AuthenticatedAPIView):
+    """GET /api/v1/smq/template/."""
+
+    def get(self, request):
+        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        if not template:
+            return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = SMQTemplateSerializer(template)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ProjectSMQView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/smq/."""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
+        serializer = ProjectSMQResponseSerializer(response_obj)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ProjectSMQAnswerView(AuthenticatedAPIView):
+    """PUT /api/v1/projects/{id}/smq/{section_id}/."""
+
+    def put(self, request, id, section_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        section = get_object_or_404(SMQSection, id=section_id)
+        response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
+        answer, _ = ProjectSMQAnswer.objects.get_or_create(response=response_obj, section=section)
+
+        answer_text = str((request.data or {}).get('answer_text') or '').strip()
+        answer.answer_text = answer_text
+        answer.ai_generated = False
+        answer.is_stale = False
+        answer.save(update_fields=['answer_text', 'ai_generated', 'is_stale', 'updated_at'])
+
+        serializer = ProjectSMQAnswerSerializer(answer)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ProjectSMQGenerateView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/smq/{section_id}/generate/."""
+
+    def post(self, request, id, section_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        section = get_object_or_404(SMQSection, id=section_id)
+
+        try:
+            generated = generate_smq_section(project, section)
+        except Exception as exc:
+            logger.exception('SMQ section generation failed project=%s section=%s', project.id, section.id)
+            return Response(
+                {'error': 'llm_error', 'detail': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
+        answer, _ = ProjectSMQAnswer.objects.get_or_create(response=response_obj, section=section)
+        answer.answer_text = generated.get('answer_text', '')
+        answer.ai_generated = True
+        answer.is_stale = False
+        answer.last_generated_at = timezone.now()
+        answer.chunk_ids_used = generated.get('chunk_ids_used', [])
+        answer.save(
+            update_fields=[
+                'answer_text',
+                'ai_generated',
+                'is_stale',
+                'last_generated_at',
+                'chunk_ids_used',
+                'updated_at',
+            ]
+        )
+
+        return Response(
+            {
+                'section_id': str(section.id),
+                'answer_text': answer.answer_text,
+                'ai_generated': answer.ai_generated,
+                'chunk_ids_used': answer.chunk_ids_used,
+                'citations': generated.get('citations', []),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ProjectReportView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/report/."""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        if not template:
+            return Response({'project': str(project.id), 'sections': []}, status=status.HTTP_200_OK)
+
+        sections = list(SMQSection.objects.filter(template=template, is_active=True).order_by('order', 'section_number'))
+        for section in sections:
+            ReportSection.objects.get_or_create(project=project, section=section)
+
+        queryset = ReportSection.objects.filter(project=project, section__in=sections).select_related('section').order_by('section__order', 'section__section_number')
+        payload = ReportSectionSerializer(queryset, many=True).data
+        return Response({'project': str(project.id), 'sections': payload}, status=status.HTTP_200_OK)
+
+
+class ProjectReportGenerateView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/report/generate/."""
+
+    def post(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        if not project.documents.exists():
+            return Response({'error': 'no_documents'}, status=status.HTTP_400_BAD_REQUEST)
+
+        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        if not template:
+            return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+        requested = (request.data or {}).get('sections', 'all')
+        if requested == 'all':
+            section_ids = [str(section.id) for section in SMQSection.objects.filter(template=template, is_active=True).order_by('order', 'section_number')]
+        elif isinstance(requested, list):
+            section_ids = [str(item) for item in requested]
+        else:
+            return Response({'error': 'validation_error', 'detail': 'sections must be "all" or an array of section ids'}, status=status.HTTP_400_BAD_REQUEST)
+
+        def _run_report_generation(project_id: str, ids: list[str]):
+            target_project = Project.objects.get(id=project_id)
+            generate_all_sections(target_project, ids)
+
+        threading.Thread(target=_run_report_generation, args=(str(project.id), section_ids), daemon=True).start()
+        return Response(
+            {
+                'status': 'generating',
+                'sections_queued': len(section_ids),
+                'message': 'Generation started. Poll /report/ for status.',
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ProjectReportRegenerateView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/report/regenerate/{section_id}/."""
+
+    def post(self, request, id, section_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        section = get_object_or_404(SMQSection, id=section_id)
+
+        report_section, _ = ReportSection.objects.get_or_create(project=project, section=section)
+        report_section.status = ReportSection.STATUS_PENDING
+        report_section.error_message = ''
+        report_section.save(update_fields=['status', 'error_message', 'updated_at'])
+
+        threading.Thread(target=generate_report_section, args=(str(project.id), str(section.id)), daemon=True).start()
+        return Response({'status': 'generating', 'section_id': str(section.id)}, status=status.HTTP_202_ACCEPTED)
+
+
+class ProjectReportExportPDFView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/report/export/pdf/."""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        if not template:
+            return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+        sections = list(
+            ReportSection.objects
+            .filter(project=project, section__template=template, section__is_active=True)
+            .select_related('section')
+            .order_by('section__order', 'section__section_number')
+        )
+        incomplete = [item.section.section_number for item in sections if item.status != ReportSection.STATUS_DONE]
+        if incomplete:
+            return Response({'error': 'sections_incomplete', 'pending_sections': incomplete}, status=status.HTTP_409_CONFLICT)
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm, topMargin=2 * cm, bottomMargin=2 * cm)
+        font_regular, font_bold, use_unicode = resolve_pdf_fonts()
+        def _s(value: str) -> str:
+            return str(value) if use_unicode else pdf_safe(value)
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('ReportTitle', parent=styles['Heading1'], fontName=font_bold, fontSize=18, textColor=colors.black)
+        heading_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontName=font_bold, fontSize=13)
+        body_style = ParagraphStyle('SectionBody', parent=styles['BodyText'], fontName=font_regular, fontSize=10, leading=14)
+
+        story = [
+            Paragraph(_s(f"Stakeholder Report — {project.name}"), title_style),
+            Spacer(1, 8),
+            Paragraph(_s(f"Generated: {timezone.now().strftime('%Y-%m-%d %H:%M UTC')}"), body_style),
+            Spacer(1, 14),
+        ]
+
+        for section in sections:
+            story.append(Paragraph(_s(f"{section.section.section_number}. {section.section.title}"), heading_style))
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(_s((section.generated_text or '').replace('\n', '<br/>')), body_style))
+            story.append(Spacer(1, 6))
+            for citation in section.citations or []:
+                doc_name = citation.get('doc_name', 'Document')
+                snippet = citation.get('snippet', '')
+                story.append(Paragraph(_s(f"[Doc: {doc_name}] {snippet}"), body_style))
+            story.append(Spacer(1, 12))
+
+        doc.build(story)
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="stakeholder-report-{project.name}.pdf"'
+        return response
+
+
+class ProjectPriorityTableView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/stakeholders/priority/."""
+
+    PAGE_SIZE = 50
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        entity_type = (request.query_params.get('entity_type') or '').strip() or None
+        try:
+            page = max(1, int(request.query_params.get('page', 1) or 1))
+        except (TypeError, ValueError):
+            page = 1
+
+        rows = compute_priority_scores(project, entity_type=entity_type)
+        total = len(rows)
+        start = (page - 1) * self.PAGE_SIZE
+        end = start + self.PAGE_SIZE
+        page_rows = rows[start:end]
+
+        serializer = StakeholderPrioritySerializer(page_rows, many=True)
+        total_pages = (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE if total else 1
+
+        return Response(
+            {
+                'count': total,
+                'page': page,
+                'total_pages': total_pages,
+                'results': serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ProjectPriorityGenerateNotesView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/stakeholders/priority/generate-notes/."""
+
+    @staticmethod
+    def _generate_notes_for_project(project_id: str) -> int:
+        from pathlib import Path
+        from django.conf import settings as django_settings
+        from django.db import close_old_connections
+        from .services.semantic_search import search_chunks_for_entity
+        from .services.nl_query import _call_provider
+
+        close_old_connections()
+
+        project = Project.objects.filter(id=project_id).first()
+        if not project:
+            return 0
+
+        top_rows = compute_priority_scores(project)[:50]
+
+        section_2 = ''
+        section_6 = ''
+        smq_response = ProjectSMQResponse.objects.filter(project=project).first()
+        if smq_response:
+            for answer in smq_response.answers.select_related('section').all():
+                if answer.section.section_number == 2:
+                    section_2 = answer.answer_text or ''
+                elif answer.section.section_number == 6:
+                    section_6 = answer.answer_text or ''
+
+        prompt_path = Path('prompts/engagement_note.txt')
+        try:
+            template = prompt_path.read_text(encoding='utf-8').strip()
+        except FileNotFoundError:
+            template = (
+                "Write one sentence recommending engagement for {entity_name} ({entity_type}).\n"
+                "Relationships: {relationships}\nSMQ2: {smq_section_2}\nSMQ6: {smq_section_6}\n"
+                "Evidence: {chunk_excerpts}\n"
+            )
+
+        provider = (project.provider or django_settings.NER_DEFAULT_PROVIDER).strip().lower()
+        model = (project.model or '').strip()
+        if not model:
+            model = django_settings.NER_PROVIDER_MODEL_ALLOWLIST.get(provider, [django_settings.NER_DEFAULT_MODEL])[0]
+
+        generated = 0
+        for row in top_rows:
+            entity = Entity.objects.filter(id=row['entity_id'], project=project).first()
+            if not entity:
+                continue
+
+            relations = Relation.objects.filter(project=project).filter(
+                models.Q(source_entity=entity) | models.Q(target_entity=entity)
+            ).select_related('source_entity', 'target_entity')[:10]
+            rel_lines = [
+                f"{rel.source_entity.canonical_name} -[{rel.label}]-> {rel.target_entity.canonical_name}"
+                for rel in relations
+            ]
+
+            chunks = list(search_chunks_for_entity(project, entity.canonical_name, top_k=3))
+            chunk_excerpts = '\n'.join(
+                f"[{chunk.document.filename}] {(chunk.text or '')[:220]}"
+                for chunk in chunks
+            )
+
+            prompt = template.format(
+                entity_name=entity.canonical_name,
+                entity_type=entity.entity_type,
+                relationships='\n'.join(rel_lines) if rel_lines else '(No known relations.)',
+                smq_section_2=section_2 or '(No section 2 answer yet.)',
+                smq_section_6=section_6 or '(No section 6 answer yet.)',
+                chunk_excerpts=chunk_excerpts or '(No supporting excerpts found.)',
+            )
+
+            try:
+                note_text = (_call_provider(prompt, provider, model, max_tokens=256) or '').strip()
+            except Exception:
+                note_text = ''
+
+            if not note_text:
+                continue
+
+            EngagementNote.objects.update_or_create(
+                project=project,
+                entity=entity,
+                defaults={'note_text': note_text},
+            )
+            generated += 1
+
+        close_old_connections()
+        return generated
+
+    def post(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        top_rows = compute_priority_scores(project)[:50]
+
+        threading.Thread(
+            target=self._generate_notes_for_project,
+            args=(str(project.id),),
+            daemon=True,
+        ).start()
+
+        return Response({'status': 'generating', 'entity_count': len(top_rows)}, status=status.HTTP_202_ACCEPTED)
+
+
+class ProjectPriorityExportCSVView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/stakeholders/priority/export/csv/."""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        entity_type = (request.query_params.get('entity_type') or '').strip() or None
+        rows = compute_priority_scores(project, entity_type=entity_type)
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['rank', 'name', 'entity_type', 'mention_count', 'avg_confidence', 'degree', 'priority_score', 'engagement_note'])
+        for row in rows:
+            writer.writerow([
+                row['rank'],
+                row['name'],
+                row['entity_type'],
+                row['mention_count'],
+                row['avg_confidence'],
+                row['degree'],
+                row['priority_score'],
+                row.get('engagement_note') or '',
+            ])
+
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="stakeholder-priority-{project.name}.csv"'
+        return response
+
+
 class GlobalEntityProfileView(AuthenticatedAPIView):
     """GET /api/v1/entities/{id}/."""
 
@@ -1726,11 +2131,7 @@ def _gather_report_data(project):
         doc_chunks[d.id] = chunks
 
     # Concept note
-    concept_text = ''
-    try:
-        concept_text = (project.concept_note.content or '').strip()
-    except Exception:
-        pass
+    concept_text = (get_project_context(project) or '').strip()
 
     return {
         'documents': documents,
@@ -1923,19 +2324,6 @@ def _clean_narrative(text: str) -> str:
     return text.strip()
 
 
-def _pdf_safe(text: str) -> str:
-    """Normalise text for safe rendering in ReportLab when Unicode fonts are unavailable."""
-    import unicodedata
-    if not text:
-        return ''
-    normalized = unicodedata.normalize('NFKD', str(text))
-    result = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn' and ord(c) < 256)
-    # If too much was lost (e.g. Arabic/CJK), fall back to ASCII replacement
-    if len(result.strip()) < max(1, len(text.strip()) * 0.4):
-        return text.encode('ascii', errors='replace').decode('ascii')
-    return result or text
-
-
 def _build_project_report_docx(project):
     """Build an LLM-narrated DOCX stakeholder analysis report."""
     from docx import Document as DocxDocument
@@ -2093,43 +2481,10 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
         from reportlab.lib.units import cm
         from reportlab.lib import colors
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
+        FONT_REGULAR, FONT_BOLD, use_unicode = resolve_pdf_fonts()
 
-        # ── Register Unicode font (DejaVu) if available ────────────────────────
-        FONT_REGULAR = 'Helvetica'
-        FONT_BOLD    = 'Helvetica-Bold'
-        _dejavu_paths = [
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            '/usr/share/fonts/dejavu/DejaVuSans.ttf',
-        ]
-        _dejavu_bold_paths = [
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-            '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
-        ]
-        for _p in _dejavu_paths:
-            try:
-                import os
-                if os.path.exists(_p):
-                    pdfmetrics.registerFont(TTFont('DejaVuSans', _p))
-                    FONT_REGULAR = 'DejaVuSans'
-                    break
-            except Exception:
-                pass
-        for _p in _dejavu_bold_paths:
-            try:
-                import os
-                if os.path.exists(_p):
-                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', _p))
-                    FONT_BOLD = 'DejaVuSans-Bold'
-                    break
-            except Exception:
-                pass
-
-        # Use _pdf_safe only when DejaVu is unavailable
-        use_unicode = FONT_REGULAR == 'DejaVuSans'
         def _s(text: str) -> str:
-            return str(text) if use_unicode else _pdf_safe(text)
+            return str(text) if use_unicode else pdf_safe(text)
 
         data = _gather_report_data(project)
         narrative = _generate_report_narrative(project, data)

@@ -10,6 +10,11 @@ from .models import (
     EntityAlias,
     EntityReviewCandidate,
     ContextualEntitySummary,
+    SMQTemplate,
+    SMQSection,
+    ProjectSMQResponse,
+    ProjectSMQAnswer,
+    ReportSection,
 )
 
 
@@ -310,3 +315,85 @@ class ContextualSummarySerializer(serializers.ModelSerializer):
 
     def get_source(self, _obj):
         return 'cache'
+
+
+class SMQSectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SMQSection
+        fields = ['id', 'section_number', 'title', 'question_prompts', 'order']
+        read_only_fields = fields
+
+
+class SMQTemplateSerializer(serializers.ModelSerializer):
+    sections = SMQSectionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SMQTemplate
+        fields = ['id', 'title', 'description', 'sections']
+        read_only_fields = fields
+
+
+class ProjectSMQAnswerSerializer(serializers.ModelSerializer):
+    section_id = serializers.UUIDField(source='section.id', read_only=True)
+    section_number = serializers.IntegerField(source='section.section_number', read_only=True)
+    section_title = serializers.CharField(source='section.title', read_only=True)
+
+    class Meta:
+        model = ProjectSMQAnswer
+        fields = [
+            'id',
+            'section_id',
+            'section_number',
+            'section_title',
+            'answer_text',
+            'ai_generated',
+            'is_stale',
+            'last_generated_at',
+            'chunk_ids_used',
+        ]
+        read_only_fields = ['id', 'section_id', 'section_number', 'section_title', 'last_generated_at', 'chunk_ids_used']
+
+
+class ProjectSMQResponseSerializer(serializers.ModelSerializer):
+    answers = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ProjectSMQResponse
+        fields = ['id', 'project', 'answers']
+        read_only_fields = fields
+
+    def get_answers(self, obj):
+        queryset = obj.answers.select_related('section').order_by('section__section_number')
+        return ProjectSMQAnswerSerializer(queryset, many=True).data
+
+
+class ReportSectionSerializer(serializers.ModelSerializer):
+    section_id = serializers.UUIDField(source='section.id', read_only=True)
+    section_number = serializers.IntegerField(source='section.section_number', read_only=True)
+    section_title = serializers.CharField(source='section.title', read_only=True)
+
+    class Meta:
+        model = ReportSection
+        fields = [
+            'section_id',
+            'section_number',
+            'section_title',
+            'status',
+            'generated_text',
+            'citations',
+            'error_message',
+            'generated_at',
+        ]
+        read_only_fields = fields
+
+
+class StakeholderPrioritySerializer(serializers.Serializer):
+    rank = serializers.IntegerField()
+    entity_id = serializers.UUIDField()
+    name = serializers.CharField()
+    entity_type = serializers.CharField()
+    mention_count = serializers.IntegerField()
+    avg_confidence = serializers.FloatField()
+    degree = serializers.IntegerField()
+    priority_score = serializers.FloatField()
+    engagement_note = serializers.CharField(allow_null=True, required=False)

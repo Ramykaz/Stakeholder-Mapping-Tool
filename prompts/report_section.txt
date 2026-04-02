@@ -1,0 +1,24 @@
+You are writing one section of a formal stakeholder analysis report.
+
+Ground every claim in the supplied evidence.
+Do not include unsupported statements.
+
+Section Title:
+{section_title}
+
+SMQ Answer (if available):
+{smq_answer}
+
+Project Context:
+{project_context}
+
+Evidence Excerpts:
+{chunk_excerpts}
+
+Output requirements:
+- Write a coherent narrative section in professional tone.
+- Keep it focused and evidence-backed.
+- Include inline citations in the form [Doc: filename, p.chunk_index].
+- If evidence is weak, clearly state limitations.
+
+Section Narrative:

@@ -423,6 +423,99 @@ export interface ConceptNoteResponse {
   updated_at: string;
 }
 
+export interface InitiativeProfileResponse {
+  id: string | null;
+  project: string;
+  initiative_name: string;
+  geography: string;
+  thematic_area: string;
+  core_objectives: string;
+  expected_outcomes: string;
+  stakeholder_focus: string;
+  updated_at: string | null;
+}
+
+export interface ExtractionGuidanceItem {
+  id: number;
+  text: string;
+  order: number;
+}
+
+export interface ExtractionGuidanceListResponse {
+  count: number;
+  results: ExtractionGuidanceItem[];
+}
+
+export interface SMQTemplateSection {
+  id: string;
+  section_number: number;
+  title: string;
+  question_prompts: string;
+  order: number;
+}
+
+export interface SMQTemplateResponse {
+  id: string;
+  title: string;
+  description: string;
+  sections: SMQTemplateSection[];
+}
+
+export interface ProjectSMQAnswer {
+  id: string;
+  section_id: string;
+  section_number: number;
+  section_title: string;
+  answer_text: string;
+  ai_generated: boolean;
+  is_stale: boolean;
+  last_generated_at: string | null;
+  chunk_ids_used: string[];
+}
+
+export interface ProjectSMQResponse {
+  id: string;
+  project: string;
+  answers: ProjectSMQAnswer[];
+}
+
+export type ReportStatus = 'pending' | 'generating' | 'done' | 'error';
+
+export interface ReportSectionResponse {
+  section_id: string;
+  section_number: number;
+  section_title: string;
+  status: ReportStatus;
+  generated_text: string;
+  citations: Array<{ doc_name: string; chunk_id: string; snippet: string }>;
+  error_message: string;
+  generated_at: string | null;
+}
+
+export interface ProjectReportResponse {
+  project: string;
+  sections: ReportSectionResponse[];
+}
+
+export interface StakeholderPriorityRow {
+  rank: number;
+  entity_id: string;
+  name: string;
+  entity_type: string;
+  mention_count: number;
+  avg_confidence: number;
+  degree: number;
+  priority_score: number;
+  engagement_note: string | null;
+}
+
+export interface StakeholderPriorityResponse {
+  count: number;
+  page: number;
+  total_pages: number;
+  results: StakeholderPriorityRow[];
+}
+
 export interface GlobalEntityProfile {
   id: string;
   canonical_name: string;
@@ -511,6 +604,148 @@ export async function upsertProjectConceptNote(
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return response.data;
+}
+
+export async function getProjectIntake(projectId: string): Promise<InitiativeProfileResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/intake/`);
+  return response.data;
+}
+
+export async function upsertProjectIntake(
+  projectId: string,
+  payload: Partial<Pick<InitiativeProfileResponse,
+    'initiative_name' |
+    'geography' |
+    'thematic_area' |
+    'core_objectives' |
+    'expected_outcomes' |
+    'stakeholder_focus'
+  >>
+): Promise<InitiativeProfileResponse> {
+  const response = await apiClient.put(`/api/v1/projects/${projectId}/intake/`, payload);
+  return response.data;
+}
+
+export async function getProjectGuidance(projectId: string): Promise<ExtractionGuidanceListResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/guidance/`);
+  return response.data;
+}
+
+export async function createProjectGuidance(
+  projectId: string,
+  payload: { text: string; order?: number }
+): Promise<ExtractionGuidanceItem> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/guidance/`, payload);
+  return response.data;
+}
+
+export async function updateProjectGuidance(
+  projectId: string,
+  guidanceId: number,
+  payload: Partial<Pick<ExtractionGuidanceItem, 'text' | 'order'>>
+): Promise<ExtractionGuidanceItem> {
+  const response = await apiClient.patch(`/api/v1/projects/${projectId}/guidance/${guidanceId}/`, payload);
+  return response.data;
+}
+
+export async function deleteProjectGuidance(projectId: string, guidanceId: number): Promise<void> {
+  await apiClient.delete(`/api/v1/projects/${projectId}/guidance/${guidanceId}/`);
+}
+
+export async function reorderProjectGuidance(projectId: string, order: number[]): Promise<{ status: string }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/guidance/reorder/`, { order });
+  return response.data;
+}
+
+export async function getSMQTemplate(): Promise<SMQTemplateResponse> {
+  const response = await apiClient.get('/api/v1/smq/template/');
+  return response.data;
+}
+
+export async function getProjectSMQ(projectId: string): Promise<ProjectSMQResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/smq/`);
+  return response.data;
+}
+
+export async function saveProjectSMQAnswer(
+  projectId: string,
+  sectionId: string,
+  answerText: string
+): Promise<ProjectSMQAnswer> {
+  const response = await apiClient.put(`/api/v1/projects/${projectId}/smq/${sectionId}/`, {
+    answer_text: answerText,
+  });
+  return response.data;
+}
+
+export async function generateProjectSMQAnswer(
+  projectId: string,
+  sectionId: string
+): Promise<{
+  section_id: string;
+  answer_text: string;
+  ai_generated: boolean;
+  chunk_ids_used: string[];
+  citations: Array<{ doc_name: string; chunk_id: string; snippet: string }>;
+}> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/smq/${sectionId}/generate/`, {});
+  return response.data;
+}
+
+export async function getProjectReport(projectId: string): Promise<ProjectReportResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/`);
+  return response.data;
+}
+
+export async function generateProjectReport(
+  projectId: string,
+  sections: 'all' | string[] = 'all'
+): Promise<{ status: string; sections_queued: number; message: string }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/report/generate/`, { sections });
+  return response.data;
+}
+
+export async function regenerateProjectReportSection(
+  projectId: string,
+  sectionId: string
+): Promise<{ status: string; section_id: string }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/report/regenerate/${sectionId}/`, {});
+  return response.data;
+}
+
+export async function exportProjectReportPdf(projectId: string): Promise<Blob> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/export/pdf/`, {
+    responseType: 'blob',
+  });
+  return response.data as Blob;
+}
+
+export async function getProjectStakeholderPriority(
+  projectId: string,
+  params?: { entity_type?: string; page?: number }
+): Promise<StakeholderPriorityResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/stakeholders/priority/`, {
+    params,
+  });
+  return response.data;
+}
+
+export async function generateProjectStakeholderNotes(
+  projectId: string
+): Promise<{ status: string; entity_count: number }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/stakeholders/priority/generate-notes/`, {});
+  return response.data;
+}
+
+export async function exportProjectStakeholderPriorityCsv(
+  projectId: string,
+  entityType?: string
+): Promise<Blob> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/stakeholders/priority/export/csv/`, {
+    params: entityType ? { entity_type: entityType } : undefined,
+    responseType: 'blob',
+  });
+  return response.data as Blob;
 }
 
 export async function uploadDocumentToProject(

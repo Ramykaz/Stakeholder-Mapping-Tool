@@ -1,0 +1,110 @@
+import React, { useState } from 'react';
+import { saveProjectSMQAnswer, generateProjectSMQAnswer, ProjectSMQAnswer, SMQTemplateSection } from '@/lib/api';
+
+interface SMQSectionProps {
+  projectId: string;
+  section: SMQTemplateSection;
+  existingAnswer?: ProjectSMQAnswer;
+  aiEnabled: boolean;
+  onUpdated: (sectionId: string, answer: ProjectSMQAnswer) => void;
+}
+
+export default function SMQSection({
+  projectId,
+  section,
+  existingAnswer,
+  aiEnabled,
+  onUpdated,
+}: SMQSectionProps) {
+  const [value, setValue] = useState(existingAnswer?.answer_text || '');
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [message, setMessage] = useState('');
+  const [citations, setCitations] = useState<Array<{ doc_name: string; chunk_id: string; snippet: string }>>([]);
+
+  const onSave = async () => {
+    setSaving(true);
+    setMessage('');
+    try {
+      const updated = await saveProjectSMQAnswer(projectId, section.id, value);
+      onUpdated(section.id, updated);
+      setMessage('Saved.');
+    } catch {
+      setMessage('Failed to save answer.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onGenerate = async () => {
+    setGenerating(true);
+    setMessage('');
+    try {
+      const generated = await generateProjectSMQAnswer(projectId, section.id);
+      setValue(generated.answer_text || '');
+      setCitations(generated.citations || []);
+      onUpdated(section.id, {
+        id: existingAnswer?.id || section.id,
+        section_id: section.id,
+        section_number: section.section_number,
+        section_title: section.title,
+        answer_text: generated.answer_text || '',
+        ai_generated: generated.ai_generated,
+        is_stale: false,
+        last_generated_at: null,
+        chunk_ids_used: generated.chunk_ids_used || [],
+      });
+      setMessage('Generated with AI.');
+    } catch {
+      setMessage('AI generation failed.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h3 className="font-[var(--serif)] text-lg text-[var(--text)]">
+          {section.section_number}. {section.title}
+        </h3>
+        <p className="text-xs text-[var(--text3)] mt-1 whitespace-pre-wrap">{section.question_prompts}</p>
+      </div>
+
+      <textarea
+        className="input-field min-h-[160px]"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Write your answer here or use Generate with AI"
+        title={`SMQ section ${section.section_number} answer`}
+      />
+
+      <div className="flex items-center gap-2">
+        <button className="btn-primary" onClick={() => void onSave()} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button className="btn-ghost" onClick={() => void onGenerate()} disabled={!aiEnabled || generating}>
+          {generating ? 'Generating…' : 'Generate with AI'}
+        </button>
+        {!aiEnabled && <span className="text-xs text-[var(--text3)]">No documents extracted yet.</span>}
+      </div>
+
+      {message && (
+        <p className={`text-xs ${message.includes('failed') || message.includes('Failed') ? 'text-[var(--coral,#f0614a)]' : 'text-[var(--teal)]'}`}>
+          {message}
+        </p>
+      )}
+
+      {citations.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-[var(--text2)]">Citations</p>
+          {citations.map((c, idx) => (
+            <div key={`${c.chunk_id}-${idx}`} className="text-xs text-[var(--text3)]">
+              [{c.doc_name}] {c.snippet}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

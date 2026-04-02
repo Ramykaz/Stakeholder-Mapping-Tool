@@ -114,6 +114,10 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
 
   // Sub-pages for the active project
   const projectSubPages = activeProjectId ? [
+    { label: 'Initiative Profile', path: `/projects/${activeProjectId}/intake` },
+    { label: 'SMQ', path: `/projects/${activeProjectId}/smq` },
+    { label: 'Report', path: `/projects/${activeProjectId}/report` },
+    { label: 'Stakeholders', path: `/projects/${activeProjectId}/stakeholders` },
     { label: 'Edit concept note', path: `/projects/${activeProjectId}/setup` },
     { label: 'Documents', path: `/projects/${activeProjectId}/documents` },
     { label: 'Analyze', path: `/projects/${activeProjectId}/analyze` },

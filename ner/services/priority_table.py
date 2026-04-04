@@ -54,10 +54,6 @@ def compute_priority_scores(project, entity_type: str | None = None) -> list[dic
         else:
             priority_level = 'low'
 
-        reasoning = (
-            f"Influence derives from degree {degree} and confidence {avg_confidence:.2f} "
-            f"with {mention_count} mentions in project evidence."
-        )
         recommended_ask = note_map.get(str(entity.id))
 
         rows.append(
@@ -71,9 +67,8 @@ def compute_priority_scores(project, entity_type: str | None = None) -> list[dic
                 'degree': degree,
                 'priority_score': priority_score,
                 'priority_level': priority_level,
-                'reasoning': reasoning,
                 'recommended_ask': recommended_ask,
-                'engagement_note': note_map.get(str(entity.id)),
+                'engagement_note': recommended_ask,
             }
         )
 

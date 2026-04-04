@@ -45,6 +45,7 @@ from .serializers import (
     StakeholderPrioritySerializer,
 )
 from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress, get_active_entity_style_map
+from .services.report_staleness import flag_stale_report_sections
 from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
 from .services.pdf_utils import pdf_safe, resolve_pdf_fonts
@@ -429,6 +430,10 @@ class ExtractEntitiesRelationsView(AuthenticatedAPIView):
 
             # Extract entities and relations (synchronous, one call per chunk)
             result = extract_relations_for_document(id, provider=provider, model=model, concept_note=concept_note)
+
+            # Flag existing report sections as stale when new entities are extracted
+            if result.get('entities_created', 0) > 0:
+                flag_stale_report_sections(str(project.id))
 
             return Response(
                 {
@@ -1033,6 +1038,10 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
                     status=status.HTTP_201_CREATED,
                 )
 
+            # Flag existing report sections as stale when new entities are extracted
+            if total_entities_created > 0:
+                flag_stale_report_sections(str(project.id))
+
             return Response(
                 {
                     'status': 'completed',
@@ -1505,14 +1514,12 @@ class ProjectPriorityExportCSVView(AuthenticatedAPIView):
             'name',
             'category',
             'priority_level',
-            'reasoning',
             'recommended_ask',
             'entity_type',
             'mention_count',
             'avg_confidence',
             'degree',
             'priority_score',
-            'engagement_note',
         ])
         for row in rows:
             writer.writerow([
@@ -1520,14 +1527,12 @@ class ProjectPriorityExportCSVView(AuthenticatedAPIView):
                 row['name'],
                 row.get('category') or '',
                 row.get('priority_level') or '',
-                row.get('reasoning') or '',
                 row.get('recommended_ask') or '',
                 row['entity_type'],
                 row['mention_count'],
                 row['avg_confidence'],
                 row['degree'],
                 row['priority_score'],
-                row.get('engagement_note') or '',
             ])
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
@@ -1586,7 +1591,7 @@ class EntitySummaryView(AuthenticatedAPIView):
             entity=entity,
             project=project,
             refresh=refresh,
-            timeout_seconds=8,
+            timeout_seconds=30,
             provider=project_provider,
             model=project_model,
         )
@@ -1912,7 +1917,7 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     'groq': ['llama-3.1-8b-instant', 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768'],
     'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
     'azure_openai': ['gpt-4o', 'gpt-35-turbo'],
-    'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro'],
+    'gemini': ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 }
 
 _PROVIDER_ENV_KEYS: dict[str, str] = {
@@ -2671,3 +2676,350 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
         response = HttpResponse(buffer.read(), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+
+# ─── US-014: Stakeholder Personas ────────────────────────────────────────────
+
+class PersonaListView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/personas/"""
+
+    def get(self, request, id):
+        from .models import StakeholderPersona
+        from .serializers import StakeholderPersonaSerializer
+        project = _get_project_for_user_or_404(id, request.user)
+        personas = StakeholderPersona.objects.filter(project=project).select_related('entity_type')
+        serializer = StakeholderPersonaSerializer(personas, many=True)
+        return Response(
+            {'count': personas.count(), 'results': serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PersonaGenerateView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/personas/generate/"""
+
+    def post(self, request, id):
+        from .tasks import generate_personas_task
+        project = _get_project_for_user_or_404(id, request.user)
+        has_entities = Entity.objects.filter(project=project).exists()
+        if not has_entities:
+            return Response(
+                {'error': 'no_entities', 'detail': 'No entities extracted for this project yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        generate_personas_task.delay(str(project.id))
+        return Response(
+            {'status': 'generating', 'message': 'Persona generation started. Poll /personas/ for results.'},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+# ─── US-014: Workplan ────────────────────────────────────────────────────────
+
+class WorkplanView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/workplan/"""
+
+    def get(self, request, id):
+        from .models import WorkplanComponent
+        from .serializers import WorkplanComponentSerializer
+        project = _get_project_for_user_or_404(id, request.user)
+        components = WorkplanComponent.objects.filter(project=project).prefetch_related(
+            'tasks', 'tasks__related_entity', 'tasks__related_entity__entity_type'
+        )
+        generated = components.exists()
+        serializer = WorkplanComponentSerializer(components, many=True)
+        return Response(
+            {'project': str(project.id), 'generated': generated, 'components': serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class WorkplanStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/workplan/status/"""
+
+    def get(self, request, id):
+        from .models import WorkplanComponent, WorkplanTask
+        project = _get_project_for_user_or_404(id, request.user)
+
+        component_count = WorkplanComponent.objects.filter(project=project).count()
+        task_count = WorkplanTask.objects.filter(component__project=project).count()
+
+        section_6_complete = ReportSection.objects.filter(
+            project=project,
+            section__section_number=6,
+            status=ReportSection.STATUS_DONE,
+        ).exists()
+
+        return Response(
+            {
+                'generated': component_count > 0,
+                'section_6_complete': section_6_complete,
+                'component_count': component_count,
+                'task_count': task_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class WorkplanGenerateView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/workplan/generate/"""
+
+    def post(self, request, id):
+        from .tasks import generate_workplan_task
+        project = _get_project_for_user_or_404(id, request.user)
+
+        section_6_complete = ReportSection.objects.filter(
+            project=project,
+            section__section_number=6,
+            status=ReportSection.STATUS_DONE,
+        ).exists()
+
+        if not section_6_complete:
+            return Response(
+                {'error': 'section_6_incomplete', 'detail': 'Section 6 must be complete first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        generate_workplan_task.delay(str(project.id))
+        return Response(
+            {'status': 'generating', 'message': 'Workplan generation started. Poll /workplan/ for results.'},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+# ─── US-014: Report Staleness ─────────────────────────────────────────────────
+
+class ReportStalenessView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/report/staleness/"""
+
+    def get(self, request, id):
+        from django.db.models import Min
+        project = _get_project_for_user_or_404(id, request.user)
+
+        stale_sections = list(
+            ReportSection.objects.filter(
+                project=project, status=ReportSection.STATUS_STALE
+            ).values_list('section__section_number', flat=True)
+        )
+
+        stakeholder_table_stale = project.stakeholder_table_stale
+
+        # Count new entities created after the oldest stale section
+        new_entity_count = 0
+        if stale_sections:
+            oldest_stale_at = ReportSection.objects.filter(
+                project=project, status=ReportSection.STATUS_STALE
+            ).aggregate(oldest=Min('generated_at'))['oldest']
+            if oldest_stale_at:
+                new_entity_count = Entity.objects.filter(
+                    project=project,
+                    created_at__gt=oldest_stale_at,
+                ).count()
+
+        return Response(
+            {
+                'stale_sections': stale_sections,
+                'stakeholder_table_stale': stakeholder_table_stale,
+                'new_entity_count': new_entity_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ReportSectionKeepView(AuthenticatedAPIView):
+    """PATCH /api/v1/projects/{id}/report/{section_id}/keep/"""
+
+    def patch(self, request, id, section_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        section = get_object_or_404(ReportSection, id=section_id, project=project)
+
+        if section.status != ReportSection.STATUS_STALE:
+            return Response(
+                {'error': 'not_stale', 'detail': 'Section is not in stale status.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        section.status = ReportSection.STATUS_DONE
+        section.save(update_fields=['status', 'updated_at'])
+        return Response(
+            {'status': 'done', 'section_id': str(section_id)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class StakeholderTableKeepCurrentView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/stakeholders/priority/keep-current/"""
+
+    def post(self, request, id):
+        from ingestion.models import Project as ProjectModel
+        project = _get_project_for_user_or_404(id, request.user)
+        ProjectModel.objects.filter(id=project.id).update(stakeholder_table_stale=False)
+        return Response(
+            {'status': 'ok', 'stakeholder_table_stale': False},
+            status=status.HTTP_200_OK,
+        )
+
+
+# ─── US-014: Workflow Status ──────────────────────────────────────────────────
+
+class WorkflowStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/workflow/"""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        workflow = project.get_workflow_status()
+        return Response(workflow, status=status.HTTP_200_OK)
+
+
+# ─── US-014: Report Export ────────────────────────────────────────────────────
+
+class ReportExportStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/report/export/status/"""
+
+    def get(self, request, id):
+        from .services.report_export import get_export_status
+        project = _get_project_for_user_or_404(id, request.user)
+        export_status = get_export_status(project)
+        return Response(export_status, status=status.HTTP_200_OK)
+
+
+class ReportExportView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/report/export/?format=pdf|docx"""
+
+    def get(self, request, id):
+        import re
+        from .services.report_export import get_export_status, generate_pdf_report, generate_docx_report
+        project = _get_project_for_user_or_404(id, request.user)
+
+        export_format = (request.query_params.get('format') or '').strip().lower()
+        if export_format not in ('pdf', 'docx'):
+            return Response(
+                {'error': 'invalid_format', 'detail': 'format must be pdf or docx'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        export_info = get_export_status(project)
+        if not export_info['can_export']:
+            return Response(
+                {'error': 'no_complete_sections', 'detail': 'Complete at least one report section to export.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            initiative_name = ''
+            try:
+                initiative_name = project.initiative_profile.initiative_name or project.name
+            except Exception:
+                initiative_name = project.name
+            safe_name = re.sub(r'[^\w\-_]', '_', initiative_name).strip('_') or 'report'
+
+            if export_format == 'pdf':
+                content = generate_pdf_report(project)
+                response = HttpResponse(content, content_type='application/pdf')
+                response['Content-Disposition'] = f'attachment; filename="{safe_name}_stakeholder_analysis.pdf"'
+            else:
+                content = generate_docx_report(project)
+                response = HttpResponse(
+                    content,
+                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                )
+                response['Content-Disposition'] = f'attachment; filename="{safe_name}_stakeholder_analysis.docx"'
+
+            return response
+        except Exception as e:
+            logger.error("Report export error for project %s: %s", id, e)
+            return Response(
+                {'error': 'export_failed', 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+# ─── US-014-04: Enriched Entity Detail ───────────────────────────────────────
+
+class ProjectEntityDetailView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/entities/{entity_id}/
+
+    Returns entity data extended with stakeholder priority, persona, and
+    report section references for the given project context.
+    """
+
+    def get(self, request, id, entity_id):
+        from .models import StakeholderPersona, EngagementNote as EngNote
+        from .serializers import GlobalEntityProfileSerializer
+
+        project = _get_project_for_user_or_404(id, request.user)
+        entity = get_object_or_404(
+            Entity,
+            id=entity_id,
+            project=project,
+        )
+
+        # Base serialization
+        serializer = GlobalEntityProfileSerializer(entity, context={'request': request})
+        data = dict(serializer.data)
+
+        # Stakeholder priority from EngagementNote
+        stakeholder_priority = None
+        try:
+            note = EngNote.objects.filter(project=project, entity=entity).first()
+            if note:
+                # Get rank from priority scores
+                from ner.services.priority_table import compute_priority_scores
+                priority_rows = compute_priority_scores(project)
+                rank = None
+                for i, row in enumerate(priority_rows, 1):
+                    if str(row.get('entity_id')) == str(entity.id):
+                        rank = i
+                        break
+                stakeholder_priority = {
+                    'rank': rank,
+                    'category': entity.entity_type,
+                    'priority': 'High' if rank and rank <= 5 else ('Medium' if rank and rank <= 15 else 'Low'),
+                    'priority_reason': note.note_text[:500] if note.note_text else '',
+                    'ask_request': '',
+                }
+        except Exception as e:
+            logger.debug("Entity enrichment: priority lookup failed: %s", e)
+
+        # Persona matching entity type
+        persona_data = None
+        try:
+            persona = StakeholderPersona.objects.filter(
+                project=project,
+                entity_type__name__iexact=entity.entity_type,
+            ).first()
+            if persona:
+                persona_data = {
+                    'archetype_label': persona.archetype_label,
+                    'persona_name': persona.persona_name,
+                }
+        except Exception as e:
+            logger.debug("Entity enrichment: persona lookup failed: %s", e)
+
+        # Report sections where entity is cited
+        appears_in = []
+        try:
+            entity_id_str = str(entity.id)
+            for section in ReportSection.objects.filter(
+                project=project, status=ReportSection.STATUS_DONE
+            ).select_related('section'):
+                citations = section.citations or []
+                if entity_id_str in citations or any(
+                    str(c) == entity_id_str for c in citations
+                ):
+                    appears_in.append({
+                        'section_number': section.section.section_number,
+                        'report_chapter_title': section.section.title,
+                    })
+        except Exception as e:
+            logger.debug("Entity enrichment: report sections lookup failed: %s", e)
+
+        # Stakeholder table existence flag
+        has_stakeholder_table = EngNote.objects.filter(project=project).exists()
+
+        data['stakeholder_priority'] = stakeholder_priority
+        data['persona'] = persona_data
+        data['appears_in_report_sections'] = appears_in
+        data['has_stakeholder_table'] = has_stakeholder_table
+
+        return Response(data, status=status.HTTP_200_OK)

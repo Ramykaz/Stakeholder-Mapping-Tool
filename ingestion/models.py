@@ -26,6 +26,8 @@ class Project(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
     provider = models.CharField(max_length=32, blank=True, default='')
     model = models.CharField(max_length=64, blank=True, default='')
+    workflow_step = models.IntegerField(default=1)
+    stakeholder_table_stale = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -38,6 +40,109 @@ class Project(models.Model):
 
     def __str__(self):
         return f"{self.name} [{self.status}]"
+
+    def get_workflow_status(self) -> dict:
+        """Compute current workflow step and return full step status array."""
+        steps_config = [
+            {
+                'number': 1,
+                'label': 'Define initiative',
+                'url': f'/projects/{self.id}/intake',
+                'description': 'Fill in the initiative profile and objectives',
+            },
+            {
+                'number': 2,
+                'label': 'Upload documents',
+                'url': f'/projects/{self.id}/documents',
+                'description': 'Upload and process source documents for analysis',
+            },
+            {
+                'number': 3,
+                'label': 'Run extraction',
+                'url': f'/projects/{self.id}/analyze',
+                'description': 'Extract entities and relationships from documents',
+            },
+            {
+                'number': 4,
+                'label': 'Review graph',
+                'url': f'/projects/{self.id}',
+                'description': 'Review and refine the extracted knowledge graph',
+            },
+            {
+                'number': 5,
+                'label': 'Generate report',
+                'url': f'/projects/{self.id}/report',
+                'description': 'Generate the stakeholder analysis report sections',
+            },
+            {
+                'number': 6,
+                'label': 'Stakeholder table',
+                'url': f'/projects/{self.id}/stakeholders',
+                'description': 'Generate and review the stakeholder priority table',
+            },
+            {
+                'number': 7,
+                'label': 'Export',
+                'url': f'/projects/{self.id}/report?tab=export',
+                'description': 'Export the completed report as PDF or Word document',
+            },
+        ]
+
+        # Compute completion for each step
+        try:
+            profile = self.initiative_profile
+            step1_complete = bool(profile.initiative_name and profile.initiative_name.strip())
+        except Exception:
+            step1_complete = False
+
+        from ingestion.models import Document
+        step2_complete = Document.objects.filter(
+            project=self,
+            processing_status=Document.STATUS_COMPLETED,
+        ).exists()
+
+        # Steps 3 and 4: any entity extracted via NERRun for this project
+        from ner.models import NERRun
+        has_entities = NERRun.objects.filter(
+            document_id__project=self,
+            status='completed',
+        ).exists()
+        step3_complete = has_entities
+        step4_complete = has_entities
+
+        # Step 5: any ReportSection with status='done'
+        from ner.models import ReportSection
+        step5_complete = ReportSection.objects.filter(
+            project=self, status=ReportSection.STATUS_DONE
+        ).exists()
+
+        # Step 6: any EngagementNote exists (proxy for priority table generated)
+        from ner.models import EngagementNote
+        step6_complete = EngagementNote.objects.filter(project=self).exists()
+
+        # Step 7: always False (no persistent export record in MVP)
+        step7_complete = False
+
+        completions = [
+            step1_complete, step2_complete, step3_complete,
+            step4_complete, step5_complete, step6_complete, step7_complete,
+        ]
+
+        steps = []
+        current_step = 7  # default to last if all complete
+        for i, config in enumerate(steps_config):
+            complete = completions[i]
+            steps.append({
+                'number': config['number'],
+                'label': config['label'],
+                'complete': complete,
+                'url': config['url'],
+                'description': config['description'],
+            })
+            if not complete and current_step == 7:
+                current_step = config['number']
+
+        return {'current_step': current_step, 'steps': steps}
 
 
 class ConceptNote(models.Model):

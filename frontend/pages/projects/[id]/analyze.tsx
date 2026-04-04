@@ -5,10 +5,7 @@ import {
   getProject, getProjectDocuments, extractEntitiesForProject,
   getProjectEntities, getProjectGraph, getStoredAuthToken, ProjectSummary, DocumentSummary,
 } from '@/lib/api';
-import TopNavigation from '@/components/layout/TopNavigation';
-import Sidebar from '@/components/layout/Sidebar';
-
-const STEPS = ['Concept Note', 'Upload Documents', 'Analyze', 'Explore'];
+import Layout from '@/components/Layout';
 
 const TYPE_COLORS: Record<string, string> = {
   PERSON: '#2ec4a5', ORGANIZATION: '#3d6fff', GOVERNMENT: '#3d6fff',
@@ -87,48 +84,8 @@ export default function AnalyzePage() {
   return (
     <>
       <Head><title>Analyze — {project?.name ?? ''}</title></Head>
-      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation workspaceId={id} />
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar workspaceId={id} />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
-            <div style={{ maxWidth: 800, margin: '0 auto' }}>
-
-              {/* Progress indicator */}
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 40 }}>
-                {STEPS.map((label, i) => (
-                  <React.Fragment key={label}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                      <div style={{
-                        width: 32, height: 32, borderRadius: '50%',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: 'var(--mono)', fontSize: 12,
-                        background: i < 2 ? 'var(--teal)' : i === 2 ? 'var(--accent)' : 'transparent',
-                        color: i < 3 ? '#fff' : 'var(--text2)',
-                        border: i >= 3 ? '1px solid var(--border2)' : 'none',
-                      }}>
-                        {i < 2 ? '✓' : i + 1}
-                      </div>
-                      <span style={{ fontSize: 11, color: i === 2 ? 'var(--text)' : 'var(--text3)', whiteSpace: 'nowrap' }}>
-                        {label}
-                      </span>
-                    </div>
-                    {i < STEPS.length - 1 && (
-                      <div style={{ flex: 1, height: 1, background: 'var(--border)', margin: '0 8px', marginBottom: 20 }}/>
-                    )}
-                  </React.Fragment>
-                ))}
-              </div>
-
-              {/* Header */}
-              <div style={{ marginBottom: 32 }}>
-                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: '#fff', marginBottom: 4 }}>
-                  Analyze documents
-                </h1>
-                <p style={{ color: 'var(--text2)', fontSize: 13 }}>
-                  Extract entities and relationships from your uploaded documents using AI.
-                </p>
-              </div>
+      <Layout title="Analyze documents" subtitle="Extract entities and relationships from your uploaded documents using AI">
+        <div style={{ maxWidth: 800, margin: '0 auto' }}>
 
               {/* Document summary */}
               {!loading && (
@@ -340,12 +297,6 @@ export default function AnalyzePage() {
                   ← Back to documents
                 </button>
                 <button
-                  onClick={() => void router.push(`/projects/${id}/setup`)}
-                  className="btn-ghost"
-                >
-                  Edit concept note
-                </button>
-                <button
                   onClick={() => void router.push(`/projects/${id}/map`)}
                   className="btn-primary btn-primary-lg"
                   disabled={!extracted && entities.length === 0}
@@ -354,10 +305,8 @@ export default function AnalyzePage() {
                 </button>
               </div>
 
-            </div>
-          </main>
         </div>
-      </div>
+      </Layout>
     </>
   );
 }

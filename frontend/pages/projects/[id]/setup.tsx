@@ -28,12 +28,8 @@ export default function SetupPage() {
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
     if (!id) return;
-    getProject(id)
-      .then(setProject)
-      .catch(() => setError('Failed to load project'));
-    getProjectConceptNote(id)
-      .then(note => setConceptNote(note.content || ''))
-      .catch(() => { /* no concept note yet — that's fine */ });
+    // Redirect to the current Initiative Profile page (concept note is superseded by InitiativeProfile)
+    void router.replace(`/projects/${id}/intake`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 

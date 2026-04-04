@@ -22,3 +22,22 @@ def regenerate_report_section_task(self, project_id: str, section_id: str, custo
 def generate_priority_notes_task(self, project_id: str) -> dict:
     generated = generate_notes_for_project(project_id)
     return {'project_id': project_id, 'generated': generated}
+
+
+@shared_task(bind=True)
+def generate_personas_task(self, project_id: str) -> dict:
+    from ner.services.persona_generator import generate_personas_for_project
+    count = generate_personas_for_project(project_id)
+    return {'project_id': project_id, 'personas_created': count}
+
+
+@shared_task(bind=True)
+def generate_workplan_task(self, project_id: str) -> dict:
+    from ner.services.workplan_generator import generate_workplan_for_project, WorkplanGenerationError
+    try:
+        count = generate_workplan_for_project(project_id)
+        return {'project_id': project_id, 'components_created': count}
+    except WorkplanGenerationError as e:
+        import logging
+        logging.getLogger(__name__).warning("Workplan generation failed for %s: %s", project_id, e)
+        return {'project_id': project_id, 'error': str(e)}

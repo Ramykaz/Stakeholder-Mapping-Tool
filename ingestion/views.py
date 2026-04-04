@@ -219,6 +219,14 @@ class ProjectContextPreviewView(AuthenticatedAPIView):
         return Response({'project': str(project.id), 'context': get_project_context(project)}, status=status.HTTP_200_OK)
 
 
+class WorkflowStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/workflow/."""
+
+    def get(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        return Response(project.get_workflow_status(), status=status.HTTP_200_OK)
+
+
 class ExtractionGuidanceListView(AuthenticatedAPIView):
     """GET/POST /api/v1/projects/{id}/guidance/."""
 

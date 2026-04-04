@@ -49,4 +49,22 @@ urlpatterns = [
     path('projects/<uuid:id>/export/relations.csv', views.ProjectExportRelationsCSVView.as_view(), name='project-export-relations-csv'),
     path('projects/<uuid:id>/export/report.docx', views.ProjectExportReportDOCXView.as_view(), name='project-export-report-docx'),
     path('projects/<uuid:id>/export/report.pdf', views.ProjectExportReportPDFView.as_view(), name='project-export-report-pdf'),
+    # US-014: Personas
+    path('projects/<uuid:id>/personas/', views.PersonaListView.as_view(), name='project-personas'),
+    path('projects/<uuid:id>/personas/generate/', views.PersonaGenerateView.as_view(), name='project-personas-generate'),
+    # US-014: Workplan
+    path('projects/<uuid:id>/workplan/', views.WorkplanView.as_view(), name='project-workplan'),
+    path('projects/<uuid:id>/workplan/status/', views.WorkplanStatusView.as_view(), name='project-workplan-status'),
+    path('projects/<uuid:id>/workplan/generate/', views.WorkplanGenerateView.as_view(), name='project-workplan-generate'),
+    # US-014: Workflow
+    path('projects/<uuid:id>/workflow/', views.WorkflowStatusView.as_view(), name='project-workflow'),
+    # US-014: Staleness
+    path('projects/<uuid:id>/report/staleness/', views.ReportStalenessView.as_view(), name='project-report-staleness'),
+    path('projects/<uuid:id>/report/<uuid:section_id>/keep/', views.ReportSectionKeepView.as_view(), name='project-report-section-keep'),
+    path('projects/<uuid:id>/stakeholders/priority/keep-current/', views.StakeholderTableKeepCurrentView.as_view(), name='project-stakeholder-table-keep-current'),
+    # US-014: Export
+    path('projects/<uuid:id>/report/export/status/', views.ReportExportStatusView.as_view(), name='project-report-export-status'),
+    path('projects/<uuid:id>/report/export/', views.ReportExportView.as_view(), name='project-report-export'),
+    # US-014-04: Enriched entity detail (project-scoped)
+    path('projects/<uuid:id>/entities/<uuid:entity_id>/', views.ProjectEntityDetailView.as_view(), name='project-entity-detail'),
 ]

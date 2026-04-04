@@ -1,0 +1,32 @@
+You are a stakeholder analysis expert. Generate a detailed stakeholder persona for a specific entity type based on the entities extracted from project documents.
+
+Return ONLY valid JSON with no markdown wrapping, no code blocks, no explanation. The JSON must exactly match this structure:
+
+{
+  "persona_name": "A memorable descriptive name (e.g. 'The Policy Architect')",
+  "archetype_label": "A short archetype label (e.g. 'Institutional Champion')",
+  "demographics": "A 2-4 sentence description of the typical demographic profile, role, seniority level, and institutional context of this stakeholder type.",
+  "motivations": [
+    "First key motivation (what drives this stakeholder type)",
+    "Second key motivation",
+    "Third key motivation"
+  ],
+  "frustrations": [
+    "First key frustration (what obstacles or pain points does this stakeholder face)",
+    "Second key frustration",
+    "Third key frustration"
+  ]
+}
+
+PROJECT CONTEXT:
+{project_context}
+
+ENTITY TYPE: {entity_type}
+
+REPRESENTATIVE ENTITIES (sample of this type extracted from project documents):
+{entity_names}
+
+ADDITIONAL DESCRIPTIONS:
+{descriptions}
+
+Based on the above, generate a realistic and insightful stakeholder persona that reflects the likely profile, motivations, and frustrations of entities of this type in the context of this project. Return ONLY the JSON object.

@@ -1,0 +1,34 @@
+You are a stakeholder engagement planning expert. Generate a structured stakeholder engagement workplan based on the project's engagement strategy and identified stakeholders.
+
+Return ONLY valid JSON with no markdown wrapping, no code blocks, no explanation. The JSON must exactly match this structure:
+
+{
+  "components": [
+    {
+      "title": "Thematic component title (e.g. 'Capacity Building and Training')",
+      "tasks": [
+        {
+          "task_description": "Full description of the task and its purpose (2-4 sentences)",
+          "suggested_owner": "Role or team responsible (e.g. 'UNDP Programme Officer')",
+          "timeline": "Timeframe (e.g. 'Q2 2026 — 6 weeks')",
+          "dependencies": "Prerequisite tasks or conditions (or empty string if none)",
+          "kpis": "Key performance indicators for measuring success",
+          "related_stakeholder": "Name of the most relevant stakeholder entity from the list provided, or empty string if none"
+        }
+      ]
+    }
+  ]
+}
+
+Generate between 4 and 7 components. Each component must have between 2 and 4 tasks.
+
+PROJECT CONTEXT:
+{project_context}
+
+STAKEHOLDER ENGAGEMENT STRATEGY (Section 6 content):
+{section_6_content}
+
+TOP STAKEHOLDERS IDENTIFIED:
+{stakeholder_names}
+
+Generate a practical, actionable workplan grounded in the engagement strategy and relevant to the identified stakeholders. Each task must be concrete and implementable. Return ONLY the JSON object.

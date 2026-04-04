@@ -112,16 +112,15 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
 
-  // Sub-pages for the active project
+  // Sub-pages for the active project — ordered to match 7-step workflow
   const projectSubPages = activeProjectId ? [
     { label: 'Initiative Profile', path: `/projects/${activeProjectId}/intake` },
-    { label: 'SMQ', path: `/projects/${activeProjectId}/smq` },
-    { label: 'Report', path: `/projects/${activeProjectId}/report` },
-    { label: 'Stakeholders', path: `/projects/${activeProjectId}/stakeholders` },
-    { label: 'Edit concept note', path: `/projects/${activeProjectId}/setup` },
     { label: 'Documents', path: `/projects/${activeProjectId}/documents` },
     { label: 'Analyze', path: `/projects/${activeProjectId}/analyze` },
     { label: 'Graph Map', path: `/projects/${activeProjectId}/map` },
+    { label: 'SMQ', path: `/projects/${activeProjectId}/smq` },
+    { label: 'Report', path: `/projects/${activeProjectId}/report` },
+    { label: 'Stakeholders', path: `/projects/${activeProjectId}/stakeholders` },
     {
       label: `Review duplicates${reviewCount > 0 ? ` (${reviewCount})` : ''}`,
       path: `/projects/${activeProjectId}/review`,

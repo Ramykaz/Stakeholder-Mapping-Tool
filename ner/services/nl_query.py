@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from ner.services.gemini_compat import generate_gemini_text
 
 if TYPE_CHECKING:
     from ingestion.models import Project
@@ -54,13 +58,41 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
     if provider == 'groq':
         from groq import Groq
         client = Groq(api_key=os.environ.get('GROQ_API_KEY', ''))
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.2,
-        )
-        return resp.choices[0].message.content.strip()
+
+        last_exc: Exception | None = None
+        for _attempt in range(4):
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[{'role': 'user', 'content': prompt}],
+                    max_tokens=max_tokens,
+                    temperature=0.2,
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as exc:
+                msg = str(exc)
+                msg_lower = msg.lower()
+                if '429' not in msg_lower and 'rate limit' not in msg_lower and 'rate_limit' not in msg_lower:
+                    raise
+
+                last_exc = exc
+                wait_seconds = 8.0
+                match = re.search(r'try again in\s*([0-9]+(?:\.[0-9]+)?)s', msg_lower)
+                if match:
+                    try:
+                        wait_seconds = max(wait_seconds, float(match.group(1)) + 1.0)
+                    except ValueError:
+                        pass
+                logger.warning(
+                    "Groq rate-limited for model %s; retrying in %.1fs",
+                    model,
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError('Groq call failed without captured exception')
 
     if provider == 'openai':
         from openai import OpenAI
@@ -91,11 +123,7 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
         return resp.choices[0].message.content.strip()
 
     if provider == 'gemini':
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ.get('GEMINI_API_KEY', ''))
-        gemini_model = genai.GenerativeModel(model)
-        resp = gemini_model.generate_content(prompt)
-        return resp.text.strip()
+        return generate_gemini_text(prompt, model)
 
     raise ValueError(f"Unsupported provider: {provider}")
 

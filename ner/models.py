@@ -513,11 +513,13 @@ class ReportSection(models.Model):
     STATUS_GENERATING = 'generating'
     STATUS_DONE = 'done'
     STATUS_ERROR = 'error'
+    STATUS_STALE = 'stale'
     STATUS_CHOICES = (
         (STATUS_PENDING, 'Pending'),
         (STATUS_GENERATING, 'Generating'),
         (STATUS_DONE, 'Done'),
         (STATUS_ERROR, 'Error'),
+        (STATUS_STALE, 'Stale'),
     )
 
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
@@ -572,3 +574,88 @@ class EngagementNote(models.Model):
 
     def __str__(self):
         return f"EngagementNote<{self.project_id}:{self.entity_id}>"
+
+
+class StakeholderPersona(models.Model):
+    """AI-generated persona card for a stakeholder entity type in a project."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='stakeholder_personas',
+    )
+    entity_type = models.ForeignKey(
+        EntityLabel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='stakeholder_personas',
+    )
+    persona_name = models.CharField(max_length=255)
+    archetype_label = models.CharField(max_length=255)
+    demographics = models.TextField()
+    motivations = models.JSONField(default=list)
+    frustrations = models.JSONField(default=list)
+    representative_entities = models.JSONField(default=list)
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_stakeholder_persona'
+        unique_together = [('project', 'entity_type')]
+        ordering = ['entity_type__name']
+
+    def __str__(self):
+        return f"StakeholderPersona<{self.project_id}:{self.entity_type_id}:{self.persona_name}>"
+
+
+class WorkplanComponent(models.Model):
+    """A thematic grouping within a project's stakeholder engagement workplan."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='workplan_components',
+    )
+    order = models.PositiveIntegerField(default=0)
+    title = models.CharField(max_length=255)
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_workplan_component'
+        ordering = ['order']
+
+    def __str__(self):
+        return f"WorkplanComponent<{self.project_id}:{self.order}:{self.title}>"
+
+
+class WorkplanTask(models.Model):
+    """One actionable task within a workplan component."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    component = models.ForeignKey(
+        WorkplanComponent,
+        on_delete=models.CASCADE,
+        related_name='tasks',
+    )
+    order = models.PositiveIntegerField(default=0)
+    task_description = models.TextField()
+    suggested_owner = models.CharField(max_length=255, blank=True, default='')
+    timeline = models.CharField(max_length=255, blank=True, default='')
+    dependencies = models.TextField(blank=True, default='')
+    kpis = models.TextField(blank=True, default='')
+    related_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='workplan_tasks',
+    )
+
+    class Meta:
+        db_table = 'ner_workplan_task'
+        ordering = ['order']
+
+    def __str__(self):
+        return f"WorkplanTask<{self.component_id}:{self.order}>"

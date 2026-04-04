@@ -3,13 +3,13 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import {
   getProject,
-  getEntityProfile,
+  getProjectEntityDetail,
   generateEntitySummary,
   flagEntity,
   getEntityTimeline,
   getStoredAuthToken,
   ProjectSummary,
-  GlobalEntityProfile,
+  ProjectEntityDetail,
   ContextualSummaryResponse,
   TimelineEntry,
 } from '@/lib/api';
@@ -21,9 +21,9 @@ interface ExternalRef {
   url?: string;
   source: string;
 }
-import TopNavigation from '@/components/layout/TopNavigation';
-import Sidebar from '@/components/layout/Sidebar';
+import Layout from '@/components/Layout';
 import ErrorMessage from '@/components/ErrorMessage';
+import EntityStakeholderAnalysis from '@/components/EntityStakeholderAnalysis';
 
 const TYPE_COLORS: Record<string, string> = {
   PERSON:       '#2ec4a5',
@@ -43,7 +43,7 @@ export default function EntityDetailPage() {
   const { id, entityId } = router.query as { id: string; entityId: string };
 
   const [project, setProject] = useState<ProjectSummary | null>(null);
-  const [profile, setProfile] = useState<GlobalEntityProfile | null>(null);
+  const [profile, setProfile] = useState<ProjectEntityDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [summary, setSummary] = useState<ContextualSummaryResponse | null>(null);
@@ -58,7 +58,7 @@ export default function EntityDetailPage() {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
     if (!id || !entityId) return;
     getProject(id).then(setProject).catch(() => {});
-    getEntityProfile(entityId)
+    getProjectEntityDetail(id, entityId)
       .then(data => {
         setProfile(data);
         setIsFlagged((data as any).is_flagged ?? false);
@@ -179,12 +179,8 @@ export default function EntityDetailPage() {
   return (
     <>
       <Head><title>{(profile as any)?.canonical_name ?? 'Entity'} — {project?.name ?? ''}</title></Head>
-      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation workspaceId={id} />
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar workspaceId={id} />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      <Layout>
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
 
               {/* Breadcrumb */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24, fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
@@ -279,6 +275,16 @@ export default function EntityDetailPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 24 }}>
+                    <EntityStakeholderAnalysis
+                      projectId={id}
+                      stakeholderPriority={profile.stakeholder_priority || null}
+                      persona={profile.persona || null}
+                      appearsInReportSections={profile.appears_in_report_sections || []}
+                      hasStakeholderTable={!!profile.has_stakeholder_table}
+                    />
                   </div>
 
                   {/* Contextual summary */}
@@ -514,10 +520,8 @@ export default function EntityDetailPage() {
                   )}
                 </>
               )}
-            </div>
-          </main>
         </div>
-      </div>
+      </Layout>
     </>
   );
 }

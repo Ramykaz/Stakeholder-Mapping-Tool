@@ -73,7 +73,7 @@ NER_PROVIDER_MODEL_ALLOWLIST = {
     'groq': ['llama-3.1-8b-instant'],
     'openai': ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'],
     'azure_openai': ['gpt-5-mini'],
-    'gemini': ['gemini-1.5-pro', 'gemini-1.5-flash'],
+    'gemini': ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 }
 
 NER_DEFAULT_PROVIDER = 'groq'
@@ -200,6 +200,7 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
+    'URL_FORMAT_OVERRIDE': None,
 }
 
 # Celery

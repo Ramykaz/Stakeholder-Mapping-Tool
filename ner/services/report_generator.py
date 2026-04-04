@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -15,6 +16,30 @@ from ner.services.nl_query import _call_provider
 from ner.services.semantic_search import embed_query, search_chunks
 
 _PROMPT_PATH = Path('prompts/report_section.txt')
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return '429' in msg or 'rate_limit_exceeded' in msg or 'rate limit' in msg
+
+
+def _is_quota_exhausted(exc: Exception) -> bool:
+    from ner.services.gemini_compat import _is_quota_exhausted as _gemini_quota
+    return _gemini_quota(str(exc).lower())
+
+
+def _friendly_error(exc: Exception) -> str:
+    """Return a clean, user-readable error message (no raw API payloads)."""
+    if _is_quota_exhausted(exc):
+        return "API quota exhausted — your free-tier limit has been reached. Switch to a different provider in Project Settings, or enable billing on your API account."
+    if _is_rate_limit_error(exc):
+        raw = str(exc)
+        match = re.search(r'try again in\s*([0-9]+(?:\.[0-9]+)?)s', raw.lower())
+        if match:
+            wait = int(float(match.group(1))) + 1
+            return f"Rate limit reached — please wait {wait} seconds and click Regenerate."
+        return "Rate limit reached — please wait a moment and click Regenerate."
+    return "Generation failed. Please try again."
 
 
 def _load_prompt_template() -> str:
@@ -105,7 +130,7 @@ def generate_report_section(project_id: str, section_id: str, custom_instruction
         )
     except Exception as exc:
         report_section.status = ReportSection.STATUS_ERROR
-        report_section.error_message = str(exc)
+        report_section.error_message = _friendly_error(exc)
         report_section.save(update_fields=['status', 'error_message', 'updated_at'])
 
 
@@ -121,7 +146,10 @@ def generate_all_sections(project: Project, section_ids: list[str], custom_instr
         report_section.citations = []
         report_section.save(update_fields=['status', 'error_message', 'generated_text', 'citations', 'updated_at'])
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    provider = (project.provider or '').strip().lower() or 'groq'
+    max_workers = 1 if provider == 'groq' else 4
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         if custom_instruction:
             futures = [
                 executor.submit(generate_report_section, str(project.id), section_id, custom_instruction)

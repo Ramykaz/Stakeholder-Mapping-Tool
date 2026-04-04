@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from django.conf import settings as django_settings
@@ -9,6 +10,11 @@ from ner.services.nl_query import _call_provider
 from ner.services.priority_table import compute_priority_scores
 from ner.services.semantic_search import search_chunks_for_entity
 
+# Only generate notes for the top N entities — keeps total token usage within free-tier limits
+_MAX_ENTITIES = 15
+# Seconds to wait between calls on Groq to avoid hitting the TPM rate limit
+_INTER_CALL_DELAY = 2.0
+
 
 def generate_notes_for_project(project_id: str) -> int:
     close_old_connections()
@@ -17,7 +23,7 @@ def generate_notes_for_project(project_id: str) -> int:
     if not project:
         return 0
 
-    top_rows = compute_priority_scores(project)[:50]
+    top_rows = compute_priority_scores(project)[:_MAX_ENTITIES]
 
     section_2 = ''
     section_6 = ''
@@ -80,6 +86,9 @@ def generate_notes_for_project(project_id: str) -> int:
 
         if not note_text:
             continue
+
+        if provider == 'groq' and generated > 0:
+            time.sleep(_INTER_CALL_DELAY)
 
         EngagementNote.objects.update_or_create(
             project=project,

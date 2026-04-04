@@ -33,6 +33,7 @@ redis==5.0.8
 # LLM
 groq==0.12.0
 openai==1.68.2
+google-generativeai==0.8.4
 httpx<0.28  # groq 0.12.0 uses 'proxies' kwarg removed in httpx 0.28
 rapidfuzz==3.13.0
 

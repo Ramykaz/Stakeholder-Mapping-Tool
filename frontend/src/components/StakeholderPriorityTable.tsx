@@ -23,18 +23,21 @@ export default function StakeholderPriorityTable({ projectId }: Props) {
   const [totalPages, setTotalPages] = useState(1);
   const [message, setMessage] = useState('');
 
-  const loadRows = useCallback(async () => {
-    if (!projectId) return;
+  const loadRows = useCallback(async (): Promise<StakeholderPriorityRow[]> => {
+    if (!projectId) return [];
     setLoading(true);
     try {
       const data = await getProjectStakeholderPriority(projectId, {
         entity_type: entityType || undefined,
         page,
       });
-      setRows(data.results || []);
+      const results = data.results || [];
+      setRows(results);
       setTotalPages(data.total_pages || 1);
+      return results;
     } catch {
       setMessage('Failed to load stakeholder priority table.');
+      return [];
     } finally {
       setLoading(false);
     }
@@ -49,18 +52,29 @@ export default function StakeholderPriorityTable({ projectId }: Props) {
   const onGenerateNotes = async () => {
     if (!projectId) return;
     setGenerating(true);
-    setMessage('');
+    setMessage('Generating engagement notes… this may take up to 30 seconds.');
     try {
       await generateProjectStakeholderNotes(projectId);
-      setMessage('Engagement note generation started.');
-      setTimeout(() => {
-        void loadRows();
-      }, 2500);
     } catch {
       setMessage('Failed to generate engagement notes.');
-    } finally {
       setGenerating(false);
+      return;
     }
+
+    // Poll every 8s for up to ~3 minutes (large projects with many entities take time)
+    let attempts = 0;
+    const poll = async () => {
+      attempts++;
+      const results = await loadRows();
+      const hasNotes = results.some((r) => r.recommended_ask || r.engagement_note);
+      if (hasNotes || attempts >= 22) {
+        setGenerating(false);
+        setMessage(hasNotes ? 'Engagement notes generated.' : 'Generation timed out — please try again.');
+      } else {
+        setTimeout(() => { void poll(); }, 8000);
+      }
+    };
+    setTimeout(() => { void poll(); }, 8000);
   };
 
   const onExportCsv = async () => {
@@ -122,15 +136,14 @@ export default function StakeholderPriorityTable({ projectId }: Props) {
               <th className="px-3 py-2 text-right">Confidence</th>
               <th className="px-3 py-2 text-right">Connections</th>
               <th className="px-3 py-2 text-right">Score</th>
-              <th className="px-3 py-2 text-left">Reasoning</th>
               <th className="px-3 py-2 text-left">Recommended Ask</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} className="px-3 py-4 text-[var(--text3)]">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-3 py-4 text-[var(--text3)]">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={10} className="px-3 py-4 text-[var(--text3)]">No stakeholders found.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-4 text-[var(--text3)]">No stakeholders found.</td></tr>
             ) : rows.map((row) => (
               <tr key={row.entity_id} className="border-t border-[var(--border)]">
                 <td className="px-3 py-2 text-[var(--text2)]">{row.rank}</td>
@@ -152,11 +165,6 @@ export default function StakeholderPriorityTable({ projectId }: Props) {
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{Math.round((row.avg_confidence || 0) * 100)}%</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.degree}</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.priority_score.toFixed(2)}</td>
-                <td className="px-3 py-2 text-[var(--text2)]" title={row.reasoning || ''}>
-                  {row.reasoning
-                    ? `${row.reasoning.slice(0, 80)}${row.reasoning.length > 80 ? '…' : ''}`
-                    : '—'}
-                </td>
                 <td className="px-3 py-2 text-[var(--text2)]" title={row.recommended_ask || row.engagement_note || ''}>
                   {row.recommended_ask
                     ? `${row.recommended_ask.slice(0, 80)}${row.recommended_ask.length > 80 ? '…' : ''}`

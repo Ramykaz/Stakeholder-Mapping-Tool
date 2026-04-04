@@ -16,7 +16,7 @@ from ner.models import ContextualEntitySummary, Entity, Relation
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_HOURS = 24
-DEFAULT_TIMEOUT_SECONDS = 8
+DEFAULT_TIMEOUT_SECONDS = 30  # Gemini can take 10-20s on first call
 
 
 def _build_evidence_hash(entity: Entity, project: Project) -> str:
@@ -70,8 +70,8 @@ def _generate_summary_text(entity: Entity, project: Project, provider: str = '',
     try:
         text = _call_provider(prompt, resolved_provider, resolved_model)
         return text, source_refs
-    except Exception:
-        logger.exception("LLM summary call failed", extra={'entity_id': str(entity.id)})
+    except Exception as exc:
+        logger.warning("LLM summary call failed: %s", type(exc).__name__, extra={'entity_id': str(entity.id)})
         raise
 
 
@@ -131,21 +131,28 @@ def get_or_generate_summary(
             'entity_id': str(entity.id),
             'project_id': str(project.id),
             'summary': None,
-            'fallback_message': 'Summary unavailable right now. Try again.',
+            'fallback_message': 'Summary timed out — please try again.',
             'retryable': True,
-            'reason': 'timeout_or_provider_unavailable',
-            'status_code': 503,
+            'reason': 'timeout',
         }
-    except Exception:
-        logger.exception("Contextual summary generation failed", extra={'entity_id': str(entity.id), 'project_id': str(project.id)})
+    except Exception as exc:
+        from ner.services.gemini_compat import _is_quota_exhausted
+        msg = str(exc).lower()
+        if _is_quota_exhausted(msg):
+            fallback = 'API quota exhausted — switch provider in Project Settings or try again tomorrow.'
+            reason = 'quota_exhausted'
+        else:
+            fallback = 'Summary unavailable right now. Please try again.'
+            reason = 'provider_error'
+        logger.warning("Contextual summary generation failed (%s): %s", reason, type(exc).__name__,
+                       extra={'entity_id': str(entity.id), 'project_id': str(project.id)})
         return {
             'entity_id': str(entity.id),
             'project_id': str(project.id),
             'summary': None,
-            'fallback_message': 'Summary unavailable right now. Try again.',
-            'retryable': True,
-            'reason': 'timeout_or_provider_unavailable',
-            'status_code': 503,
+            'fallback_message': fallback,
+            'retryable': reason != 'quota_exhausted',
+            'reason': reason,
         }
 
     provider_label = resolved_provider or 'internal'

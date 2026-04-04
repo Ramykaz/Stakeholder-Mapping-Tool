@@ -485,7 +485,7 @@ export interface ProjectSMQResponse {
   answers: ProjectSMQAnswer[];
 }
 
-export type ReportStatus = 'pending' | 'generating' | 'done' | 'error';
+export type ReportStatus = 'pending' | 'generating' | 'done' | 'error' | 'stale';
 
 export interface ReportSectionResponse {
   section_id: string;
@@ -544,6 +544,31 @@ export interface GlobalEntityProfile {
     supporting_excerpts: string[];
   }>;
   projects: Array<{ id: string; name: string }>;
+}
+
+export interface EntityStakeholderPriority {
+  rank: number | null;
+  category: string;
+  priority: 'High' | 'Medium' | 'Low';
+  priority_reason: string;
+  ask_request: string;
+}
+
+export interface EntityPersonaRef {
+  archetype_label: string;
+  persona_name: string;
+}
+
+export interface EntityReportSectionRef {
+  section_number: number;
+  report_chapter_title: string;
+}
+
+export interface ProjectEntityDetail extends GlobalEntityProfile {
+  stakeholder_priority?: EntityStakeholderPriority | null;
+  persona?: EntityPersonaRef | null;
+  appears_in_report_sections?: EntityReportSectionRef[];
+  has_stakeholder_table?: boolean;
 }
 
 export interface ContextualSummaryResponse {
@@ -891,6 +916,11 @@ export async function getGlobalEntityProfile(entityId: string): Promise<GlobalEn
 
 export async function getEntityProfile(entityId: string): Promise<GlobalEntityProfile> {
   const response = await apiClient.get(`/api/v1/entities/${entityId}/profile/`);
+  return response.data;
+}
+
+export async function getProjectEntityDetail(projectId: string, entityId: string): Promise<ProjectEntityDetail> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/entities/${entityId}/`);
   return response.data;
 }
 
@@ -1372,6 +1402,180 @@ export async function downloadProjectExport(
   const disposition = (response.headers['content-disposition'] as string) || '';
   const match = disposition.match(/filename="?([^"]+)"?/);
   const filename = match ? match[1] : `export_${type}`;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+// ── US-014: Stakeholder Personas ─────────────────────────────────────────────
+
+export interface StakeholderPersonaResponse {
+  id: string;
+  entity_type_id: string | null;
+  entity_type_label: string | null;
+  persona_name: string;
+  archetype_label: string;
+  demographics: string;
+  motivations: string[];
+  frustrations: string[];
+  representative_entities: Array<{ id: string; name: string }>;
+  generated_at: string;
+}
+
+export interface PersonaListResponse {
+  count: number;
+  results: StakeholderPersonaResponse[];
+}
+
+export async function getProjectPersonas(projectId: string): Promise<PersonaListResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/personas/`);
+  return response.data;
+}
+
+export async function generateProjectPersonas(projectId: string): Promise<{ status: string; message: string }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/personas/generate/`);
+  return response.data;
+}
+
+// ── US-014: Workplan ──────────────────────────────────────────────────────────
+
+export interface WorkplanTaskResponse {
+  id: string;
+  order: number;
+  task_description: string;
+  suggested_owner: string;
+  timeline: string;
+  dependencies: string;
+  kpis: string;
+  related_entity: { id: string; name: string; entity_type: string | null } | null;
+}
+
+export interface WorkplanComponentResponse {
+  id: string;
+  order: number;
+  title: string;
+  generated_at: string;
+  tasks: WorkplanTaskResponse[];
+}
+
+export interface WorkplanResponse {
+  project: string;
+  generated: boolean;
+  components: WorkplanComponentResponse[];
+}
+
+export interface WorkplanStatusResponse {
+  generated: boolean;
+  section_6_complete: boolean;
+  component_count: number;
+  task_count: number;
+}
+
+export async function getProjectWorkplan(projectId: string): Promise<WorkplanResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/workplan/`);
+  return response.data;
+}
+
+export async function getProjectWorkplanStatus(projectId: string): Promise<WorkplanStatusResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/workplan/status/`);
+  return response.data;
+}
+
+export async function generateProjectWorkplan(projectId: string): Promise<{ status: string; message: string }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/workplan/generate/`);
+  return response.data;
+}
+
+// ── US-014: Workflow ──────────────────────────────────────────────────────────
+
+export interface WorkflowStep {
+  number: number;
+  label: string;
+  complete: boolean;
+  url: string;
+  description: string;
+}
+
+export interface WorkflowStatus {
+  current_step: number;
+  steps: WorkflowStep[];
+}
+
+export async function getProjectWorkflow(projectId: string): Promise<WorkflowStatus> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/workflow/`);
+  return response.data;
+}
+
+// ── US-014: Staleness ─────────────────────────────────────────────────────────
+
+export interface ReportStalenessResponse {
+  stale_sections: number[];
+  stakeholder_table_stale: boolean;
+  new_entity_count: number;
+}
+
+export async function getReportStaleness(projectId: string): Promise<ReportStalenessResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/staleness/`);
+  return response.data;
+}
+
+export async function keepReportSectionCurrent(projectId: string, sectionId: string): Promise<{ status: string; section_id: string }> {
+  const response = await apiClient.patch(`/api/v1/projects/${projectId}/report/${sectionId}/keep/`);
+  return response.data;
+}
+
+export async function keepStakeholderTableCurrent(projectId: string): Promise<{ status: string; stakeholder_table_stale: boolean }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/stakeholders/priority/keep-current/`);
+  return response.data;
+}
+
+// ── US-014: Export ────────────────────────────────────────────────────────────
+
+export interface ReportExportStatus {
+  can_export: boolean;
+  complete_sections: number;
+  total_sections: number;
+  has_stakeholder_table: boolean;
+  has_personas: boolean;
+  section_statuses: Array<{ section_number: number; title: string; status: string }>;
+}
+
+export async function getReportExportStatus(projectId: string): Promise<ReportExportStatus> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/export/status/`);
+  return response.data;
+}
+
+export async function downloadReportPdf(projectId: string): Promise<void> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/export/?format=pdf`, {
+    responseType: 'blob',
+  });
+  const blob = new Blob([response.data as BlobPart], { type: 'application/pdf' });
+  const disposition = (response.headers['content-disposition'] as string) || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : 'stakeholder_analysis.pdf';
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+export async function downloadReportDocx(projectId: string): Promise<void> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/export/?format=docx`, {
+    responseType: 'blob',
+  });
+  const blob = new Blob([response.data as BlobPart], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+  const disposition = (response.headers['content-disposition'] as string) || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : 'stakeholder_analysis.docx';
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;

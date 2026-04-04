@@ -9,8 +9,7 @@ import {
   ProjectSummary,
   ReviewCandidateList,
 } from '@/lib/api';
-import TopNavigation from '@/components/layout/TopNavigation';
-import Sidebar from '@/components/layout/Sidebar';
+import Layout from '@/components/Layout';
 
 export default function ReviewPage() {
   const router = useRouter();
@@ -55,19 +54,9 @@ export default function ReviewPage() {
   return (
     <>
       <Head><title>Review Duplicates — {project?.name ?? ''}</title></Head>
-      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation workspaceId={id} />
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar workspaceId={id} />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      <Layout title="Review Duplicates" subtitle="Borderline matches found by the deduplication algorithm. Merge to consolidate, or keep separate.">
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
               <div style={{ marginBottom: 24 }}>
-                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 6 }}>
-                  Review Duplicates
-                </h1>
-                <p style={{ color: 'var(--text3)', fontSize: 13 }}>
-                  Borderline matches found by the deduplication algorithm. Merge to consolidate, or keep separate.
-                </p>
               </div>
 
               {loading && (
@@ -140,10 +129,8 @@ export default function ReviewPage() {
                   </div>
                 </div>
               ))}
-            </div>
-          </main>
         </div>
-      </div>
+      </Layout>
     </>
   );
 }

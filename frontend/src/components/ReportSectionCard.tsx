@@ -8,10 +8,16 @@ interface ReportSectionCardProps {
   busy?: boolean;
 }
 
+function isRateLimit(msg: string | null | undefined): boolean {
+  const m = (msg || '').toLowerCase();
+  return m.includes('rate limit') || m.includes('rate_limit');
+}
+
 function statusLabel(status: ReportSectionResponse['status']) {
   if (status === 'pending') return 'Pending';
   if (status === 'generating') return 'Generating';
   if (status === 'done') return 'Done';
+  if (status === 'stale') return 'Stale';
   return 'Error';
 }
 
@@ -43,7 +49,20 @@ export default function ReportSectionCard({ section, onRegenerate, onSaveEdit, b
       ) : section.status === 'done' && section.generated_text ? (
         <p className="text-sm text-[var(--text2)] whitespace-pre-wrap">{section.generated_text}</p>
       ) : section.status === 'error' ? (
-        <p className="text-sm text-[var(--coral,#f0614a)]">{section.error_message || 'Generation failed.'}</p>
+        <div style={{
+          padding: '10px 14px',
+          borderRadius: 8,
+          background: isRateLimit(section.error_message) ? '#FFFBEB' : 'rgba(240,97,74,0.08)',
+          border: `1px solid ${isRateLimit(section.error_message) ? '#F59E0B' : 'rgba(240,97,74,0.3)'}`,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>{isRateLimit(section.error_message) ? '⏳' : '⚠'}</span>
+          <p className="text-sm" style={{ color: isRateLimit(section.error_message) ? '#92400E' : 'var(--coral,#f0614a)', margin: 0 }}>
+            {section.error_message || 'Generation failed.'}
+          </p>
+        </div>
       ) : (
         <p className="text-sm text-[var(--text3)]">Section not generated yet.</p>
       )}

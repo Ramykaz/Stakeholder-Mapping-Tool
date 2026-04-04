@@ -7,6 +7,7 @@ import json
 import httpx
 
 from ner.services.openai_client import _parse_entities_response
+from ner.services.gemini_compat import DEFAULT_GEMINI_MODEL, normalize_gemini_model
 
 
 def extract_joint_from_chunk(
@@ -40,7 +41,11 @@ def extract_joint_from_chunk(
         if names:
             prompt_parts.append(f"Allowed relationship types: {', '.join(names)}")
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    resolved_model = normalize_gemini_model(model)
+    model_candidates = [resolved_model]
+    if resolved_model != DEFAULT_GEMINI_MODEL:
+        model_candidates.append(DEFAULT_GEMINI_MODEL)
+
     body = {
         'contents': [
             {
@@ -56,9 +61,27 @@ def extract_joint_from_chunk(
         },
     }
 
-    resp = httpx.post(url, params={'key': api_key}, json=body, timeout=60)
-    resp.raise_for_status()
-    payload = resp.json()
+    payload = None
+    last_error_text = ''
+    for candidate_model in model_candidates:
+        for api_version in ('v1beta', 'v1'):
+            url = f"https://generativelanguage.googleapis.com/{api_version}/models/{candidate_model}:generateContent"
+            resp = httpx.post(url, params={'key': api_key}, json=body, timeout=60)
+            if resp.status_code >= 400:
+                body_text = (resp.text or '').lower()
+                last_error_text = body_text
+                if resp.status_code == 404 and ('not found' in body_text or 'not supported' in body_text):
+                    continue
+                resp.raise_for_status()
+            payload = resp.json()
+            break
+        if payload is not None:
+            break
+
+    if payload is None:
+        raise RuntimeError(
+            f"Gemini generateContent failed for models {model_candidates}. Last error: {last_error_text[:400]}"
+        )
 
     text = '{}'
     try:

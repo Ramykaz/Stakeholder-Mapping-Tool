@@ -5,6 +5,7 @@ import {
   getProject,
   getProjectDocuments,
   getProjectDocumentsWithStats,
+  getReportStaleness,
   uploadDocumentToProject,
   deleteProjectDocument,
   getProjectDocumentStatus,
@@ -15,12 +16,10 @@ import {
 } from '@/lib/api';
 import { getStatusBadgeClass } from '@/lib/entityTypes';
 import { formatFileSize } from '@/lib/uiState';
-import TopNavigation from '@/components/layout/TopNavigation';
-import Sidebar from '@/components/layout/Sidebar';
+import Layout from '@/components/Layout';
 import EmptyState from '@/components/EmptyState';
 import ErrorMessage from '@/components/ErrorMessage';
 
-const STEPS = ['Concept Note', 'Upload Documents', 'Analyze & Explore'];
 const POLLING_INTERVAL = 3000;
 const TERMINAL_STATUSES = ['completed', 'failed'];
 
@@ -48,6 +47,7 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
+  const [staleToastVisible, setStaleToastVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -98,11 +98,13 @@ export default function DocumentsPage() {
     if (!id) return;
     setUploading(true);
     setError('');
+    let uploadSucceeded = false;
     const fileArr = Array.from(files);
     for (const file of fileArr) {
       try {
         const doc = await uploadDocumentToProject(id, file);
         setDocuments(prev => [doc, ...prev]);
+        uploadSucceeded = true;
       } catch (err: any) {
         setError(err.message || `Failed to upload ${file.name}`);
       }
@@ -110,6 +112,17 @@ export default function DocumentsPage() {
     setUploading(false);
     // Refresh the full list to get annotated entity counts
     loadDocuments();
+
+    if (uploadSucceeded) {
+      try {
+        const staleness = await getReportStaleness(id);
+        if ((staleness.stale_sections || []).length > 0) {
+          setStaleToastVisible(true);
+        }
+      } catch {
+        // non-blocking
+      }
+    }
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -139,48 +152,8 @@ export default function DocumentsPage() {
   return (
     <>
       <Head><title>Documents — {project?.name ?? 'Upload'}</title></Head>
-      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation workspaceId={id} />
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar workspaceId={id} />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
-
-              {/* Progress indicator */}
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 40 }}>
-                {STEPS.map((label, i) => (
-                  <React.Fragment key={label}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                      <div style={{
-                        width: 32, height: 32, borderRadius: '50%',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: 'var(--mono)', fontSize: 12,
-                        background: i === 0 ? 'var(--teal)' : i === 1 ? 'var(--accent)' : 'transparent',
-                        color: i < 2 ? '#fff' : 'var(--text2)',
-                        border: i >= 2 ? '1px solid var(--border2)' : 'none',
-                      }}>
-                        {i === 0 ? '✓' : i + 1}
-                      </div>
-                      <span style={{ fontSize: 11, color: i === 1 ? 'var(--text)' : 'var(--text3)', whiteSpace: 'nowrap' }}>
-                        {label}
-                      </span>
-                    </div>
-                    {i < STEPS.length - 1 && (
-                      <div style={{ flex: 1, height: 1, background: 'var(--border)', margin: '0 8px', marginBottom: 20 }}/>
-                    )}
-                  </React.Fragment>
-                ))}
-              </div>
-
-              {/* Header */}
-              <div style={{ marginBottom: 24 }}>
-                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: '#fff', marginBottom: 4 }}>
-                  Upload documents
-                </h1>
-                <p style={{ color: 'var(--text2)', fontSize: 13 }}>
-                  Add PDFs, Word files, or text documents. Each is processed to extract stakeholder entities.
-                </p>
-              </div>
+      <Layout title="Documents" subtitle="Upload PDFs, Word files, or text documents for entity extraction">
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
 
               {/* Error */}
               {error && (
@@ -348,10 +321,10 @@ export default function DocumentsPage() {
               {/* Bottom CTA */}
               <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <button
-                  onClick={() => void router.push(`/projects/${id}/setup`)}
+                  onClick={() => void router.push(`/projects/${id}/intake`)}
                   className="btn-ghost"
                 >
-                  ← Back to concept note
+                  ← Back to initiative profile
                 </button>
                 <button
                   onClick={() => void router.push(`/projects/${id}/analyze`)}
@@ -362,10 +335,53 @@ export default function DocumentsPage() {
                 </button>
               </div>
 
-            </div>
-          </main>
+              {staleToastVisible && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    right: 20,
+                    bottom: 20,
+                    maxWidth: 360,
+                    background: '#FFFBEB',
+                    border: '1px solid #F59E0B',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 10 }}>
+                    <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.4 }}>
+                      Your report was generated before this document was added.
+                      <button
+                        onClick={() => void router.push(`/projects/${id}/report`)}
+                        style={{
+                          marginLeft: 6,
+                          background: 'none',
+                          border: 'none',
+                          color: '#007A87',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          padding: 0,
+                          fontSize: 12,
+                        }}
+                      >
+                        View report →
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setStaleToastVisible(false)}
+                      style={{ background: 'none', border: 'none', color: '#92400E', cursor: 'pointer', fontSize: 14, padding: 0 }}
+                      aria-label="Dismiss notification"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
+
         </div>
-      </div>
+      </Layout>
     </>
   );
 }

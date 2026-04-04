@@ -15,6 +15,9 @@ from .models import (
     ProjectSMQResponse,
     ProjectSMQAnswer,
     ReportSection,
+    StakeholderPersona,
+    WorkplanComponent,
+    WorkplanTask,
 )
 
 
@@ -393,7 +396,6 @@ class StakeholderPrioritySerializer(serializers.Serializer):
     name = serializers.CharField()
     category = serializers.CharField(required=False, allow_blank=True)
     priority_level = serializers.CharField(required=False, allow_blank=True)
-    reasoning = serializers.CharField(required=False, allow_blank=True)
     recommended_ask = serializers.CharField(allow_null=True, required=False)
     entity_type = serializers.CharField()
     mention_count = serializers.IntegerField()
@@ -401,3 +403,69 @@ class StakeholderPrioritySerializer(serializers.Serializer):
     degree = serializers.IntegerField()
     priority_score = serializers.FloatField()
     engagement_note = serializers.CharField(allow_null=True, required=False)
+
+
+class StakeholderPersonaSerializer(serializers.ModelSerializer):
+    entity_type_id = serializers.UUIDField(source='entity_type.id', read_only=True, allow_null=True)
+    entity_type_label = serializers.SerializerMethodField()
+
+    def get_entity_type_label(self, obj):
+        return obj.entity_type.name if obj.entity_type else None
+
+    class Meta:
+        model = StakeholderPersona
+        fields = [
+            'id',
+            'entity_type_id',
+            'entity_type_label',
+            'persona_name',
+            'archetype_label',
+            'demographics',
+            'motivations',
+            'frustrations',
+            'representative_entities',
+            'generated_at',
+        ]
+        read_only_fields = fields
+
+
+class WorkplanTaskSerializer(serializers.ModelSerializer):
+    related_entity = serializers.SerializerMethodField()
+
+    def get_related_entity(self, obj):
+        if obj.related_entity:
+            return {
+                'id': str(obj.related_entity.id),
+                'name': obj.related_entity.canonical_name,
+                'entity_type': obj.related_entity.entity_type.label if obj.related_entity.entity_type else None,
+            }
+        return None
+
+    class Meta:
+        model = WorkplanTask
+        fields = [
+            'id',
+            'order',
+            'task_description',
+            'suggested_owner',
+            'timeline',
+            'dependencies',
+            'kpis',
+            'related_entity',
+        ]
+        read_only_fields = fields
+
+
+class WorkplanComponentSerializer(serializers.ModelSerializer):
+    tasks = WorkplanTaskSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = WorkplanComponent
+        fields = [
+            'id',
+            'order',
+            'title',
+            'generated_at',
+            'tasks',
+        ]
+        read_only_fields = fields

@@ -19,6 +19,15 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
   const { current_step, steps } = workflow;
   const [mobileStep, setMobileStep] = useState(current_step - 1); // 0-indexed
 
+  const getStepUrl = (step: { number: number; url: string }) => {
+    const rawUrl = step.url || '';
+    const isLegacyProjectRoot = /^\/projects\/[^/]+\/?$/.test(rawUrl);
+    if (step.number === 4 && isLegacyProjectRoot) {
+      return `${rawUrl.replace(/\/$/, '')}/map`;
+    }
+    return rawUrl;
+  };
+
   const currentStepData = steps[mobileStep] || steps[current_step - 1];
 
   return (
@@ -40,7 +49,7 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
                 <div
                   className="flex-1 h-px"
                   style={{
-                    background: prevComplete ? '#007A87' : '#D1D5DB',
+                    background: prevComplete ? '#007A87' : 'var(--border2)',
                     borderStyle: prevComplete ? 'solid' : 'dashed',
                   }}
                 />
@@ -48,7 +57,7 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
 
               {/* Step circle + label */}
               <button
-                onClick={() => router.push(step.url)}
+                onClick={() => router.push(getStepUrl(step))}
                 className="flex flex-col items-center gap-1 group shrink-0"
                 title={step.label}
               >
@@ -67,16 +76,16 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
                         }
                       : {
                           background: 'transparent',
-                          color: '#9CA3AF',
-                          border: '2px solid #E5E7EB',
+                          color: 'var(--text)',
+                          border: '2px solid var(--border2)',
                         }
                   }
                 >
                   {isComplete ? <CheckIcon /> : step.number}
                 </div>
                 <span
-                  className="text-[10px] leading-tight text-center max-w-[60px]"
-                  style={{ color: isActive || isComplete ? '#007A87' : '#9CA3AF' }}
+                  className="text-xs leading-tight text-center max-w-[60px]"
+                  style={{ color: isActive || isComplete ? 'var(--teal)' : 'var(--text)' }}
                 >
                   {step.label}
                 </span>
@@ -100,7 +109,7 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
         </button>
 
         <button
-          onClick={() => router.push(currentStepData.url)}
+          onClick={() => router.push(getStepUrl(currentStepData))}
           className="flex-1 text-center text-sm font-medium text-[var(--text)]"
         >
           Step {currentStepData.number} of {steps.length} —{' '}

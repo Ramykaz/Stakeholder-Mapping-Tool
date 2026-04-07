@@ -1,10 +1,38 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import cytoscape, { Core, Layouts } from 'cytoscape';
-import { buildCytoscapeStylesheet, TYPE_PALETTE } from '@/lib/cytoscapeStyle';
+import * as d3 from 'd3';
+import { TYPE_PALETTE } from '@/lib/cytoscapeStyle';
 import { computeTwoHopNeighborhood, computeClusterPositions } from '@/lib/graphFocus';
-import { getActiveTheme, Theme, DEFAULT_FILTER_STATE } from '@/lib/uiState';
+import { getActiveTheme, Theme } from '@/lib/uiState';
 import { CytoscapeNode, CytoscapeEdge } from '@/types';
 
+/**
+ * GraphVisualization contract inventory (US2 T023)
+ *
+ * Input props contract:
+ * - `nodes` (required): canonical node list; each node id must be stable and unique.
+ * - `edges` (optional): relationship list keyed by source/target node ids.
+ * - `onNodeClick`: fired on node tap/click with reconstructed `CytoscapeNode` and `{ shiftKey }`.
+ * - `onBackgroundClick`: fired when graph background is clicked.
+ * - `onFocusExit`: fired when persistent focus mode exits (escape or explicit exit).
+ * - `highlightNodeIds`: external search highlighting ids.
+ * - `focusNodeIds`: external dimming focus ids, used only when internal focus mode is not active.
+ * - `centerNodeId`: optional node to center/zoom to after render.
+ * - `command`: imperative action channel using `{ type, nonce }` where type ∈
+ *   `zoomIn | zoomOut | fit | reset | png`.
+ * - `fontSize`, `showControls`, `height`, `showFilterPanel`, `showLegend`: presentation controls.
+ *
+ * Interaction contract:
+ * - Node click always enters/updates internal focus mode (default 2-hop) and keeps callback parity.
+ * - Background click clears internal focus mode and preserves callback parity.
+ * - Hover neighborhood dimming is disabled while internal focus mode is active.
+ * - Escape key exits internal focus mode.
+ *
+ * Rendering/layout contract:
+ * - D3 force simulation provides core rendering/layout.
+ * - Initial render uses deterministic seeded positions before simulation settles.
+ * - Theme and font-size updates are reactive after mount.
+ * - ResizeObserver keeps viewport and force center aligned with container size.
+ */
 interface GraphVisualizationProps {
   nodes: CytoscapeNode[];
   edges?: CytoscapeEdge[];
@@ -12,22 +40,48 @@ interface GraphVisualizationProps {
   onBackgroundClick?: () => void;
   onFocusExit?: () => void;
   highlightNodeIds?: string[];
-  /** External focus (e.g. from search). Ignored when internal focus mode is active. */
   focusNodeIds?: string[];
   centerNodeId?: string | null;
   command?: { type: 'zoomIn' | 'zoomOut' | 'fit' | 'reset' | 'png'; nonce: number } | null;
   fontSize?: number;
   showControls?: boolean;
   height?: number;
-  /** Show the collapsible filter + cluster panel */
   showFilterPanel?: boolean;
-  /** Show the size legend overlay */
   showLegend?: boolean;
 }
 
 interface FocusMode {
   nodeId: string;
   hopRadius: 1 | 2;
+}
+
+interface SimNode {
+  id: string;
+  label: string;
+  entity_type?: string;
+  confidence?: number;
+  document_id?: string;
+  chunk_id?: string | null;
+  raw_mentions_count?: number;
+  color: string;
+  degree: number;
+  node_size: number;
+  x: number;
+  y: number;
+  vx?: number;
+  vy?: number;
+  fx?: number | null;
+  fy?: number | null;
+}
+
+interface SimEdge {
+  id: string;
+  source: string | SimNode;
+  target: string | SimNode;
+  label?: string;
+  confidence?: number;
+  edge_width: number;
+  sourceType: string;
 }
 
 function GraphVisualizationInner({
@@ -47,47 +101,30 @@ function GraphVisualizationInner({
   showLegend = false,
 }: GraphVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const cyRef = useRef<Core | null>(null);
-  const layoutRef = useRef<Layouts | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const viewportGroupRef = useRef<SVGGElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const roRef = useRef<ResizeObserver | null>(null);
+
   const onNodeClickRef = useRef(onNodeClick);
   const onBackgroundClickRef = useRef(onBackgroundClick);
   const onFocusExitRef = useRef(onFocusExit);
-
   useEffect(() => { onNodeClickRef.current = onNodeClick; }, [onNodeClick]);
   useEffect(() => { onBackgroundClickRef.current = onBackgroundClick; }, [onBackgroundClick]);
   useEffect(() => { onFocusExitRef.current = onFocusExit; }, [onFocusExit]);
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
   const [theme, setTheme] = useState<Theme>(getActiveTheme);
-
   useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setTheme(getActiveTheme());
-    });
+    const observer = new MutationObserver(() => setTheme(getActiveTheme()));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     return () => observer.disconnect();
   }, []);
 
-  // Apply theme to cy and container when theme changes
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    const isDark = theme === 'dark';
-    const bg = isDark ? '#0d1220' : '#f0ece2';
-    if (containerRef.current) containerRef.current.style.background = bg;
-    cyRef.current.style(buildCytoscapeStylesheet(theme) as any);
-    cyRef.current.style()
-      .selector('node').style({ 'font-size': `${fontSize}px` })
-      .selector('edge').style({ 'font-size': `${Math.max(7, fontSize - 2)}px` })
-      .update();
-  }, [theme, fontSize]);
-
-  // ── Filter state ──────────────────────────────────────────────────────────
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [filterEntityTypes, setFilterEntityTypes] = useState<string[]>([]);
   const [filterConfMin, setFilterConfMin] = useState(0);
   const [filterDegMin, setFilterDegMin] = useState(0);
+  const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true);
   const [clusterMode, setClusterMode] = useState<'none' | 'type'>('none');
 
   const allEntityTypes = useMemo(
@@ -95,11 +132,10 @@ function GraphVisualizationInner({
     [nodes],
   );
   const maxDegree = useMemo(
-    () => Math.max(1, ...nodes.map(n => n.data.degree ?? 0)),
+    () => Math.max(1, ...nodes.map(n => n.data.degree ?? n.degree ?? 0)),
     [nodes],
   );
 
-  // ── Focus mode ────────────────────────────────────────────────────────────
   const [focusMode, setFocusMode] = useState<FocusMode | null>(null);
   const focusModeRef = useRef(focusMode);
   useEffect(() => { focusModeRef.current = focusMode; }, [focusMode]);
@@ -109,7 +145,6 @@ function GraphVisualizationInner({
     onFocusExitRef.current?.();
   }, []);
 
-  // Escape key exits focus mode
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && focusModeRef.current) exitFocusMode();
@@ -118,389 +153,694 @@ function GraphVisualizationInner({
     return () => document.removeEventListener('keydown', handler);
   }, [exitFocusMode]);
 
-  // ── Graph lifecycle ───────────────────────────────────────────────────────
-  const destroyCy = useCallback(() => {
-    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
-    if (layoutRef.current) {
-      try { layoutRef.current.stop(); } catch { /* ignore */ }
-      layoutRef.current = null;
-    }
-    if (cyRef.current) {
-      try { cyRef.current.destroy(); } catch { /* ignore */ }
-      cyRef.current = null;
-    }
-  }, []);
-
-  const runInitialLayout = useCallback((cy: Core) => {
-    // Concentric layout: hub nodes (high degree) in centre, leaf nodes at perimeter.
-    // Guaranteed no overlap, instant, always fits the viewport.
-    if (!cy || cy.destroyed()) return;
-    try {
-      const layout = cy.layout({
-        name: 'concentric',
-        concentric: (node: any) => (node.data('degree') ?? 0) + 1,
-        levelWidth: () => 3,
-        minNodeSpacing: 28,
-        spacingFactor: 1.5,
-        avoidOverlap: true,
-        animate: true,
-        animationDuration: 700,
-        fit: true,
-        padding: 60,
-      } as any);
-      layoutRef.current = layout;
-      layout.on('layoutstop', () => {
-        if (!cy || cy.destroyed()) return;
-        cy.fit(undefined, 60);
-      });
-      layout.run();
-    } catch {
-      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 60, fit: true }).run(); } catch { /* ignore */ }
-    }
-  }, []);
-
-  const runLayout = useCallback((cy: Core, opts: Record<string, unknown> = {}) => {
-    // Force-directed cose layout — used for "reset layout" after user interaction.
-    if (!cy || cy.destroyed()) return;
-    try {
-      const layout = cy.layout({
-        name: 'cose',
-        animate: true,
-        animationDuration: 800,
-        nodeRepulsion: function() { return 8000; },
-        nodeOverlap: 20,
-        idealEdgeLength: function() { return 90; },
-        edgeElasticity: function() { return 100; },
-        nestingFactor: 1.2,
-        gravity: 80,
-        numIter: 1000,
-        initialTemp: 200,
-        coolingFactor: 0.95,
-        minTemp: 1.0,
-        fit: true,
-        padding: 60,
-        randomize: false,
-        ...opts,
-      } as any);
-      layoutRef.current = layout;
-      layout.on('layoutstop', () => {
-        if (!cy || cy.destroyed()) return;
-        cy.fit(undefined, 60);
-      });
-      layout.run();
-    } catch {
-      try { cy.layout({ name: 'grid', avoidOverlap: true, padding: 60, fit: true }).run(); } catch { /* ignore */ }
-    }
-  }, []);
-
-  const initGraph = useCallback(() => {
+  const [viewportSize, setViewportSize] = useState({ width: 1200, height: Math.max(360, height) });
+  useEffect(() => {
     if (!containerRef.current) return;
-    destroyCy();
+    const update = () => {
+      if (!containerRef.current) return;
+      const width = Math.max(320, containerRef.current.clientWidth || 1200);
+      const h = showControls ? height : Math.max(360, containerRef.current.clientHeight || height || 600);
+      setViewportSize({ width, height: h });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(containerRef.current);
+    roRef.current = ro;
+    return () => {
+      if (roRef.current) roRef.current.disconnect();
+      roRef.current = null;
+    };
+  }, [height, showControls]);
 
-    const isDark = getActiveTheme() === 'dark';
-    const bg = isDark ? '#0d1220' : '#f0ece2';
+  const baseVisibleNodes = useMemo(() => {
+    return nodes.filter((node) => {
+      if (filterEntityTypes.length > 0 && !filterEntityTypes.includes(node.data.entity_type)) return false;
+      if (filterConfMin > 0 && ((node.data.confidence ?? 1) * 100 < filterConfMin)) return false;
+      if (filterDegMin > 0 && ((node.data.degree ?? node.degree ?? 0) < filterDegMin)) return false;
+      return true;
+    });
+  }, [nodes, filterEntityTypes, filterConfMin, filterDegMin]);
 
-    const nodeTypeMap = new Map(nodes.map(n => [n.id, n.data.entity_type || 'DEFAULT']));
+  const baseVisibleNodeIdSet = useMemo(() => new Set(baseVisibleNodes.map(n => n.id)), [baseVisibleNodes]);
 
-    const cy = cytoscape({
-      container: containerRef.current,
-      elements: [
-        ...nodes.map(node => ({
-          data: {
-            id: node.id,
-            label: node.label,
-            entity_type: node.data.entity_type,
-            confidence: node.data.confidence,
-            document_id: node.data.document_id,
-            chunk_id: node.data.chunk_id,
-            raw_mentions_count: node.data.raw_mentions_count,
-            color: node.data.color || '#7b8299',
-            degree: node.data.degree ?? node.degree ?? 0,
-            node_size: node.data.node_size ?? 44,
-          },
-        })),
-        ...(edges || []).map((edge, idx) => ({
-          data: {
-            id: edge.id || `edge-${idx}`,
-            source: edge.source,
-            target: edge.target,
-            label: edge.label,
-            confidence: edge.confidence,
-            edge_width: edge.edge_width || 1.5,
-            sourceType: nodeTypeMap.get(edge.source) || 'DEFAULT',
-          },
-        })),
-      ],
-      style: buildCytoscapeStylesheet(isDark ? 'dark' : 'light') as any,
-      layout: { name: 'preset' },
-      minZoom: 0.25,
-      maxZoom: 3.5,
-      wheelSensitivity: 0.3,
-      userZoomingEnabled: true,
-      userPanningEnabled: true,
-      boxSelectionEnabled: false,
-    } as any);
+  const baseVisibleEdges = useMemo(() => {
+    return (edges || []).filter(edge => baseVisibleNodeIdSet.has(edge.source) && baseVisibleNodeIdSet.has(edge.target));
+  }, [edges, baseVisibleNodeIdSet]);
 
-    if (containerRef.current) containerRef.current.style.background = bg;
-    cyRef.current = cy;
+  const baseDegreeMap = useMemo(() => {
+    const degreeMap = new Map<string, number>();
+    baseVisibleNodes.forEach((node) => degreeMap.set(node.id, 0));
+    baseVisibleEdges.forEach((edge) => {
+      degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1);
+      degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1);
+    });
+    return degreeMap;
+  }, [baseVisibleNodes, baseVisibleEdges]);
 
-    // ResizeObserver — keep canvas sized to its container
-    if (containerRef.current) {
-      const ro = new ResizeObserver(() => {
-        if (!cyRef.current || cyRef.current.destroyed()) return;
-        cyRef.current.resize();
-        cyRef.current.fit(undefined, 60);
-      });
-      ro.observe(containerRef.current);
-      roRef.current = ro;
-    }
+  const isolatedNodeIds = useMemo(() => {
+    const isolated = new Set<string>();
+    baseDegreeMap.forEach((degree, nodeId) => {
+      if (degree === 0) isolated.add(nodeId);
+    });
+    return isolated;
+  }, [baseDegreeMap]);
 
-    // Node click → onNodeClick + enter/switch focus mode
-    cy.on('tap', 'node', (evt) => {
-      const nodeData = evt.target.data();
-      const shiftKey = Boolean((evt.originalEvent as any)?.shiftKey);
-      const clickedNode: CytoscapeNode = {
-        id: nodeData.id,
-        label: nodeData.label,
-        degree: nodeData.degree,
-        style: { shape: 'ellipse', color: nodeData.color },
-        data: {
-          entity_id: nodeData.id,
-          entity_type: nodeData.entity_type,
-          confidence: nodeData.confidence,
-          document_id: nodeData.document_id,
-          chunk_id: nodeData.chunk_id,
-          raw_mentions_count: nodeData.raw_mentions_count,
-          shape: 'ellipse',
-          color: nodeData.color,
-          degree: nodeData.degree,
-          node_size: nodeData.node_size,
-        },
+  const visibleNodes = useMemo(() => {
+    if (!hideIsolatedNodes) return baseVisibleNodes;
+    return baseVisibleNodes.filter((node) => !isolatedNodeIds.has(node.id));
+  }, [hideIsolatedNodes, baseVisibleNodes, isolatedNodeIds]);
+
+  const visibleNodeIdSet = useMemo(() => new Set(visibleNodes.map(n => n.id)), [visibleNodes]);
+
+  const visibleEdges = useMemo(() => {
+    return baseVisibleEdges.filter(edge => visibleNodeIdSet.has(edge.source) && visibleNodeIdSet.has(edge.target));
+  }, [baseVisibleEdges, visibleNodeIdSet]);
+
+  const seededNodes = useMemo<SimNode[]>(() => {
+    const width = viewportSize.width;
+    const h = viewportSize.height;
+    const cx = width / 2;
+    const cy = h / 2;
+    const sorted = [...visibleNodes].sort((a, b) => (b.data.degree ?? b.degree ?? 0) - (a.data.degree ?? a.degree ?? 0));
+    const ringStep = 90;
+
+    return sorted.map((node, index) => {
+      const ring = Math.floor(index / 10);
+      const ringCount = Math.min(10, Math.max(1, sorted.length - ring * 10));
+      const angle = ((index % 10) / ringCount) * Math.PI * 2;
+      const radius = 60 + ring * ringStep;
+      return {
+        id: node.id,
+        label: node.label,
+        entity_type: node.data.entity_type,
+        confidence: node.data.confidence,
+        document_id: node.data.document_id,
+        chunk_id: node.data.chunk_id,
+        raw_mentions_count: node.data.raw_mentions_count,
+        color: node.data.color || '#7b8299',
+        degree: node.data.degree ?? node.degree ?? 0,
+        node_size: node.data.node_size ?? 44,
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
       };
-      onNodeClickRef.current?.(clickedNode, { shiftKey });
-      // Enter or keep focus mode
-      setFocusMode(prev => ({
-        nodeId: nodeData.id,
-        hopRadius: prev?.hopRadius ?? 2,
-      }));
     });
+  }, [visibleNodes, viewportSize.width, viewportSize.height]);
 
-    // Background tap → exit focus mode + callback
-    cy.on('tap', (evt) => {
-      if (evt.target === cy) {
-        onBackgroundClickRef.current?.();
-        setFocusMode(null);
-      }
-    });
+  const seededEdges = useMemo<SimEdge[]>(() => {
+    const nodeTypeMap = new Map(visibleNodes.map(n => [n.id, n.data.entity_type || 'DEFAULT']));
+    return visibleEdges.map((edge, idx) => ({
+      id: edge.id || `edge-${idx}`,
+      source: edge.source,
+      target: edge.target,
+      label: edge.label,
+      confidence: edge.confidence,
+      edge_width: edge.edge_width || 1.5,
+      sourceType: nodeTypeMap.get(edge.source) || 'DEFAULT',
+    }));
+  }, [visibleEdges, visibleNodes]);
 
-    // Hover dimming — suspended when focus mode is active
-    cy.on('mouseover', 'node', (evt) => {
-      if (focusModeRef.current) return;
-      const node = evt.target;
-      const neighbourhood = node.closedNeighborhood();
-      cy.elements().addClass('dimmed').removeClass('highlighted');
-      neighbourhood.removeClass('dimmed').addClass('highlighted');
-      if (tooltipRef.current) {
-        tooltipRef.current.innerHTML = `
-          <div style="font-size:14px;color:#e8eaf0;font-weight:500;margin-bottom:4px">${node.data('label') || ''}</div>
-          <div style="font-size:11px;color:#5d6180;font-family:'DM Mono',monospace">${node.data('entity_type') || ''}</div>
-        `;
-        tooltipRef.current.style.display = 'block';
-      }
-    });
+  const [simNodes, setSimNodes] = useState<SimNode[]>([]);
+  const [simEdges, setSimEdges] = useState<SimEdge[]>([]);
+  const simulationRef = useRef<d3.Simulation<SimNode, undefined> | null>(null);
+  const draggingNodeIdRef = useRef<string | null>(null);
 
-    cy.on('mousemove', 'node', (evt) => {
-      if (!tooltipRef.current || !containerRef.current || focusModeRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = (evt.originalEvent as MouseEvent).clientX - rect.left + 14;
-      const y = (evt.originalEvent as MouseEvent).clientY - rect.top + 14;
-      tooltipRef.current.style.left = `${x}px`;
-      tooltipRef.current.style.top  = `${y}px`;
-    });
-
-    cy.on('mouseout', 'node', () => {
-      if (focusModeRef.current) return;
-      cy.elements().removeClass('dimmed highlighted');
-      if (tooltipRef.current) tooltipRef.current.style.display = 'none';
-    });
-
-    // Edge hover — show relationship label tooltip
-    cy.on('mouseover', 'edge', (evt) => {
-      const edge = evt.target;
-      if (tooltipRef.current) {
-        const src = edge.source().data('label') || edge.source().id();
-        const tgt = edge.target().data('label') || edge.target().id();
-        const lbl = edge.data('label') || '';
-        tooltipRef.current.innerHTML = `
-          <div style="font-size:12px;color:#e8eaf0;font-weight:500;margin-bottom:4px">${lbl || 'relates to'}</div>
-          <div style="font-size:11px;color:#5d6180;font-family:'DM Mono',monospace">${src} → ${tgt}</div>
-        `;
-        tooltipRef.current.style.display = 'block';
-      }
-    });
-
-    cy.on('mousemove', 'edge', (evt) => {
-      if (!tooltipRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = (evt.originalEvent as MouseEvent).clientX - rect.left + 14;
-      const y = (evt.originalEvent as MouseEvent).clientY - rect.top + 14;
-      tooltipRef.current.style.left = `${x}px`;
-      tooltipRef.current.style.top  = `${y}px`;
-    });
-
-    cy.on('mouseout', 'edge', () => {
-      if (tooltipRef.current) tooltipRef.current.style.display = 'none';
-    });
-
-    requestAnimationFrame(() => {
-      if (!cyRef.current || cyRef.current.destroyed()) return;
-      runInitialLayout(cy);
-    });
-  }, [nodes, edges, destroyCy, runInitialLayout]);
-
-  useEffect(() => {
-    initGraph();
-    return destroyCy;
-  }, [initGraph, destroyCy]);
-
-  // ── Font size ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    cyRef.current.style()
-      .selector('node').style('font-size', `${fontSize}px`)
-      .selector('edge').style('font-size', `${Math.max(7, fontSize - 2)}px`)
-      .update();
-  }, [fontSize]);
-
-  // ── Search highlight ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    const cy = cyRef.current;
-    cy.nodes().removeClass('search-hit');
-    if (highlightNodeIds.length > 0) {
-      highlightNodeIds.forEach(id => cy.getElementById(id).addClass('search-hit'));
+  const destroySimulation = useCallback(() => {
+    if (simulationRef.current) {
+      simulationRef.current.stop();
+      simulationRef.current = null;
     }
-  }, [highlightNodeIds]);
+  }, []);
 
-  // ── Dimming: persistent focus mode takes priority over external focusNodeIds ──
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    const cy = cyRef.current;
-    cy.elements().removeClass('dimmed highlighted focus-node');
-
-    if (focusMode) {
-      const neighborIds = computeTwoHopNeighborhood(focusMode.nodeId, nodes, edges, focusMode.hopRadius);
-      const allowed = new Set(neighborIds);
-      cy.nodes().forEach(node => {
-        if (!allowed.has(node.id())) node.addClass('dimmed');
-      });
-      cy.edges().forEach(edge => {
-        if (!allowed.has(edge.source().id()) || !allowed.has(edge.target().id())) edge.addClass('dimmed');
-      });
-      cy.getElementById(focusMode.nodeId).addClass('focus-node').removeClass('dimmed');
-    } else if (focusNodeIds.length > 0) {
-      const allowed = new Set(focusNodeIds);
-      cy.nodes().forEach(node => { if (!allowed.has(node.id())) node.addClass('dimmed'); });
-      cy.edges().forEach(edge => {
-        if (!allowed.has(edge.source().id()) || !allowed.has(edge.target().id())) edge.addClass('dimmed');
-      });
+  const restartSimulation = useCallback((targetNodes: SimNode[], targetEdges: SimEdge[], reheat = 0.7) => {
+    destroySimulation();
+    if (targetNodes.length === 0) {
+      setSimNodes([]);
+      setSimEdges([]);
+      return;
     }
-  }, [focusMode, focusNodeIds, nodes, edges]);
 
-  // ── Center node ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed() || !centerNodeId) return;
-    const target = cyRef.current.getElementById(centerNodeId);
-    if (target?.length > 0) {
-      cyRef.current.animate(
-        { center: { eles: target }, zoom: Math.min(2.2, Math.max(0.8, cyRef.current.zoom())) },
-        { duration: 250 },
-      );
-    }
-  }, [centerNodeId]);
-
-  // ── Filters: show/hide cy elements ───────────────────────────────────────
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    const cy = cyRef.current;
-
-    (cy.elements() as any).show();
-
-    if (filterEntityTypes.length > 0) {
-      cy.nodes().forEach(node => {
-        if (!filterEntityTypes.includes(node.data('entity_type'))) (node as any).hide();
-      });
-    }
-    if (filterConfMin > 0) {
-      cy.nodes().filter((n: any) => n.visible()).forEach(node => {
-        if ((node.data('confidence') ?? 1) * 100 < filterConfMin) (node as any).hide();
-      });
-    }
-    if (filterDegMin > 0) {
-      cy.nodes().filter((n: any) => n.visible()).forEach(node => {
-        if ((node.data('degree') ?? 0) < filterDegMin) (node as any).hide();
-      });
-    }
-    // Hide edges where either endpoint is hidden
-    cy.edges().forEach(edge => {
-      if (!(edge.source() as any).visible() || !(edge.target() as any).visible()) (edge as any).hide();
-    });
-  }, [filterEntityTypes, filterConfMin, filterDegMin]);
-
-  // ── Cluster layout ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    const cy = cyRef.current;
+    const simNodeClones = targetNodes.map(n => ({ ...n }));
+    const simEdgeClones = targetEdges.map(e => ({ ...e }));
 
     if (clusterMode === 'type') {
-      const w = containerRef.current?.clientWidth ?? 1200;
-      const h = containerRef.current?.clientHeight ?? 800;
-      const positions = computeClusterPositions(nodes, w, h);
-      positions.forEach((pos, id) => {
-        const el = cy.getElementById(id);
-        if (el.length) el.position(pos);
+      const positions = computeClusterPositions(
+        visibleNodes,
+        viewportSize.width,
+        viewportSize.height,
+      );
+      simNodeClones.forEach((node) => {
+        const pos = positions.get(node.id);
+        if (pos) {
+          node.fx = pos.x;
+          node.fy = pos.y;
+        }
       });
-      runLayout(cy, { randomize: false, nodeRepulsion: () => 4000, idealEdgeLength: () => 80, gravity: 2 });
     } else {
-      runLayout(cy);
+      simNodeClones.forEach((node) => {
+        node.fx = null;
+        node.fy = null;
+      });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusterMode]);
 
-  // ── External commands ─────────────────────────────────────────────────────
-  const handleFitView    = useCallback(() => { cyRef.current?.fit(undefined, 40); }, []);
-  const handleResetLayout = useCallback(() => {
-    if (!cyRef.current || cyRef.current.destroyed()) return;
-    if (layoutRef.current) { try { layoutRef.current.stop(); } catch { /* ignore */ } }
-    runLayout(cyRef.current, { animationDuration: 500, nodeRepulsion: () => 8000, idealEdgeLength: () => 100, gravity: 0.25 });
-  }, [runLayout]);
+    const simulation = d3.forceSimulation<SimNode>(simNodeClones)
+      .force('link', d3.forceLink<SimNode, SimEdge>(simEdgeClones).id((d: any) => d.id).distance(150).strength(0.28))
+      .force('charge', d3.forceManyBody().strength(-980))
+      .force('collide', d3.forceCollide<SimNode>().radius(d => Math.max(24, (d.node_size || 44) * 0.55) + 10))
+      .force('center', d3.forceCenter(viewportSize.width / 2, viewportSize.height / 2))
+      .force('x', d3.forceX(viewportSize.width / 2).strength(0.035))
+      .force('y', d3.forceY(viewportSize.height / 2).strength(0.035))
+      .alpha(0.9)
+      .alphaDecay(0.03)
+      .velocityDecay(0.35);
+
+    simulationRef.current = simulation;
+
+    simulation.on('tick', () => {
+      setSimNodes([...simNodeClones]);
+      setSimEdges([...simEdgeClones]);
+    });
+
+    simulation.alpha(reheat).restart();
+    setSimNodes([...simNodeClones]);
+    setSimEdges([...simEdgeClones]);
+  }, [destroySimulation, clusterMode, visibleNodes, viewportSize.width, viewportSize.height]);
 
   useEffect(() => {
-    if (!cyRef.current || cyRef.current.destroyed() || !command) return;
-    if (command.type === 'zoomIn')  { cyRef.current.zoom(Math.min(cyRef.current.maxZoom(), cyRef.current.zoom() + 0.2)); return; }
-    if (command.type === 'zoomOut') { cyRef.current.zoom(Math.max(cyRef.current.minZoom(), cyRef.current.zoom() - 0.2)); return; }
-    if (command.type === 'fit')     { handleFitView(); return; }
-    if (command.type === 'reset')   { handleResetLayout(); return; }
-    if (command.type === 'png') {
-      const bg = getActiveTheme() === 'dark' ? '#0d1220' : '#f0ece2';
-      const dataUri = cyRef.current.png({ output: 'base64uri', bg, full: true, scale: 2 }) as string;
-      const a = document.createElement('a');
-      a.href = dataUri;
-      a.download = 'stakeholder-graph.png';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    restartSimulation(seededNodes, seededEdges, 0.75);
+    return destroySimulation;
+  }, [seededNodes, seededEdges, restartSimulation, destroySimulation]);
+
+  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomTransform, setZoomTransform] = useState(d3.zoomIdentity);
+
+  useEffect(() => {
+    if (!svgRef.current || !viewportGroupRef.current) return;
+
+    const svg = d3.select(svgRef.current);
+    const viewport = d3.select(viewportGroupRef.current);
+
+    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.25, 3.5])
+      .filter((event: any) => {
+        if (draggingNodeIdRef.current) return false;
+        if (event?.type === 'wheel') return true;
+        const target = event?.target as HTMLElement | null;
+        if (target?.closest?.('[data-node-id]')) return false;
+        return true;
+      })
+      .on('zoom', (event) => {
+        viewport.attr('transform', event.transform.toString());
+        setZoomLevel(event.transform.k);
+        setZoomTransform(event.transform);
+      });
+
+    svg.call(zoomBehavior as any);
+    zoomBehaviorRef.current = zoomBehavior;
+
+    return () => {
+      svg.on('.zoom', null);
+      zoomBehaviorRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!viewportGroupRef.current || !simulationRef.current) return;
+
+    const dragBehavior = d3.drag<SVGGElement, SimNode>()
+      .on('start', (event, datum) => {
+        event.sourceEvent?.stopPropagation?.();
+        draggingNodeIdRef.current = datum.id;
+        if (!event.active) simulationRef.current?.alphaTarget(0.2).restart();
+        datum.fx = datum.x;
+        datum.fy = datum.y;
+      })
+      .on('drag', (event, datum) => {
+        datum.fx = event.x;
+        datum.fy = event.y;
+        setSimNodes((prev) => prev.map((node) => (
+          node.id === datum.id ? { ...node, x: event.x, y: event.y, fx: event.x, fy: event.y } : node
+        )));
+      })
+      .on('end', (event, datum) => {
+        draggingNodeIdRef.current = null;
+        if (!event.active) simulationRef.current?.alphaTarget(0);
+        datum.fx = datum.x;
+        datum.fy = datum.y;
+      });
+
+    d3.select(viewportGroupRef.current)
+      .selectAll<SVGGElement, SimNode>('g.graph-node')
+      .call(dragBehavior as any);
+  }, [simNodes]);
+
+  const fitView = useCallback((duration = 250) => {
+    if (!svgRef.current || !zoomBehaviorRef.current || simNodes.length === 0) return;
+
+    const xValues = simNodes.map(n => n.x);
+    const yValues = simNodes.map(n => n.y);
+    const minX = Math.min(...xValues);
+    const maxX = Math.max(...xValues);
+    const minY = Math.min(...yValues);
+    const maxY = Math.max(...yValues);
+
+    const graphWidth = Math.max(1, maxX - minX);
+    const graphHeight = Math.max(1, maxY - minY);
+    const padding = 80;
+
+    const scale = Math.min(
+      3.5,
+      Math.max(0.55, Math.min(
+        (viewportSize.width - padding) / graphWidth,
+        (viewportSize.height - padding) / graphHeight,
+      )),
+    );
+
+    const tx = viewportSize.width / 2 - ((minX + maxX) / 2) * scale;
+    const ty = viewportSize.height / 2 - ((minY + maxY) / 2) * scale;
+    const transform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+
+    d3.select(svgRef.current)
+      .transition()
+      .duration(duration)
+      .call(zoomBehaviorRef.current.transform as any, transform);
+  }, [simNodes, viewportSize.width, viewportSize.height]);
+
+  const resetLayout = useCallback(() => {
+    restartSimulation(seededNodes, seededEdges, 1);
+  }, [restartSimulation, seededNodes, seededEdges]);
+
+  useEffect(() => {
+    if (!command || !svgRef.current || !zoomBehaviorRef.current) return;
+
+    const svg = d3.select(svgRef.current);
+    if (command.type === 'zoomIn') {
+      svg.transition().duration(180).call(zoomBehaviorRef.current.scaleBy as any, 1.2);
+      return;
     }
-  }, [command, handleFitView, handleResetLayout]);
+    if (command.type === 'zoomOut') {
+      svg.transition().duration(180).call(zoomBehaviorRef.current.scaleBy as any, 1 / 1.2);
+      return;
+    }
+    if (command.type === 'fit') {
+      fitView();
+      return;
+    }
+    if (command.type === 'reset') {
+      resetLayout();
+      fitView(320);
+      return;
+    }
+    if (command.type === 'png' && svgRef.current) {
+      const serializer = new XMLSerializer();
+      const source = serializer.serializeToString(svgRef.current);
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, viewportSize.width * 2);
+        canvas.height = Math.max(1, viewportSize.height * 2);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = theme === 'dark' ? '#0d1220' : '#f0ece2';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUri = canvas.toDataURL('image/png');
+          const a = document.createElement('a');
+          a.href = dataUri;
+          a.download = 'stakeholder-graph.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    }
+  }, [command, fitView, resetLayout, theme, viewportSize.width, viewportSize.height]);
 
-  // ── UI helpers ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (simNodes.length > 0) {
+      fitView(0);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simNodes.length]);
+
+  const nodeById = useMemo(() => new Map(simNodes.map(n => [n.id, n])), [simNodes]);
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
+
+  const focusAllowedIds = useMemo(() => {
+    if (focusMode) {
+      return new Set(computeTwoHopNeighborhood(focusMode.nodeId, nodes, edges, focusMode.hopRadius));
+    }
+    if (focusNodeIds.length > 0) {
+      return new Set(focusNodeIds);
+    }
+    return null;
+  }, [focusMode, focusNodeIds, nodes, edges]);
+
+  const hoverNeighborIds = useMemo(() => {
+    if (!hoverNodeId || focusMode) return null;
+    const connected = new Set<string>([hoverNodeId]);
+    (edges || []).forEach((edge) => {
+      if (edge.source === hoverNodeId) connected.add(edge.target);
+      if (edge.target === hoverNodeId) connected.add(edge.source);
+    });
+    return connected;
+  }, [hoverNodeId, edges, focusMode]);
+
+  const isNodeDimmed = useCallback((nodeId: string) => {
+    if (focusAllowedIds) return !focusAllowedIds.has(nodeId);
+    if (hoverNeighborIds) return !hoverNeighborIds.has(nodeId);
+    return false;
+  }, [focusAllowedIds, hoverNeighborIds]);
+
+  const isEdgeDimmed = useCallback((edge: SimEdge) => {
+    const sourceId = typeof edge.source === 'string' ? edge.source : edge.source.id;
+    const targetId = typeof edge.target === 'string' ? edge.target : edge.target.id;
+    if (focusAllowedIds) return !focusAllowedIds.has(sourceId) || !focusAllowedIds.has(targetId);
+    if (hoverNeighborIds) return !hoverNeighborIds.has(sourceId) || !hoverNeighborIds.has(targetId);
+    return false;
+  }, [focusAllowedIds, hoverNeighborIds]);
+
+  const handleNodeClick = useCallback((node: SimNode, e: React.MouseEvent<SVGGElement>) => {
+    const clickedNode: CytoscapeNode = {
+      id: node.id,
+      label: node.label,
+      degree: node.degree,
+      style: { shape: 'ellipse', color: node.color },
+      data: {
+        entity_id: node.id,
+        entity_type: (node.entity_type as any) || 'PERSON',
+        confidence: node.confidence ?? 0,
+        document_id: node.document_id || '',
+        chunk_id: node.chunk_id ?? null,
+        raw_mentions_count: node.raw_mentions_count ?? 0,
+        shape: 'ellipse',
+        color: node.color,
+        degree: node.degree,
+        node_size: node.node_size,
+      },
+    };
+    onNodeClickRef.current?.(clickedNode, { shiftKey: e.shiftKey });
+    setFocusMode(prev => ({ nodeId: node.id, hopRadius: prev?.hopRadius ?? 2 }));
+  }, []);
+
+  const updateTooltipPosition = useCallback((event: React.MouseEvent) => {
+    if (!tooltipRef.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left + 14;
+    const y = event.clientY - rect.top + 14;
+    tooltipRef.current.style.left = `${x}px`;
+    tooltipRef.current.style.top = `${y}px`;
+  }, []);
+
+  const showNodeTooltip = useCallback((node: SimNode) => {
+    if (!tooltipRef.current) return;
+    const titleColor = theme === 'dark' ? '#e8eaf0' : '#111827';
+    const metaColor = theme === 'dark' ? '#8f96ad' : '#4b5563';
+    tooltipRef.current.innerHTML = `
+      <div style="font-size:14px;color:${titleColor};font-weight:500;margin-bottom:4px">${node.label || ''}</div>
+      <div style="font-size:11px;color:${metaColor};font-family:'DM Mono',monospace">${node.entity_type || ''}</div>
+    `;
+    tooltipRef.current.style.display = 'block';
+  }, [theme]);
+
+  const showEdgeTooltip = useCallback((edge: SimEdge) => {
+    if (!tooltipRef.current) return;
+    const titleColor = theme === 'dark' ? '#e8eaf0' : '#111827';
+    const metaColor = theme === 'dark' ? '#8f96ad' : '#4b5563';
+    const relationLabel = (edge.label || 'relates to').replace(/_/g, ' ');
+    const relationMeaning = (() => {
+      const key = relationLabel.toLowerCase();
+      if (key.includes('influenc')) return 'Influence or power relationship between stakeholders.';
+      if (key.includes('fund')) return 'Funding or resource support relationship.';
+      if (key.includes('partner') || key.includes('collaborat')) return 'Collaboration or partnership link.';
+      if (key.includes('report') || key.includes('communicat')) return 'Information flow or reporting relationship.';
+      if (key.includes('conflict') || key.includes('oppose')) return 'Potential tension or opposing interests.';
+      return 'Detected relationship between these two entities.';
+    })();
+    const sourceId = typeof edge.source === 'string' ? edge.source : edge.source.id;
+    const targetId = typeof edge.target === 'string' ? edge.target : edge.target.id;
+    const src = nodeById.get(sourceId)?.label || sourceId;
+    const tgt = nodeById.get(targetId)?.label || targetId;
+    tooltipRef.current.innerHTML = `
+      <div style="font-size:12px;color:${titleColor};font-weight:600;margin-bottom:4px">${relationLabel}</div>
+      <div style="font-size:11px;color:${metaColor};font-family:'DM Mono',monospace;margin-bottom:4px">${src} → ${tgt}</div>
+      <div style="font-size:11px;color:${metaColor};line-height:1.35">${relationMeaning}</div>
+    `;
+    tooltipRef.current.style.display = 'block';
+  }, [nodeById, theme]);
+
+  const hideTooltip = useCallback(() => {
+    if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+  }, []);
+
+  useEffect(() => {
+    if (!centerNodeId || !svgRef.current || !zoomBehaviorRef.current) return;
+    const target = nodeById.get(centerNodeId);
+    if (!target) return;
+    const k = Math.min(2.2, Math.max(0.8, zoomLevel || 1));
+    const tx = viewportSize.width / 2 - target.x * k;
+    const ty = viewportSize.height / 2 - target.y * k;
+    const transform = d3.zoomIdentity.translate(tx, ty).scale(k);
+    d3.select(svgRef.current).transition().duration(250).call(zoomBehaviorRef.current.transform as any, transform);
+  }, [centerNodeId, nodeById, zoomLevel, viewportSize.width, viewportSize.height]);
+
   const isDark = theme === 'dark';
-  const panelBg     = isDark ? '#1c1f2b' : '#ffffff';
+  const panelBg = isDark ? '#1c1f2b' : '#ffffff';
   const panelBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)';
-  const textColor   = isDark ? '#e2e8f0' : '#1a1f2e';
-  const text3Color  = isDark ? '#8892aa' : '#6b7280';
+  const textColor = isDark ? '#e2e8f0' : '#1a1f2e';
+  const text3Color = isDark ? '#8892aa' : '#6b7280';
 
-  // Tooltip div
+  const defs = (
+    <defs>
+      <marker id="graph-arrow" markerWidth="4" markerHeight="4" refX="3.5" refY="2" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L0,4 L3.8,2 z" fill={isDark ? '#93a1c5' : '#4f5a77'} />
+      </marker>
+      <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+  );
+
+  const minimapData = useMemo(() => {
+    if (simNodes.length === 0) return null;
+    const minX = Math.min(...simNodes.map((n) => n.x));
+    const maxX = Math.max(...simNodes.map((n) => n.x));
+    const minY = Math.min(...simNodes.map((n) => n.y));
+    const maxY = Math.max(...simNodes.map((n) => n.y));
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    return { minX, maxX, minY, maxY, width, height };
+  }, [simNodes]);
+
+  const graphSvg = (
+    <svg
+      ref={svgRef}
+      width={viewportSize.width}
+      height={showControls ? height : viewportSize.height}
+      role="img"
+      aria-label="Stakeholder entity graph visualization"
+      style={{ display: 'block', width: '100%', height: '100%', background: isDark ? '#0d1220' : '#f0ece2', cursor: 'grab' }}
+      onClick={(evt) => {
+        if (evt.target === svgRef.current) {
+          onBackgroundClickRef.current?.();
+          setFocusMode(null);
+          setHoverNodeId(null);
+          setHoverEdgeId(null);
+          hideTooltip();
+        }
+      }}
+    >
+      {defs}
+      <g ref={viewportGroupRef}>
+        {simEdges.map((edge) => {
+          const source = typeof edge.source === 'string' ? nodeById.get(edge.source) : edge.source;
+          const target = typeof edge.target === 'string' ? nodeById.get(edge.target) : edge.target;
+          if (!source || !target) return null;
+
+          const sourceDegreeBoost = Math.sqrt(Math.max(0, source.degree || 0)) * 1.6;
+          const sourceRadius = Math.max(18, (source.node_size || 44) * 0.56 + sourceDegreeBoost);
+          const targetDegreeBoost = Math.sqrt(Math.max(0, target.degree || 0)) * 1.6;
+          const targetRadius = Math.max(18, (target.node_size || 44) * 0.56 + targetDegreeBoost);
+
+          const midX = (source.x + target.x) / 2;
+          const midY = (source.y + target.y) / 2;
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const norm = Math.sqrt(dx * dx + dy * dy) || 1;
+          const startX = source.x + (dx / norm) * (sourceRadius + 2);
+          const startY = source.y + (dy / norm) * (sourceRadius + 2);
+          const endX = target.x - (dx / norm) * (targetRadius + 5);
+          const endY = target.y - (dy / norm) * (targetRadius + 5);
+          const curveOffset = 20;
+          const cx = ((startX + endX) / 2) - (dy / norm) * curveOffset;
+          const cy = ((startY + endY) / 2) + (dx / norm) * curveOffset;
+          const dimmed = isEdgeDimmed(edge);
+          const confidence = Math.max(0, Math.min(1, edge.confidence ?? 0.6));
+          const baseStroke = Math.max(1.4, edge.edge_width || 1.2);
+          const strokeWidth = baseStroke + confidence * 1.4;
+          const edgeOpacity = dimmed ? 0.12 : Math.max(0.5, 0.55 + confidence * 0.4);
+          const edgeColor = isDark ? '#aeb9d8' : '#4f5a77';
+          const edgeLabelColor = isDark ? '#e8ecfb' : '#111827';
+          const edgeLabelHalo = isDark ? '#0d1220' : '#f0ece2';
+
+          return (
+            <g
+              key={edge.id}
+              opacity={edgeOpacity}
+              onMouseEnter={(event) => {
+                setHoverEdgeId(edge.id);
+                showEdgeTooltip(edge);
+                updateTooltipPosition(event);
+              }}
+              onMouseMove={(event) => {
+                if (hoverEdgeId === edge.id) updateTooltipPosition(event);
+              }}
+              onMouseLeave={() => {
+                setHoverEdgeId(prev => (prev === edge.id ? null : prev));
+                hideTooltip();
+              }}
+            >
+              <path
+                d={`M ${startX} ${startY} Q ${cx} ${cy} ${endX} ${endY}`}
+                fill="none"
+                stroke={edgeColor}
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+                markerEnd="url(#graph-arrow)"
+              />
+              {edge.label ? (
+                <text
+                  x={cx}
+                  y={cy - 8}
+                  textAnchor="middle"
+                  fontSize={Math.max(12, fontSize + 1)}
+                  fontFamily="var(--mono)"
+                  fill={edgeLabelColor}
+                  stroke={edgeLabelHalo}
+                  strokeWidth={4}
+                  paintOrder="stroke"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >
+                  {edge.label}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+
+        {simNodes.map((node) => {
+          const dimmed = isNodeDimmed(node.id);
+          const isSearchHit = highlightNodeIds.includes(node.id);
+          const isFocused = focusMode?.nodeId === node.id;
+          const isIsolated = isolatedNodeIds.has(node.id);
+          const degreeBoost = Math.sqrt(Math.max(0, node.degree || 0)) * 1.6;
+          const radius = Math.max(18, (node.node_size || 44) * 0.56 + degreeBoost);
+          const haloStroke = isFocused ? 'var(--accent)' : isSearchHit ? '#f59e0b' : `${node.color}90`;
+          const haloSize = radius + (isFocused ? 9 : isSearchHit ? 7 : 5);
+          const labelColor = isDark ? '#eef2ff' : '#111827';
+          const labelHalo = isDark ? '#0d1220' : '#f0ece2';
+
+          return (
+            <g
+              key={node.id}
+              className="graph-node"
+              data-node-id={node.id}
+              transform={`translate(${node.x}, ${node.y})`}
+              opacity={dimmed ? 0.16 : 1}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNodeClick(node, e);
+              }}
+              onMouseDown={(event) => {
+                event.stopPropagation();
+              }}
+              onDoubleClick={(event) => {
+                event.stopPropagation();
+                setSimNodes((prev) => prev.map((item) => (
+                  item.id === node.id ? { ...item, fx: null, fy: null } : item
+                )));
+                const targetNode = simulationRef.current?.nodes().find((item) => item.id === node.id);
+                if (targetNode) {
+                  targetNode.fx = null;
+                  targetNode.fy = null;
+                }
+                simulationRef.current?.alpha(0.2).restart();
+              }}
+              onMouseEnter={(event) => {
+                if (focusModeRef.current) return;
+                setHoverNodeId(node.id);
+                showNodeTooltip(node);
+                updateTooltipPosition(event);
+              }}
+              onMouseMove={(event) => {
+                if (focusModeRef.current) return;
+                updateTooltipPosition(event);
+              }}
+              onMouseLeave={() => {
+                if (focusModeRef.current) return;
+                setHoverNodeId(prev => (prev === node.id ? null : prev));
+                hideTooltip();
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              <circle
+                r={haloSize}
+                fill="none"
+                stroke={haloStroke}
+                strokeWidth={isFocused || isSearchHit ? 4 : 2.4}
+                opacity={isFocused || isSearchHit ? 1 : 0.85}
+                filter="url(#node-glow)"
+              />
+              {isIsolated ? (
+                <circle
+                  r={haloSize + 3}
+                  fill="none"
+                  stroke={isDark ? '#f59e0b' : '#b45309'}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  opacity={0.9}
+                />
+              ) : null}
+              <circle
+                r={radius}
+                fill={node.color}
+                stroke={isDark ? '#0f1527' : '#d8deea'}
+                strokeWidth={2.2}
+              />
+              <circle
+                r={Math.max(3, radius * 0.26)}
+                fill={isDark ? '#f5f7ff' : '#11203d'}
+                opacity={0.85}
+              />
+              <text
+                y={radius + 18}
+                textAnchor="middle"
+                fontFamily="Figtree, Outfit, system-ui, sans-serif"
+                fontSize={Math.max(14, fontSize + 2)}
+                fill={labelColor}
+                stroke={labelHalo}
+                strokeWidth={4}
+                paintOrder="stroke"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {node.label}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+
   const tooltip = (
     <div
       ref={tooltipRef}
@@ -509,18 +849,16 @@ function GraphVisualizationInner({
         background: panelBg, border: `1px solid ${panelBorder}`,
         borderRadius: 8, padding: '8px 12px',
         fontFamily: 'Figtree, Outfit, system-ui, sans-serif',
-        maxWidth: 200, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+        maxWidth: 220, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
       }}
     />
   );
 
-  // Filter panel
   const filterPanel = showFilterPanel ? (
     <>
-      {/* Filter toggle button */}
       <button
         onClick={() => setFilterPanelOpen(o => !o)}
-        title="Filters &amp; Layout"
+        title="Filters & Layout"
         style={{
           position: 'absolute', top: 16, right: 16, zIndex: 10,
           width: 32, height: 32, borderRadius: 8,
@@ -534,7 +872,6 @@ function GraphVisualizationInner({
         ⊟
       </button>
 
-      {/* Filter panel */}
       {filterPanelOpen && (
         <div style={{
           position: 'absolute', top: 56, right: 16, zIndex: 10,
@@ -544,7 +881,6 @@ function GraphVisualizationInner({
           boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
           display: 'flex', flexDirection: 'column', gap: 16,
         }}>
-          {/* Entity types */}
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
               Entity Types
@@ -568,11 +904,8 @@ function GraphVisualizationInner({
                       type="checkbox"
                       checked={filterEntityTypes.includes(type)}
                       onChange={e => {
-                        if (e.target.checked) {
-                          setFilterEntityTypes(prev => [...prev, type]);
-                        } else {
-                          setFilterEntityTypes(prev => prev.filter(t => t !== type));
-                        }
+                        if (e.target.checked) setFilterEntityTypes(prev => [...prev, type]);
+                        else setFilterEntityTypes(prev => prev.filter(t => t !== type));
                       }}
                       style={{ accentColor: 'var(--accent)' }}
                     />
@@ -583,7 +916,6 @@ function GraphVisualizationInner({
             )}
           </div>
 
-          {/* Confidence slider */}
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
               Min Confidence: {filterConfMin}%
@@ -592,11 +924,12 @@ function GraphVisualizationInner({
               type="range" min={0} max={100} step={5}
               value={filterConfMin}
               onChange={e => setFilterConfMin(Number(e.target.value))}
+              title="Minimum confidence"
+              aria-label="Minimum confidence"
               style={{ width: '100%', accentColor: 'var(--accent)' } as any}
             />
           </div>
 
-          {/* Degree slider */}
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
               Min Connections: {filterDegMin}
@@ -605,11 +938,12 @@ function GraphVisualizationInner({
               type="range" min={0} max={maxDegree} step={1}
               value={filterDegMin}
               onChange={e => setFilterDegMin(Number(e.target.value))}
+              title="Minimum connections"
+              aria-label="Minimum connections"
               style={{ width: '100%', accentColor: 'var(--accent)' } as any}
             />
           </div>
 
-          {/* Cluster layout */}
           <div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
               Layout
@@ -632,7 +966,6 @@ function GraphVisualizationInner({
             </div>
           </div>
 
-          {/* Reset filters */}
           {(filterEntityTypes.length > 0 || filterConfMin > 0 || filterDegMin > 0) && (
             <button
               onClick={() => { setFilterEntityTypes([]); setFilterConfMin(0); setFilterDegMin(0); }}
@@ -650,18 +983,16 @@ function GraphVisualizationInner({
     </>
   ) : null;
 
-  // Legend — node types + size scale
   const sizeLegend = showLegend ? (
     <div style={{
       position: 'absolute', bottom: 16, left: 16, zIndex: 5,
       background: panelBg, border: `1px solid ${panelBorder}`,
       borderRadius: 8, padding: '10px 14px',
       display: 'flex', flexDirection: 'column', gap: 10,
-      pointerEvents: 'none', maxWidth: 160,
+      pointerEvents: 'none', maxWidth: 170,
     }}>
-      {/* Node type colours */}
       <div>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: textColor, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
           Entity Types
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -672,36 +1003,140 @@ function GraphVisualizationInner({
                 background: TYPE_PALETTE[type],
                 boxShadow: `0 0 4px ${TYPE_PALETTE[type]}80`,
               }} />
-              <span style={{ fontSize: 10, color: text3Color, fontFamily: 'var(--mono)' }}>{type}</span>
+              <span style={{ fontSize: 12, color: textColor, fontFamily: 'var(--mono)' }}>{type}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Size scale */}
       <div>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: text3Color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: textColor, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
           Size = connections
         </div>
         {[
-          { label: 'Few',      size: 10 },
+          { label: 'Few', size: 10 },
           { label: 'Moderate', size: 16 },
-          { label: 'Many',     size: 22 },
+          { label: 'Many', size: 22 },
         ].map(({ label, size }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-            <div style={{
-              width: size, height: size, borderRadius: '50%', flexShrink: 0,
-              border: `1.5px solid ${text3Color}`,
-              background: 'transparent',
-            }} />
-            <span style={{ fontSize: 10, color: text3Color, fontFamily: 'var(--mono)' }}>{label}</span>
+            <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, border: `1.5px solid ${text3Color}`, background: 'transparent' }} />
+            <span style={{ fontSize: 12, color: textColor, fontFamily: 'var(--mono)' }}>{label}</span>
           </div>
         ))}
       </div>
     </div>
   ) : null;
 
-  // Persistent focus mode bar
+  const minimapOverlay = minimapData ? (() => {
+    const miniW = 170;
+    const miniH = 120;
+    const pad = 10;
+    const sx = (x: number) => pad + ((x - minimapData.minX) / minimapData.width) * (miniW - pad * 2);
+    const sy = (y: number) => pad + ((y - minimapData.minY) / minimapData.height) * (miniH - pad * 2);
+
+    const worldLeft = (-zoomTransform.x) / Math.max(0.001, zoomTransform.k);
+    const worldTop = (-zoomTransform.y) / Math.max(0.001, zoomTransform.k);
+    const worldWidth = viewportSize.width / Math.max(0.001, zoomTransform.k);
+    const worldHeight = viewportSize.height / Math.max(0.001, zoomTransform.k);
+
+    const viewX = sx(worldLeft);
+    const viewY = sy(worldTop);
+    const viewW = (worldWidth / minimapData.width) * (miniW - pad * 2);
+    const viewH = (worldHeight / minimapData.height) * (miniH - pad * 2);
+
+    return (
+      <div style={{
+        position: 'absolute', right: 16, bottom: 16, zIndex: 9,
+        width: miniW, height: miniH,
+        background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8,
+        padding: 4, pointerEvents: 'none',
+      }}>
+        <svg width={miniW - 8} height={miniH - 8} viewBox={`0 0 ${miniW} ${miniH}`}>
+          <rect x={0} y={0} width={miniW} height={miniH} fill={isDark ? '#0f1628' : '#eef2f9'} rx={6} ry={6} />
+          {simEdges.map((edge) => {
+            const source = typeof edge.source === 'string' ? nodeById.get(edge.source) : edge.source;
+            const target = typeof edge.target === 'string' ? nodeById.get(edge.target) : edge.target;
+            if (!source || !target) return null;
+            return (
+              <line
+                key={`mini-${edge.id}`}
+                x1={sx(source.x)}
+                y1={sy(source.y)}
+                x2={sx(target.x)}
+                y2={sy(target.y)}
+                stroke={isDark ? '#5a6686' : '#a3afc4'}
+                strokeWidth={0.8}
+                opacity={0.75}
+              />
+            );
+          })}
+          {simNodes.map((node) => (
+            <circle
+              key={`mini-node-${node.id}`}
+              cx={sx(node.x)}
+              cy={sy(node.y)}
+              r={2}
+              fill={node.color}
+              opacity={0.92}
+            />
+          ))}
+          <rect
+            x={Math.max(0, viewX)}
+            y={Math.max(0, viewY)}
+            width={Math.max(8, viewW)}
+            height={Math.max(8, viewH)}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={1.5}
+            rx={3}
+            ry={3}
+          />
+        </svg>
+      </div>
+    );
+  })() : null;
+
+  const controlsOverlay = (
+    <div style={{
+      position: 'absolute', left: 16, top: 16, zIndex: 9,
+      display: 'flex', alignItems: 'center', gap: 6,
+      background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8,
+      padding: '6px 8px',
+    }}>
+      <span
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 10,
+          letterSpacing: '0.06em',
+          color: '#ffffff',
+          background: 'var(--accent)',
+          borderRadius: 4,
+          padding: '2px 6px',
+        }}
+      >
+        D3
+      </span>
+      <button onClick={() => zoomBehaviorRef.current && d3.select(svgRef.current).transition().duration(160).call(zoomBehaviorRef.current.scaleBy as any, 1.2)} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>+</button>
+      <button onClick={() => zoomBehaviorRef.current && d3.select(svgRef.current).transition().duration(160).call(zoomBehaviorRef.current.scaleBy as any, 1 / 1.2)} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>−</button>
+      <button onClick={() => fitView()} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>Fit</button>
+      <button onClick={resetLayout} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>Reset</button>
+      <button
+        onClick={() => setHideIsolatedNodes((prev) => !prev)}
+        className="btn-ghost"
+        style={{
+          fontSize: 11,
+          padding: '4px 8px',
+          borderColor: hideIsolatedNodes ? 'var(--accent)' : undefined,
+          color: hideIsolatedNodes ? 'var(--accent)' : undefined,
+        }}
+        title="Toggle isolated stakeholders"
+      >
+        {hideIsolatedNodes ? 'Show Isolated' : 'Hide Isolated'}
+      </button>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: text3Color, minWidth: 54, textAlign: 'right' }}>{Math.round(zoomLevel * 100)}%</span>
+    </div>
+  );
+
   const focusBar = focusMode ? (() => {
     const focusedNode = nodes.find(n => n.id === focusMode.nodeId);
     return (
@@ -709,18 +1144,16 @@ function GraphVisualizationInner({
         position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
         zIndex: 10, display: 'flex', alignItems: 'center', gap: 8,
         background: panelBg, border: `1px solid ${panelBorder}`,
-        borderRadius: 8, padding: '6px 10px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        borderRadius: 8, padding: '6px 10px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
       }}>
         <span style={{ fontSize: 11, color: text3Color, fontFamily: 'var(--mono)' }}>Focus:</span>
-        <span style={{ fontSize: 12, color: textColor, fontWeight: 500, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 12, color: textColor, fontWeight: 500, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {focusedNode?.label ?? focusMode.nodeId}
         </span>
-        {/* Hop toggle */}
         {([1, 2] as const).map(hop => (
           <button
             key={hop}
-            onClick={() => setFocusMode(prev => prev ? { ...prev, hopRadius: hop } : null)}
+            onClick={() => setFocusMode(prev => (prev ? { ...prev, hopRadius: hop } : null))}
             title={`${hop}-hop neighbourhood`}
             style={{
               padding: '2px 8px', borderRadius: 4, border: `1px solid ${panelBorder}`,
@@ -737,8 +1170,7 @@ function GraphVisualizationInner({
           title="Exit focus mode (Escape)"
           style={{
             padding: '2px 8px', borderRadius: 4, border: `1px solid ${panelBorder}`,
-            background: 'transparent', color: text3Color,
-            fontSize: 11, cursor: 'pointer',
+            background: 'transparent', color: text3Color, fontSize: 11, cursor: 'pointer',
           }}
         >
           ✕ Exit
@@ -751,38 +1183,30 @@ function GraphVisualizationInner({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={handleFitView} className="btn-ghost" style={{ fontSize: 11 }}>Fit View</button>
-          <button onClick={handleResetLayout} className="btn-ghost" style={{ fontSize: 11 }}>Reset Layout</button>
+          <button onClick={() => fitView()} className="btn-ghost" style={{ fontSize: 11 }}>Fit View</button>
+          <button onClick={resetLayout} className="btn-ghost" style={{ fontSize: 11 }}>Reset Layout</button>
         </div>
-        <div style={{ position: 'relative' }}>
-          <div
-            ref={containerRef}
-            id="cytoscape-container"
-            role="img"
-            aria-label="Stakeholder entity graph visualization"
-            style={{ width: '100%', height, borderRadius: 8, background: isDark ? '#0d1220' : '#f0ece2' }}
-          />
+        <div ref={containerRef} style={{ position: 'relative', width: '100%', height, borderRadius: 8, overflow: 'hidden' }}>
+          {graphSvg}
           {tooltip}
+          {controlsOverlay}
+          {minimapOverlay}
         </div>
         <p style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', textAlign: 'right' }}>
-          {nodes.length} node{nodes.length !== 1 ? 's' : ''} · {edges.length} edge{edges.length !== 1 ? 's' : ''}
+          {simNodes.length} node{simNodes.length !== 1 ? 's' : ''} · {simEdges.length} edge{simEdges.length !== 1 ? 's' : ''} · {Math.round(zoomLevel * 100)}%
         </p>
       </div>
     );
   }
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div
-        ref={containerRef}
-        id="cytoscape-container"
-        role="img"
-        aria-label="Stakeholder entity graph visualization"
-        style={{ width: '100%', height: '100%', minHeight: 600, background: isDark ? '#0d1220' : '#f0ece2' }}
-      />
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: 600, overflow: 'hidden' }}>
+      {graphSvg}
       {tooltip}
+      {controlsOverlay}
       {filterPanel}
       {sizeLegend}
+      {minimapOverlay}
       {focusBar}
     </div>
   );

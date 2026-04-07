@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from django.conf import settings
 
 from ingestion.services.context import get_project_context
 from ner.services.nl_query import _call_provider
+from ner.services.provider_factory import resolve_provider_model_for_project
 from ner.services.semantic_search import embed_query, search_chunks
 
 
@@ -22,12 +22,13 @@ def _load_prompt_template() -> str:
             "Section: {section_title}\n"
             "Questions: {question_prompts}\n"
             "Project context: {project_context}\n"
+            "Analyst notes: {section_notes}\n"
             "Evidence:\n{chunk_excerpts}\n\n"
             "Write a concise evidence-backed answer with inline citations [Doc: filename]."
         )
 
 
-def generate_smq_section(project, section) -> dict:
+def generate_smq_section(project, section, notes_text: str = '') -> dict:
     query_vector = embed_query(section.question_prompts or section.title)
     chunks = list(search_chunks(project, query_vector, top_k=8))
 
@@ -49,13 +50,13 @@ def generate_smq_section(project, section) -> dict:
         section_title=section.title,
         question_prompts=section.question_prompts,
         project_context=(get_project_context(project) or '').strip() or '(No project context provided.)',
+        section_notes=(notes_text or '').strip() or '(No analyst notes provided.)',
         chunk_excerpts='\n\n---\n\n'.join(excerpts) if excerpts else '(No supporting excerpts found.)',
     )
 
-    provider = (project.provider or settings.NER_DEFAULT_PROVIDER).strip().lower()
-    model = (project.model or '').strip()
-    if not model:
-        model = settings.NER_PROVIDER_MODEL_ALLOWLIST.get(provider, [settings.NER_DEFAULT_MODEL])[0]
+    provider_config = resolve_provider_model_for_project(project)
+    provider = provider_config.provider
+    model = provider_config.model
 
     answer_text = _call_provider(prompt, provider, model, max_tokens=1024)
     return {

@@ -5,14 +5,21 @@ import {
   getProject,
   getProjectDocuments,
   getProjectDocumentsWithStats,
+  getProjectWorkflow,
   getReportStaleness,
   uploadDocumentToProject,
   deleteProjectDocument,
+  getProjectWebSources,
+  createProjectWebSource,
+  deleteProjectWebSource,
   getProjectDocumentStatus,
   getStoredAuthToken,
+  renderLLMErrorMessage,
   ProjectSummary,
   DocumentSummary,
+  WebSourceSummary,
   DocumentSummaryWithStats,
+  WorkflowStatus,
 } from '@/lib/api';
 import { getStatusBadgeClass } from '@/lib/entityTypes';
 import { formatFileSize } from '@/lib/uiState';
@@ -41,13 +48,22 @@ export default function DocumentsPage() {
 
   const [project, setProject] = useState<ProjectSummary | null>(null);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [webSources, setWebSources] = useState<WebSourceSummary[]>([]);
   const [docsWithStats, setDocsWithStats] = useState<DocumentSummaryWithStats[]>([]);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
+  const [activeInputTab, setActiveInputTab] = useState<'upload' | 'url' | 'crawl' | 'paste'>('upload');
+  const [urlInput, setUrlInput] = useState('');
+  const [crawlUrl, setCrawlUrl] = useState('');
+  const [crawlDepth, setCrawlDepth] = useState(1);
+  const [pasteTitle, setPasteTitle] = useState('');
+  const [pasteText, setPasteText] = useState('');
+  const [submittingSource, setSubmittingSource] = useState(false);
   const [staleToastVisible, setStaleToastVisible] = useState(false);
+  const [workflow, setWorkflow] = useState<WorkflowStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -55,6 +71,7 @@ export default function DocumentsPage() {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
     if (!id) return;
     getProject(id).then(setProject).catch(() => {});
+    getProjectWorkflow(id).then(setWorkflow).catch(() => {});
     loadDocuments();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -67,11 +84,16 @@ export default function DocumentsPage() {
     getProjectDocumentsWithStats(id)
       .then(setDocsWithStats)
       .catch(() => {});
+    getProjectWebSources(id)
+      .then(setWebSources)
+      .catch(() => {});
   }, [id]);
 
   // Polling: refresh status for non-terminal documents every 3s
   useEffect(() => {
-    const hasPending = documents.some(d => !TERMINAL_STATUSES.includes(d.processing_status));
+    const hasPendingDocuments = documents.some(d => !TERMINAL_STATUSES.includes(d.processing_status));
+    const hasPendingWebSources = webSources.some((s) => s.status === 'queued' || s.status === 'processing');
+    const hasPending = hasPendingDocuments || hasPendingWebSources;
     if (!hasPending) {
       if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
       return;
@@ -79,6 +101,10 @@ export default function DocumentsPage() {
     if (pollingRef.current) return; // already polling
     pollingRef.current = setInterval(async () => {
       if (!id) return;
+      if (hasPendingWebSources) {
+        loadDocuments();
+        return;
+      }
       const pending = documents.filter(d => !TERMINAL_STATUSES.includes(d.processing_status));
       const updates = await Promise.allSettled(
         pending.map(d => getProjectDocumentStatus(id, d.id))
@@ -92,7 +118,7 @@ export default function DocumentsPage() {
       }));
     }, POLLING_INTERVAL);
     return () => { if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; } };
-  }, [documents, id]);
+  }, [documents, webSources, id, loadDocuments]);
 
   const uploadFiles = async (files: FileList | File[]) => {
     if (!id) return;
@@ -106,7 +132,7 @@ export default function DocumentsPage() {
         setDocuments(prev => [doc, ...prev]);
         uploadSucceeded = true;
       } catch (err: any) {
-        setError(err.message || `Failed to upload ${file.name}`);
+        setError(renderLLMErrorMessage(err, `Document extraction for ${file.name}`));
       }
     }
     setUploading(false);
@@ -147,7 +173,53 @@ export default function DocumentsPage() {
     }
   };
 
+  const onDeleteWebSource = async (e: React.MouseEvent, webSourceId: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this web source? This cannot be undone.')) return;
+    try {
+      await deleteProjectWebSource(id, webSourceId);
+      setWebSources((prev) => prev.filter((source) => source.id !== webSourceId));
+      loadDocuments();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete web source');
+    }
+  };
+
+  const submitWebSource = async (payload: {
+    source_type: 'url' | 'crawl' | 'paste';
+    url?: string;
+    crawl_depth?: number;
+    raw_text?: string;
+    title?: string;
+  }) => {
+    if (!id) return;
+    setSubmittingSource(true);
+    setError('');
+    try {
+      await createProjectWebSource(id, payload);
+      setUrlInput('');
+      setCrawlUrl('');
+      setCrawlDepth(1);
+      setPasteTitle('');
+      setPasteText('');
+      loadDocuments();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create web source');
+    } finally {
+      setSubmittingSource(false);
+    }
+  };
+
   const canBuildGraph = documents.some(d => d.processing_status === 'completed');
+  const unifiedRows = [
+    ...documents.map((doc) => ({ kind: 'document' as const, createdAt: doc.upload_timestamp, document: doc })),
+    ...webSources.map((source) => ({ kind: 'websource' as const, createdAt: source.created_at, webSource: source })),
+  ].sort((a, b) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+  const nextStep = workflow?.next_step ?? null;
+  const showReviewGraphAction = nextStep?.number === 4;
+  const nextActionLabel = showReviewGraphAction ? 'Review graph →' : 'Run extraction →';
+  const nextActionPath = showReviewGraphAction ? `/projects/${id}/map` : `/projects/${id}/analyze`;
+  const nextActionDisabled = showReviewGraphAction ? !canBuildGraph : !canBuildGraph;
 
   return (
     <>
@@ -162,7 +234,26 @@ export default function DocumentsPage() {
                 </div>
               )}
 
-              {/* Dropzone */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                {[
+                  ['upload', 'Upload file'],
+                  ['url', 'URL'],
+                  ['crawl', 'Crawl site'],
+                  ['paste', 'Paste text'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    className="btn-ghost"
+                    style={activeInputTab === value ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+                    onClick={() => setActiveInputTab(value as 'upload' | 'url' | 'crawl' | 'paste')}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Upload tab */}
+              {activeInputTab === 'upload' && (
               <div
                 onDrop={onDrop}
                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -189,17 +280,98 @@ export default function DocumentsPage() {
                   {uploading ? 'Uploading…' : 'Upload project documents'}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-                  PDF, DOCX, TXT — up to 50 MB each · drag &amp; drop or click to browse
+                  PDF, DOCX, TXT, MD — up to 50 MB each · drag &amp; drop or click to browse
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.docx,.txt"
+                  accept=".pdf,.docx,.txt,.md"
                   style={{ display: 'none' }}
                   onChange={onFileChange}
                 />
               </div>
+              )}
+
+              {/* URL tab */}
+              {activeInputTab === 'url' && (
+                <div className="card" style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 8 }}>Add a single webpage URL</div>
+                  <input
+                    className="input-field"
+                    placeholder="https://example.org/article"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                  />
+                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn-primary"
+                      disabled={submittingSource || !urlInput.trim()}
+                      onClick={() => void submitWebSource({ source_type: 'url', url: urlInput.trim() })}
+                    >
+                      {submittingSource ? 'Submitting…' : 'Add URL'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Crawl tab */}
+              {activeInputTab === 'crawl' && (
+                <div className="card" style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 8 }}>Crawl a site root (max depth 2, capped pages)</div>
+                  <input
+                    className="input-field"
+                    placeholder="https://example.org"
+                    value={crawlUrl}
+                    onChange={(e) => setCrawlUrl(e.target.value)}
+                  />
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text3)' }}>Depth</span>
+                    <select className="input-field" value={crawlDepth} onChange={(e) => setCrawlDepth(Number(e.target.value))}>
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                    </select>
+                  </div>
+                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn-primary"
+                      disabled={submittingSource || !crawlUrl.trim()}
+                      onClick={() => void submitWebSource({ source_type: 'crawl', url: crawlUrl.trim(), crawl_depth: crawlDepth })}
+                    >
+                      {submittingSource ? 'Submitting…' : 'Start Crawl'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Paste tab */}
+              {activeInputTab === 'paste' && (
+                <div className="card" style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 8 }}>Paste text content directly</div>
+                  <input
+                    className="input-field"
+                    placeholder="Title"
+                    value={pasteTitle}
+                    onChange={(e) => setPasteTitle(e.target.value)}
+                  />
+                  <textarea
+                    className="input-field"
+                    style={{ minHeight: 160, marginTop: 8 }}
+                    placeholder="Paste text to ingest"
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                  />
+                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn-primary"
+                      disabled={submittingSource || !pasteTitle.trim() || !pasteText.trim()}
+                      onClick={() => void submitWebSource({ source_type: 'paste', title: pasteTitle.trim(), raw_text: pasteText })}
+                    >
+                      {submittingSource ? 'Submitting…' : 'Add Pasted Text'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Document list */}
               {loading && (
@@ -208,18 +380,73 @@ export default function DocumentsPage() {
                 </div>
               )}
 
-              {!loading && documents.length === 0 && (
+              {!loading && unifiedRows.length === 0 && (
                 <div style={{ marginBottom: 24 }}>
                   <EmptyState
                     icon="📄"
-                    title="No documents yet"
-                    description="Upload a PDF, DOCX, or TXT file above to get started."
+                    title="No sources yet"
+                    description="Upload files, add URLs, crawl a site, or paste text to get started."
                     compact
                   />
                 </div>
               )}
 
-              {documents.map(doc => {
+              {unifiedRows.map((row) => {
+                if (row.kind === 'websource') {
+                  const source = row.webSource;
+                  return (
+                    <div key={source.id} style={{ marginBottom: 8 }}>
+                      <div style={{
+                        background: 'var(--bg2)', border: '1px solid var(--border)',
+                        borderRadius: 8, padding: '12px 16px',
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        ...(source.status === 'error'
+                          ? { borderColor: 'rgba(245, 158, 11, 0.4)', background: 'var(--amber-soft)' }
+                          : {}),
+                      }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: 7, flexShrink: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
+                          background: 'var(--accent-soft)',
+                        }}>
+                          🌐
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 2 }}>
+                            {source.title || source.url || 'Web Source'}
+                          </div>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span>{source.source_type.toUpperCase()}</span>
+                            {source.url && <span>{source.url}</span>}
+                            {source.page_count > 0 && <span>{source.page_count} pages</span>}
+                            {source.character_count > 0 && <span>{formatFileSize(source.character_count)} text</span>}
+                          </div>
+                          {source.status === 'error' && (
+                            <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 4 }}>
+                              {source.error_message || 'Web ingestion failed.'}
+                            </div>
+                          )}
+                        </div>
+
+                        <span className={`badge ${getStatusBadgeClass(
+                          source.status === 'processed' ? 'processed' :
+                          source.status === 'error' ? 'error' :
+                          'pending'
+                        )}`}>
+                          {source.status}
+                        </span>
+
+                        <button
+                          onClick={(e) => void onDeleteWebSource(e, source.id)}
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, fontSize: 14 }}
+                        >✕</button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const doc = row.document;
                 const stats = docsWithStats.find(d => d.id === doc.id)?.stats;
                 const isExpanded = expandedDocId === doc.id;
                 return (
@@ -228,6 +455,9 @@ export default function DocumentsPage() {
                       background: 'var(--bg2)', border: '1px solid var(--border)',
                       borderRadius: 8, padding: '12px 16px',
                       display: 'flex', alignItems: 'center', gap: 12,
+                      ...(doc.processing_status === 'failed'
+                        ? { borderColor: 'rgba(245, 158, 11, 0.4)', background: 'var(--amber-soft)' }
+                        : {}),
                     }}>
                       {/* File type icon */}
                       <div style={{
@@ -261,9 +491,9 @@ export default function DocumentsPage() {
                           {!stats && doc.processing_status === 'completed' && doc.entity_count > 0 &&
                             <span>{doc.entity_count} entities extracted</span>}
                         </div>
-                        {doc.processing_status === 'failed' && doc.error_message && (
-                          <div style={{ fontSize: 11, color: 'var(--coral)', marginTop: 4 }}>
-                            {doc.error_message}
+                        {doc.processing_status === 'failed' && (
+                          <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 4 }}>
+                            {doc.error_message || 'Extraction failed.'} Delete and re-upload this file to retry.
                           </div>
                         )}
                       </div>
@@ -327,11 +557,11 @@ export default function DocumentsPage() {
                   ← Back to initiative profile
                 </button>
                 <button
-                  onClick={() => void router.push(`/projects/${id}/analyze`)}
+                  onClick={() => void router.push(nextActionPath)}
                   className="btn-primary btn-primary-lg"
-                  disabled={!canBuildGraph}
+                  disabled={nextActionDisabled}
                 >
-                  Analyze documents →
+                  {nextActionLabel}
                 </button>
               </div>
 

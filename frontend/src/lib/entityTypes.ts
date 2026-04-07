@@ -14,9 +14,10 @@ export const ENTITY_TYPE_MAP = {
 } as const;
 
 export function getStatusBadgeClass(status: string): string {
-  if (['ready', 'active', 'processed', 'complete'].includes(status)) return 'badge-live';
-  if (['processing', 'queued', 'pending'].includes(status))           return 'badge-proc';
-  if (['error', 'failed'].includes(status))                           return 'badge-error';
+  const normalized = (status || '').trim().toLowerCase();
+  if (['ready', 'active', 'processed', 'complete'].includes(normalized)) return 'badge-live';
+  if (['processing', 'queued', 'pending', 'stale', 'paused_rate_limited'].includes(normalized)) return 'badge-proc';
+  if (['error', 'failed'].includes(normalized)) return 'badge-error';
   return 'badge-draft';
 }
 

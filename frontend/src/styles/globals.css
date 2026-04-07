@@ -10,8 +10,8 @@
   --border:       rgba(255,255,255,0.06);
   --border2:      rgba(255,255,255,0.11);
   --text:         #e4e8f4;
-  --text2:        #7b8299;
-  --text3:        #444d66;
+  --text2:        #9aa6c4;
+  --text3:        #7c89aa;
   --accent:       #3d6fff;
   --accent-soft:  rgba(61,111,255,0.12);
   --teal:         #2ec4a5;
@@ -123,13 +123,13 @@
 /* ===== Base Styles ===== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { font-size: 15px; }
+html { font-size: 17px; }
 
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -159,7 +159,7 @@ body {
 .btn-primary {
   background: var(--accent); color: #fff; border: none;
   border-radius: 8px; padding: 10px 22px;
-  font-family: var(--sans); font-size: 14px; font-weight: 500;
+  font-family: var(--sans); font-size: 16px; font-weight: 500;
   cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
   transition: opacity .15s, transform .15s;
   text-decoration: none; letter-spacing: -0.01em;
@@ -168,13 +168,13 @@ body {
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 .btn-primary-lg {
-  padding: 13px 28px; font-size: 16px; border-radius: 10px;
+  padding: 13px 28px; font-size: 17px; border-radius: 10px;
 }
 
 .btn-ghost {
   background: transparent; border: 1px solid var(--border2);
   color: var(--text2); border-radius: 8px; padding: 9px 20px;
-  font-family: var(--sans); font-size: 14px; font-weight: 400;
+  font-family: var(--sans); font-size: 16px; font-weight: 400;
   cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
   transition: border-color .15s, color .15s;
   text-decoration: none;
@@ -185,7 +185,7 @@ body {
 input, textarea, select {
   background: var(--bg2); border: 1px solid var(--border2);
   border-radius: 8px; color: var(--text); font-family: var(--sans);
-  font-size: 15px; padding: 10px 14px; outline: none; width: 100%;
+  font-size: 16px; padding: 11px 15px; outline: none; width: 100%;
   transition: border-color .15s, box-shadow .15s;
 }
 input:focus, textarea:focus, select:focus {
@@ -204,7 +204,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 
 /* ===== Badges ===== */
 .badge {
-  font-family: var(--mono); font-size: 11px; padding: 3px 9px;
+  font-family: var(--mono); font-size: 13px; padding: 4px 10px;
   border-radius: 20px; border: 1px solid; display: inline-flex;
   align-items: center; gap: 5px; white-space: nowrap; flex-shrink: 0;
 }
@@ -215,7 +215,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 
 /* ===== Section label ===== */
 .section-label {
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+  font-family: var(--mono); font-size: 13px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text3);
   display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
 }
@@ -231,6 +231,10 @@ hr, .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
 .mono    { font-family: var(--mono); }
 .muted   { color: var(--text2); }
 .dimmed  { color: var(--text3); }
+
+/* Global readability bump for commonly used Tailwind text utilities */
+.text-xs { font-size: 0.82rem !important; }
+.text-sm { font-size: 0.95rem !important; }
 
 /* ===== Card hover menu ===== */
 div:hover > .card-menu-btn { opacity: 1 !important; }

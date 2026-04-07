@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ner.services.gemini_compat import generate_gemini_text
+from ner.services.provider_factory import resolve_provider_model
 
 if TYPE_CHECKING:
     from ingestion.models import Project
@@ -148,7 +149,8 @@ def answer_nl_query(
     )
 
     try:
-        return _call_provider(prompt, provider, model, max_tokens=1024)
+        provider_config = resolve_provider_model(provider, model)
+        return _call_provider(prompt, provider_config.provider, provider_config.model, max_tokens=1024)
     except Exception:
         logger.exception("NL query LLM call failed", extra={'project_id': str(project.id)})
         return 'Unable to generate an answer right now. Please try again.'

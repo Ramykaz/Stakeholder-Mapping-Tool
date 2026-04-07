@@ -13,6 +13,9 @@ Question Prompts:
 Project Context:
 {project_context}
 
+Section Notes:
+{section_notes}
+
 Evidence Excerpts:
 {chunk_excerpts}
 

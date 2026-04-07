@@ -6,6 +6,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from django.core.cache import cache
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -13,9 +14,41 @@ from ingestion.models import Project
 from ingestion.services.context import get_project_context
 from ner.models import Entity, SMQSection, ProjectSMQResponse, ReportSection
 from ner.services.nl_query import _call_provider
+from ner.services.provider_factory import resolve_provider_model_for_project
 from ner.services.semantic_search import embed_query, search_chunks
 
 _PROMPT_PATH = Path('prompts/report_section.txt')
+
+
+def _sanitize_generated_report_text(text: str) -> str:
+    """Normalize generated report text to clean plain structure (no markdown symbols)."""
+    cleaned = (text or '').replace('\r\n', '\n').replace('\r', '\n')
+    cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)
+    cleaned = re.sub(r'^\s{0,3}#{1,6}\s*', '', cleaned, flags=re.MULTILINE)
+
+    normalized_lines: list[str] = []
+    for raw_line in cleaned.split('\n'):
+        line = raw_line.strip()
+        if not line:
+            normalized_lines.append('')
+            continue
+
+        line = re.sub(r'^\s*[-*•●▪◦‣]+\s+', '', line)
+        line = re.sub(r'^\s*\d+[\.)]\s+', '', line)
+        line = re.sub(r'\s+', ' ', line).strip()
+        normalized_lines.append(line)
+
+    compact = '\n'.join(normalized_lines)
+    compact = re.sub(r'\n{3,}', '\n\n', compact).strip()
+    return compact
+
+
+def _report_cancel_cache_key(project_id: str) -> str:
+    return f"report_generation_cancel:{project_id}"
+
+
+def _is_report_cancelled(project_id: str) -> bool:
+    return bool(cache.get(_report_cancel_cache_key(str(project_id))))
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
@@ -39,7 +72,8 @@ def _friendly_error(exc: Exception) -> str:
             wait = int(float(match.group(1))) + 1
             return f"Rate limit reached — please wait {wait} seconds and click Regenerate."
         return "Rate limit reached — please wait a moment and click Regenerate."
-    return "Generation failed. Please try again."
+    details = str(exc).strip()
+    return f"Generation failed: {details}" if details else "Generation failed. Please try again."
 
 
 def _load_prompt_template() -> str:
@@ -58,6 +92,9 @@ def _load_prompt_template() -> str:
 
 def generate_report_section(project_id: str, section_id: str, custom_instruction: str = '') -> None:
     close_old_connections()
+
+    if _is_report_cancelled(project_id):
+        return
 
     project = Project.objects.get(id=project_id)
     section = SMQSection.objects.get(id=section_id)
@@ -112,13 +149,24 @@ def generate_report_section(project_id: str, section_id: str, custom_instruction
             custom_instruction=(custom_instruction or '').strip() or '(No additional instruction.)',
         )
 
-        provider = (project.provider or '').strip().lower() or 'groq'
-        model = (project.model or '').strip()
-        if not model:
-            from django.conf import settings
-            model = settings.NER_PROVIDER_MODEL_ALLOWLIST.get(provider, [settings.NER_DEFAULT_MODEL])[0]
+        provider_config = resolve_provider_model_for_project(project)
+        provider = provider_config.provider
+        model = provider_config.model
+
+        if _is_report_cancelled(project_id):
+            report_section.status = ReportSection.STATUS_ERROR
+            report_section.error_message = 'Generation stopped by user.'
+            report_section.save(update_fields=['status', 'error_message', 'updated_at'])
+            return
 
         generated_text = (_call_provider(prompt, provider, model, max_tokens=1400) or '').strip()
+        generated_text = _sanitize_generated_report_text(generated_text)
+
+        if _is_report_cancelled(project_id):
+            report_section.status = ReportSection.STATUS_ERROR
+            report_section.error_message = 'Generation stopped by user.'
+            report_section.save(update_fields=['status', 'error_message', 'updated_at'])
+            return
 
         report_section.status = ReportSection.STATUS_DONE
         report_section.generated_text = generated_text
@@ -138,6 +186,8 @@ def generate_all_sections(project: Project, section_ids: list[str], custom_instr
     section_ids = [str(section_id) for section_id in section_ids]
 
     for section_id in section_ids:
+        if _is_report_cancelled(str(project.id)):
+            return
         section = SMQSection.objects.get(id=section_id)
         report_section, _ = ReportSection.objects.get_or_create(project=project, section=section)
         report_section.status = ReportSection.STATUS_PENDING
@@ -146,10 +196,12 @@ def generate_all_sections(project: Project, section_ids: list[str], custom_instr
         report_section.citations = []
         report_section.save(update_fields=['status', 'error_message', 'generated_text', 'citations', 'updated_at'])
 
-    provider = (project.provider or '').strip().lower() or 'groq'
+    provider = resolve_provider_model_for_project(project).provider
     max_workers = 1 if provider == 'groq' else 4
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        if _is_report_cancelled(str(project.id)):
+            return
         if custom_instruction:
             futures = [
                 executor.submit(generate_report_section, str(project.id), section_id, custom_instruction)

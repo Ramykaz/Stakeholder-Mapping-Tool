@@ -25,7 +25,7 @@ LIGHT_GREY_RGB = (0xF5 / 255, 0xF9 / 255, 0xFA / 255)
 
 def get_export_status(project) -> dict:
     """Return export readiness information for a project."""
-    from ner.models import ReportSection, EngagementNote, StakeholderPersona
+    from ner.models import ReportSection, EngagementNote, StakeholderPersona, WorkplanComponent
 
     sections = list(
         ReportSection.objects.filter(project=project)
@@ -36,6 +36,7 @@ def get_export_status(project) -> dict:
     complete_sections = sum(1 for s in sections if s.status == ReportSection.STATUS_DONE)
     has_stakeholder_table = EngagementNote.objects.filter(project=project).exists()
     has_personas = StakeholderPersona.objects.filter(project=project).exists()
+    has_workplan = WorkplanComponent.objects.filter(project=project).exists()
     can_export = complete_sections > 0
 
     section_statuses = [
@@ -53,6 +54,7 @@ def get_export_status(project) -> dict:
         'total_sections': 8,
         'has_stakeholder_table': has_stakeholder_table,
         'has_personas': has_personas,
+        'has_workplan': has_workplan,
         'section_statuses': section_statuses,
     }
 
@@ -63,20 +65,24 @@ def _parse_section_text(text: str) -> list[dict]:
     Returns list of {'type': 'heading'|'bullet'|'paragraph', 'text': str}
     """
     blocks = []
-    for para in re.split(r'\n\n+', text):
+    normalized = (text or '').replace('\r\n', '\n').replace('\r', '\n')
+    for para in re.split(r'\n\n+', normalized):
         para = para.strip()
         if not para:
             continue
         lines = para.split('\n')
         for line in lines:
-            line = line.strip()
+            line = re.sub(r'\*\*(.*?)\*\*', r'\1', line or '').strip()
             if not line:
                 continue
-            if line.startswith('## ') or (line.startswith('**') and line.endswith('**')):
-                clean = line.lstrip('#').strip().strip('*').strip()
+            if line.startswith('## ') or re.match(r'^\s{0,3}#{1,6}\s+', line):
+                clean = re.sub(r'^\s{0,3}#{1,6}\s*', '', line).strip()
                 blocks.append({'type': 'subheading', 'text': clean})
-            elif line.startswith('- ') or line.startswith('• '):
-                blocks.append({'type': 'bullet', 'text': line[2:].strip()})
+            elif line.endswith(':') and len(line) <= 120:
+                blocks.append({'type': 'subheading', 'text': line})
+            elif re.match(r'^\s*([-*•●▪◦‣]|\d+[\.)])\s+', line):
+                clean = re.sub(r'^\s*([-*•●▪◦‣]|\d+[\.)])\s+', '', line).strip()
+                blocks.append({'type': 'bullet', 'text': clean})
             else:
                 blocks.append({'type': 'paragraph', 'text': line})
     return blocks
@@ -98,7 +104,7 @@ def generate_pdf_report(project) -> bytes:
         PageBreak, HRFlowable,
     )
     from reportlab.lib.enums import TA_CENTER, TA_LEFT
-    from ner.models import ReportSection, EngagementNote, StakeholderPersona
+    from ner.models import ReportSection, EngagementNote, StakeholderPersona, WorkplanComponent
     from ner.services.pdf_utils import pdf_safe, resolve_pdf_fonts
 
     FONT_REGULAR, FONT_BOLD, _ = resolve_pdf_fonts()
@@ -124,15 +130,15 @@ def generate_pdf_report(project) -> bytes:
     )
     h1_style = ParagraphStyle(
         'H1', fontName=FONT_BOLD, fontSize=18, textColor=navy_color,
-        spaceBefore=24, spaceAfter=12,
+        spaceBefore=28, spaceAfter=14, leading=24,
     )
     h2_style = ParagraphStyle(
         'H2', fontName=FONT_BOLD, fontSize=13, textColor=teal_color,
-        spaceBefore=14, spaceAfter=6,
+        spaceBefore=16, spaceAfter=8, leading=18,
     )
     body_style = ParagraphStyle(
         'Body', fontName=FONT_REGULAR, fontSize=10,
-        spaceBefore=4, spaceAfter=6, leading=14,
+        spaceBefore=5, spaceAfter=7, leading=15,
     )
     bullet_style = ParagraphStyle(
         'Bullet', fontName=FONT_REGULAR, fontSize=10,
@@ -194,6 +200,11 @@ def generate_pdf_report(project) -> bytes:
         .select_related('entity_type')
         .order_by('entity_type__name')
     )
+    workplan_components = list(
+        WorkplanComponent.objects.filter(project=project)
+        .prefetch_related('tasks__related_entity')
+        .order_by('order')
+    )
 
     # ── Build PDF ───────────────────────────────────────────────────────────
     buffer = BytesIO()
@@ -232,6 +243,8 @@ def generate_pdf_report(project) -> bytes:
         story.append(Paragraph('Appendix A: Stakeholder Priority Table', toc_style))
     if personas:
         story.append(Paragraph('Appendix B: Stakeholder Personas', toc_style))
+    if workplan_components:
+        story.append(Paragraph('Appendix C: Stakeholder Engagement Workplan', toc_style))
     story.append(PageBreak())
 
     # Report sections
@@ -248,7 +261,7 @@ def generate_pdf_report(project) -> bytes:
             if block['type'] == 'subheading':
                 story.append(Paragraph(pdf_safe(block['text']), h2_style))
             elif block['type'] == 'bullet':
-                story.append(Paragraph(f'\u2022 {pdf_safe(block["text"])}', bullet_style))
+                story.append(Paragraph(pdf_safe(block['text']), body_style))
             else:
                 story.append(Paragraph(pdf_safe(block['text']), body_style))
 
@@ -301,15 +314,40 @@ def generate_pdf_report(project) -> bytes:
 
             if persona.motivations:
                 story.append(Paragraph('<b>Motivations</b>', body_style))
-                for m in persona.motivations:
-                    story.append(Paragraph(f'\u2022 {pdf_safe(m)}', bullet_style))
+                for idx, m in enumerate(persona.motivations, 1):
+                    story.append(Paragraph(f'{idx}. {pdf_safe(m)}', body_style))
 
             if persona.frustrations:
                 story.append(Paragraph('<b>Frustrations</b>', body_style))
-                for f in persona.frustrations:
-                    story.append(Paragraph(f'\u2022 {pdf_safe(f)}', bullet_style))
+                for idx, f in enumerate(persona.frustrations, 1):
+                    story.append(Paragraph(f'{idx}. {pdf_safe(f)}', body_style))
 
             story.append(Spacer(1, 0.4 * cm))
+
+    # Appendix C: Stakeholder Engagement Workplan
+    if workplan_components:
+        story.append(PageBreak())
+        story.append(Paragraph('Appendix C: Stakeholder Engagement Workplan', h1_style))
+        story.append(HRFlowable(width='100%', thickness=1, color=teal_color))
+        story.append(Spacer(1, 0.2 * cm))
+
+        for component in workplan_components:
+            story.append(Paragraph(pdf_safe(component.title), h2_style))
+            tasks = list(component.tasks.all())
+            if not tasks:
+                story.append(Paragraph('No tasks defined.', body_style))
+                continue
+            for idx, task in enumerate(tasks, 1):
+                owner = task.suggested_owner or 'Unassigned'
+                timeline = task.timeline or 'TBD'
+                related = task.related_entity.canonical_name if task.related_entity else 'N/A'
+                story.append(Paragraph(f'{idx}. {pdf_safe(task.task_description)}', body_style))
+                story.append(Paragraph(f'Owner: {pdf_safe(owner)} | Timeline: {pdf_safe(timeline)} | Related: {pdf_safe(related)}', bullet_style))
+                if (task.dependencies or '').strip():
+                    story.append(Paragraph(f'Dependencies: {pdf_safe(task.dependencies)}', bullet_style))
+                if (task.kpis or '').strip():
+                    story.append(Paragraph(f'KPIs: {pdf_safe(task.kpis)}', bullet_style))
+            story.append(Spacer(1, 0.3 * cm))
 
     doc.build(story)
     buffer.seek(0)
@@ -325,7 +363,7 @@ def generate_docx_report(project) -> bytes:
     from docx import Document as DocxDocument
     from docx.shared import Pt, Cm, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from ner.models import ReportSection, EngagementNote, StakeholderPersona
+    from ner.models import ReportSection, EngagementNote, StakeholderPersona, WorkplanComponent
 
     NAVY_COLOR = RGBColor(0x0D, 0x1B, 0x3E)
     TEAL_COLOR = RGBColor(0x00, 0x7A, 0x87)
@@ -361,8 +399,23 @@ def generate_docx_report(project) -> bytes:
         .select_related('entity_type')
         .order_by('entity_type__name')
     )
+    workplan_components = list(
+        WorkplanComponent.objects.filter(project=project)
+        .prefetch_related('tasks__related_entity')
+        .order_by('order')
+    )
 
     doc = DocxDocument()
+
+    normal_style = doc.styles['Normal']
+    normal_style.paragraph_format.space_after = Pt(8)
+    normal_style.paragraph_format.line_spacing = 1.25
+    heading_1_style = doc.styles['Heading 1']
+    heading_1_style.paragraph_format.space_before = Pt(12)
+    heading_1_style.paragraph_format.space_after = Pt(10)
+    heading_2_style = doc.styles['Heading 2']
+    heading_2_style.paragraph_format.space_before = Pt(10)
+    heading_2_style.paragraph_format.space_after = Pt(8)
 
     # Cover page
     title_para = doc.add_paragraph()
@@ -403,6 +456,8 @@ def generate_docx_report(project) -> bytes:
         doc.add_paragraph('Appendix A: Stakeholder Priority Table')
     if personas:
         doc.add_paragraph('Appendix B: Stakeholder Personas')
+    if workplan_components:
+        doc.add_paragraph('Appendix C: Stakeholder Engagement Workplan')
     doc.add_page_break()
 
     # Report sections
@@ -418,7 +473,7 @@ def generate_docx_report(project) -> bytes:
                 sh = doc.add_heading(block['text'], level=2)
                 _set_heading_colour(sh, TEAL_COLOR)
             elif block['type'] == 'bullet':
-                doc.add_paragraph(block['text'], style='List Bullet')
+                doc.add_paragraph(block['text'])
             else:
                 doc.add_paragraph(block['text'])
 
@@ -463,14 +518,36 @@ def generate_docx_report(project) -> bytes:
             if persona.motivations:
                 p = doc.add_paragraph()
                 p.add_run('Motivations').bold = True
-                for m in persona.motivations:
-                    doc.add_paragraph(m, style='List Bullet')
+                for idx, m in enumerate(persona.motivations, 1):
+                    doc.add_paragraph(f'{idx}. {m}')
 
             if persona.frustrations:
                 p = doc.add_paragraph()
                 p.add_run('Frustrations').bold = True
-                for f in persona.frustrations:
-                    doc.add_paragraph(f, style='List Bullet')
+                for idx, f in enumerate(persona.frustrations, 1):
+                    doc.add_paragraph(f'{idx}. {f}')
+
+    # Appendix C
+    if workplan_components:
+        doc.add_page_break()
+        h = doc.add_heading('Appendix C: Stakeholder Engagement Workplan', level=1)
+        _set_heading_colour(h, NAVY_COLOR)
+
+        for component in workplan_components:
+            sh = doc.add_heading(component.title, level=2)
+            _set_heading_colour(sh, TEAL_COLOR)
+            tasks = list(component.tasks.all())
+            if not tasks:
+                doc.add_paragraph('No tasks defined.')
+                continue
+            for idx, task in enumerate(tasks, 1):
+                entity_name = task.related_entity.canonical_name if task.related_entity else 'N/A'
+                doc.add_paragraph(f'{idx}. {task.task_description}')
+                doc.add_paragraph(f'Owner: {task.suggested_owner or "Unassigned"} | Timeline: {task.timeline or "TBD"} | Related: {entity_name}')
+                if task.dependencies:
+                    doc.add_paragraph(f'Dependencies: {task.dependencies}')
+                if task.kpis:
+                    doc.add_paragraph(f'KPIs: {task.kpis}')
 
     buffer = io.BytesIO()
     doc.save(buffer)

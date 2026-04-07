@@ -1,5 +1,7 @@
 """US5 tests for stakeholder priority scoring and CSV export."""
 
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
@@ -117,5 +119,74 @@ class TestPriorityTable(APITestCase):
         self.assertGreaterEqual(len(csv_text), 2)
         self.assertEqual(
             csv_text[0],
-            'rank,name,category,priority_level,reasoning,recommended_ask,entity_type,mention_count,avg_confidence,degree,priority_score,engagement_note',
+            'rank,name,category,priority_level,recommended_ask,entity_type,mention_count,avg_confidence,degree,priority_score',
         )
+
+    @patch('ner.services.engagement_notes.generate_notes_for_project')
+    def test_generate_notes_start_contract(self, mock_generate):
+        mock_generate.return_value = {
+            'status': 'running',
+            'total_target': 2,
+            'completed_count': 1,
+            'current_index': 1,
+            'message': 'Generated 1/2 stakeholder notes.',
+        }
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/stakeholders/priority/generate-notes/',
+            {'action': 'start', 'max_items': 20},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], 'running')
+        self.assertEqual(response.data['completed_count'], 1)
+        mock_generate.assert_called_once_with(str(self.project.id), action='start', max_items=20)
+
+    @patch('ner.services.engagement_notes.generate_notes_for_project')
+    def test_generate_notes_resume_contract(self, mock_generate):
+        mock_generate.return_value = {
+            'status': 'paused_rate_limited',
+            'total_target': 5,
+            'completed_count': 2,
+            'current_index': 2,
+            'message': 'Paused due to provider rate limit.',
+        }
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/stakeholders/priority/generate-notes/',
+            {'action': 'resume', 'max_items': 10},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], 'paused_rate_limited')
+        mock_generate.assert_called_once_with(str(self.project.id), action='resume', max_items=10)
+
+    def test_generate_notes_rejects_invalid_action(self):
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/stakeholders/priority/generate-notes/',
+            {'action': 'invalid'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['error'], 'validation_error')
+
+    def test_flag_orphans_endpoint_flags_zero_degree_only(self):
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/stakeholders/priority/flag-orphans/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['flagged_count'], 1)
+
+        self.entity_a.refresh_from_db()
+        self.entity_b.refresh_from_db()
+        self.entity_c.refresh_from_db()
+
+        self.assertFalse(self.entity_a.is_flagged)
+        self.assertFalse(self.entity_b.is_flagged)
+        self.assertTrue(self.entity_c.is_flagged)

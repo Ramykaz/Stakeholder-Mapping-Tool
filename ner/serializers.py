@@ -328,12 +328,16 @@ class SMQSectionSerializer(serializers.ModelSerializer):
 
 
 class SMQTemplateSerializer(serializers.ModelSerializer):
-    sections = SMQSectionSerializer(many=True, read_only=True)
+    sections = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = SMQTemplate
         fields = ['id', 'title', 'description', 'sections']
         read_only_fields = fields
+
+    def get_sections(self, obj):
+        queryset = obj.sections.filter(is_active=True).order_by('order', 'section_number')
+        return SMQSectionSerializer(queryset, many=True).data
 
 
 class ProjectSMQAnswerSerializer(serializers.ModelSerializer):
@@ -349,6 +353,7 @@ class ProjectSMQAnswerSerializer(serializers.ModelSerializer):
             'section_number',
             'section_title',
             'answer_text',
+            'notes_text',
             'ai_generated',
             'is_stale',
             'last_generated_at',
@@ -469,3 +474,20 @@ class WorkplanComponentSerializer(serializers.ModelSerializer):
             'tasks',
         ]
         read_only_fields = fields
+
+
+class LLMConnectionTestSerializer(serializers.Serializer):
+    provider = serializers.CharField()
+    model = serializers.CharField()
+    status = serializers.ChoiceField(choices=['ok', 'error'])
+    error_message = serializers.CharField(allow_null=True, allow_blank=True, required=False)
+    latency_ms = serializers.IntegerField(min_value=0)
+
+class ReportExportStatusSerializer(serializers.Serializer):
+    can_export = serializers.BooleanField()
+    complete_sections = serializers.IntegerField(min_value=0)
+    total_sections = serializers.IntegerField(min_value=0)
+    has_stakeholder_table = serializers.BooleanField()
+    has_personas = serializers.BooleanField()
+    has_workplan = serializers.BooleanField()
+    section_statuses = serializers.ListField(child=serializers.DictField(), required=False)

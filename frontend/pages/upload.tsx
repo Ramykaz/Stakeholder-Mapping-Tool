@@ -14,7 +14,7 @@ type Provider = 'groq' | 'openai' | 'azure_openai' | 'gemini';
 
 type UploadStep = 'select' | 'uploading' | 'uploaded' | 'extracting' | 'done' | 'error';
 
-const ACCEPTED_FORMATS = '.pdf,.docx,.txt';
+const ACCEPTED_FORMATS = '.pdf,.docx,.txt,.md';
 const MAX_SIZE_MB = 50;
 const STORAGE_KEY = 'sat_upload_state';
 
@@ -142,8 +142,8 @@ export default function UploadPage() {
 
   const validateFile = (f: File): string | null => {
     const ext = f.name.split('.').pop()?.toLowerCase();
-    if (!['pdf', 'docx', 'txt'].includes(ext || '')) {
-      return 'Unsupported format. Please upload a PDF, DOCX, or TXT file.';
+    if (!['pdf', 'docx', 'txt', 'md'].includes(ext || '')) {
+      return 'Unsupported format. Please upload a PDF, DOCX, TXT, or MD file.';
     }
     if (f.size > MAX_SIZE_MB * 1024 * 1024) {
       return `File too large. Maximum size is ${MAX_SIZE_MB} MB.`;
@@ -416,7 +416,7 @@ export default function UploadPage() {
                     Drop your file here, or <span className="text-primary-500 underline underline-offset-2">browse</span>
                   </p>
                   <p className="text-xs text-gray-400 mt-1.5">
-                    PDF, DOCX, or TXT &mdash; up to {MAX_SIZE_MB} MB
+                    PDF, DOCX, TXT, or MD &mdash; up to {MAX_SIZE_MB} MB
                   </p>
                 </div>
               )}

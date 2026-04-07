@@ -12,13 +12,16 @@ import {
   generateProjectReport,
   generateProjectPersonas,
   generateProjectWorkplan,
+  getProjectPersonaGenerationStatus,
   getProjectPersonas,
   getProjectReport,
   getReportStaleness,
   getProjectWorkplan,
   getProjectWorkplanStatus,
   keepReportSectionCurrent,
+  stopProjectReportGeneration,
   ReportStalenessResponse,
+  renderLLMErrorMessage,
   saveProjectReportSection,
   regenerateProjectReportSection,
   ReportSectionResponse,
@@ -48,9 +51,13 @@ export default function ProjectReportPage() {
   const [personas, setPersonas] = useState<Awaited<ReturnType<typeof getProjectPersonas>>['results']>([]);
   const [personasLoading, setPersonasLoading] = useState(false);
   const [generatingPersonas, setGeneratingPersonas] = useState(false);
+  const [personaGenerationStatus, setPersonaGenerationStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
+  const [personaGenerationMessage, setPersonaGenerationMessage] = useState('');
   const [workplan, setWorkplan] = useState<WorkplanResponse | null>(null);
   const [workplanLoading, setWorkplanLoading] = useState(false);
   const [workplanGenerating, setWorkplanGenerating] = useState(false);
+  const [workplanGenerationStatus, setWorkplanGenerationStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
+  const [workplanGenerationMessage, setWorkplanGenerationMessage] = useState('');
   const [section6Complete, setSection6Complete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -75,6 +82,16 @@ export default function ProjectReportPage() {
     setPersonas(data.results || []);
   }, [projectId]);
 
+  const loadPersonaStatus = useCallback(async () => {
+    if (!projectId) return;
+    const statusData = await getProjectPersonaGenerationStatus(projectId);
+    setPersonaGenerationStatus(statusData.generation_status);
+    setPersonaGenerationMessage(statusData.generation_message || '');
+    if (statusData.generation_status !== 'running') {
+      setGeneratingPersonas(false);
+    }
+  }, [projectId]);
+
   const loadWorkplan = useCallback(async () => {
     if (!projectId) return;
     setWorkplanLoading(true);
@@ -84,6 +101,11 @@ export default function ProjectReportPage() {
         getProjectWorkplan(projectId),
       ]);
       setSection6Complete(statusData.section_6_complete);
+      setWorkplanGenerationStatus(statusData.generation_status);
+      setWorkplanGenerationMessage(statusData.generation_message || '');
+      if (statusData.generation_status !== 'running') {
+        setWorkplanGenerating(false);
+      }
       setWorkplan(planData);
     } finally {
       setWorkplanLoading(false);
@@ -101,18 +123,23 @@ export default function ProjectReportPage() {
   useEffect(() => {
     if (!projectId) return;
     setPersonasLoading(true);
-    loadPersonas()
+    Promise.all([loadPersonas(), loadPersonaStatus()])
       .catch(() => {})
       .finally(() => setPersonasLoading(false));
     loadWorkplan().catch(() => {});
-  }, [projectId, loadPersonas, loadWorkplan]);
+  }, [projectId, loadPersonas, loadPersonaStatus, loadWorkplan]);
+
+  const personasGenerating = generatingPersonas || personaGenerationStatus === 'running';
+  const workplanIsGenerating = workplanGenerating || workplanGenerationStatus === 'running';
 
   const shouldPoll = useMemo(
     () =>
       sections.some((section) => section.status === 'pending' || section.status === 'generating') ||
+      personaGenerationStatus === 'running' ||
+      workplanGenerationStatus === 'running' ||
       generatingPersonas ||
       workplanGenerating,
-    [sections, generatingPersonas, workplanGenerating]
+    [sections, personaGenerationStatus, workplanGenerationStatus, generatingPersonas, workplanGenerating]
   );
 
   useEffect(() => {
@@ -121,13 +148,10 @@ export default function ProjectReportPage() {
       Promise.all([
         loadReport(),
         loadStaleness(),
-        generatingPersonas ? loadPersonas() : Promise.resolve(),
-        workplanGenerating ? loadWorkplan() : Promise.resolve(),
+        personasGenerating ? loadPersonas() : Promise.resolve(),
+        personasGenerating ? loadPersonaStatus() : Promise.resolve(),
+        workplanIsGenerating ? loadWorkplan() : Promise.resolve(),
       ])
-        .then(() => {
-          if (generatingPersonas && personas.length > 0) setGeneratingPersonas(false);
-          if (workplanGenerating && workplan?.generated) setWorkplanGenerating(false);
-        })
         .catch(() => {});
     }, 3000);
     return () => clearInterval(timer);
@@ -137,11 +161,10 @@ export default function ProjectReportPage() {
     loadReport,
     loadStaleness,
     loadPersonas,
+    loadPersonaStatus,
     loadWorkplan,
-    generatingPersonas,
-    workplanGenerating,
-    personas.length,
-    workplan?.generated,
+    personasGenerating,
+    workplanIsGenerating,
   ]);
 
   const setTab = (nextTab: ReportTab) => {
@@ -160,8 +183,23 @@ export default function ProjectReportPage() {
       await generateProjectReport(projectId, 'all');
       setMessage('Generation started.');
       await Promise.all([loadReport(), loadStaleness()]);
-    } catch {
-      setMessage('Failed to start generation.');
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Report generation'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onStopGeneration = async () => {
+    if (!projectId) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const result = await stopProjectReportGeneration(projectId);
+      setMessage(`Generation stopped. ${result.sections_updated} section(s) marked as stopped.`);
+      await Promise.all([loadReport(), loadStaleness()]);
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Stop generation'));
     } finally {
       setBusy(false);
     }
@@ -175,8 +213,8 @@ export default function ProjectReportPage() {
       await regenerateProjectReportSection(projectId, sectionId, customInstruction);
       setMessage('Regeneration started.');
       await Promise.all([loadReport(), loadStaleness()]);
-    } catch {
-      setMessage('Failed to start regeneration.');
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Section regeneration'));
     } finally {
       setBusy(false);
     }
@@ -200,28 +238,34 @@ export default function ProjectReportPage() {
   const onGeneratePersonas = async () => {
     if (!projectId) return;
     setGeneratingPersonas(true);
+    setPersonaGenerationStatus('running');
+    setPersonaGenerationMessage('');
     setMessage('');
     try {
       await generateProjectPersonas(projectId);
       setMessage('Persona generation started.');
-      await loadPersonas();
-    } catch {
-      setMessage('Failed to start persona generation.');
+      await Promise.all([loadPersonas(), loadPersonaStatus()]);
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Persona generation'));
       setGeneratingPersonas(false);
+      setPersonaGenerationStatus('error');
     }
   };
 
   const onGenerateWorkplan = async () => {
-    if (!projectId || !section6Complete) return;
+    if (!projectId) return;
     setWorkplanGenerating(true);
+    setWorkplanGenerationStatus('running');
+    setWorkplanGenerationMessage('');
     setMessage('');
     try {
       await generateProjectWorkplan(projectId);
       setMessage('Workplan generation started.');
       await loadWorkplan();
-    } catch {
-      setMessage('Failed to start workplan generation.');
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Workplan generation'));
       setWorkplanGenerating(false);
+      setWorkplanGenerationStatus('error');
     }
   };
 
@@ -238,8 +282,8 @@ export default function ProjectReportPage() {
       }
       setMessage('Regeneration started for stale sections.');
       await Promise.all([loadReport(), loadStaleness()]);
-    } catch {
-      setMessage('Failed to regenerate stale sections.');
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Stale section regeneration'));
     } finally {
       setBusy(false);
     }
@@ -269,6 +313,7 @@ export default function ProjectReportPage() {
   };
 
   const section6Stale = sections.some((section) => section.section_number === 6 && section.status === 'stale');
+  const messageIsError = /failed|error|timed out|rate-limited|configuration/i.test(message);
 
   return (
     <>
@@ -282,19 +327,19 @@ export default function ProjectReportPage() {
       >
         <div className="mb-4 flex items-center gap-2 border-b border-[var(--border)]">
           <button
-            className={`px-3 py-2 text-sm border-b-2 ${activeTab === 'report' ? 'border-[var(--teal)] text-[var(--text)]' : 'border-transparent text-[var(--text3)]'}`}
+            className={`px-3 py-2 text-sm border-b-2 ${activeTab === 'report' ? 'border-[var(--teal)] text-[var(--text)]' : 'border-transparent text-[var(--text2)]'}`}
             onClick={() => setTab('report')}
           >
             Report
           </button>
           <button
-            className={`px-3 py-2 text-sm border-b-2 ${activeTab === 'workplan' ? 'border-[var(--teal)] text-[var(--text)]' : 'border-transparent text-[var(--text3)]'}`}
+            className={`px-3 py-2 text-sm border-b-2 ${activeTab === 'workplan' ? 'border-[var(--teal)] text-[var(--text)]' : 'border-transparent text-[var(--text2)]'}`}
             onClick={() => setTab('workplan')}
           >
             Workplan
           </button>
           <button
-            className={`px-3 py-2 text-sm border-b-2 ${activeTab === 'export' ? 'border-[var(--teal)] text-[var(--text)]' : 'border-transparent text-[var(--text3)]'}`}
+            className={`px-3 py-2 text-sm border-b-2 ${activeTab === 'export' ? 'border-[var(--teal)] text-[var(--text)]' : 'border-transparent text-[var(--text2)]'}`}
             onClick={() => setTab('export')}
           >
             Export
@@ -304,7 +349,7 @@ export default function ProjectReportPage() {
         {loading ? <div className="text-sm text-[var(--text3)]">Loading report…</div> : null}
 
         {message ? (
-          <p className={`text-xs mb-3 ${message.includes('Failed') ? 'text-[var(--coral,#f0614a)]' : 'text-[var(--teal)]'}`}>
+          <p className={`text-xs mb-3 ${messageIsError ? 'text-[var(--coral,#f0614a)]' : 'text-[var(--teal)]'}`}>
             {message}
           </p>
         ) : null}
@@ -325,6 +370,13 @@ export default function ProjectReportPage() {
             <div className="flex items-center gap-2 mb-3">
               <button className="btn-primary" disabled={busy} onClick={() => void onGenerateAll()}>
                 {busy ? 'Working…' : 'Generate All Sections'}
+              </button>
+              <button
+                className="btn-ghost"
+                disabled={busy || !sections.some((section) => section.status === 'pending' || section.status === 'generating')}
+                onClick={() => void onStopGeneration()}
+              >
+                Stop generation
               </button>
             </div>
 
@@ -354,12 +406,16 @@ export default function ProjectReportPage() {
             <hr className="my-6 border-[var(--border)]" />
             <div id="personas" className="mb-3">
               <h2 className="font-[var(--serif)] text-xl text-[var(--text)] mb-2">Stakeholder Personas</h2>
-              <button className="btn-primary" disabled={generatingPersonas} onClick={() => void onGeneratePersonas()}>
-                {generatingPersonas ? 'Generating…' : 'Generate personas'}
+              <button className="btn-primary" disabled={personasGenerating} onClick={() => void onGeneratePersonas()}>
+                {personasGenerating ? 'Generating…' : 'Generate personas'}
               </button>
             </div>
 
-            {personasLoading || generatingPersonas ? (
+            {personaGenerationStatus === 'error' && personaGenerationMessage ? (
+              <div className="text-sm text-[var(--coral,#f0614a)] mb-3">{personaGenerationMessage}</div>
+            ) : null}
+
+            {personasLoading || personasGenerating ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {[1, 2, 3].map((i) => <PersonaCardSkeleton key={i} />)}
               </div>
@@ -389,9 +445,9 @@ export default function ProjectReportPage() {
               <p className="text-sm text-[var(--text2)] mt-1">Generated from Section 6 (Stakeholder Engagement Strategies).</p>
             </div>
 
-            {!section6Complete ? (
+            {!section6Complete && !(workplan?.generated) ? (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                Complete Section 6 (Stakeholder Engagement Strategies) first.
+                Section 6 is not complete yet. You can still generate a workplan from available report/project context.
               </div>
             ) : null}
 
@@ -404,21 +460,26 @@ export default function ProjectReportPage() {
             <div className="flex items-center gap-2">
               <button
                 className="btn-primary"
-                disabled={workplanGenerating || !section6Complete}
-                title={!section6Complete ? 'Complete Section 6 (Stakeholder Engagement Strategies) first.' : undefined}
+                disabled={workplanIsGenerating}
                 onClick={() => void onGenerateWorkplan()}
               >
-                {workplanGenerating ? 'Generating…' : 'Generate workplan'}
+                {workplanIsGenerating ? 'Generating…' : 'Generate workplan'}
               </button>
             </div>
 
-            {section6Complete && workplan && !workplan.generated && (
+            {workplanGenerationStatus === 'error' && workplanGenerationMessage ? (
+              <div className="text-sm text-[var(--coral,#f0614a)] bg-red-50 border border-red-200 rounded px-3 py-2">
+                {workplanGenerationMessage}
+              </div>
+            ) : null}
+
+            {workplan && !workplan.generated && !workplanIsGenerating && (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                Section 6 is complete but no workplan has been generated yet.
+                No workplan has been generated yet.
               </div>
             )}
 
-            {workplanLoading || workplanGenerating ? (
+            {workplanLoading || workplanIsGenerating ? (
               <WorkplanAccordionSkeleton />
             ) : (
               <WorkplanAccordion

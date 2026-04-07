@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { saveProjectSMQAnswer, generateProjectSMQAnswer, ProjectSMQAnswer, SMQTemplateSection } from '@/lib/api';
+import React, { useEffect, useState } from 'react';
+import { saveProjectSMQAnswer, generateProjectSMQAnswer, ProjectSMQAnswer, renderLLMErrorMessage, SMQTemplateSection } from '@/lib/api';
 
 interface SMQSectionProps {
   projectId: string;
@@ -17,16 +17,22 @@ export default function SMQSection({
   onUpdated,
 }: SMQSectionProps) {
   const [value, setValue] = useState(existingAnswer?.answer_text || '');
+  const [notes, setNotes] = useState(existingAnswer?.notes_text || '');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState('');
   const [citations, setCitations] = useState<Array<{ doc_name: string; chunk_id: string; snippet: string }>>([]);
 
+  useEffect(() => {
+    setValue(existingAnswer?.answer_text || '');
+    setNotes(existingAnswer?.notes_text || '');
+  }, [existingAnswer?.answer_text, existingAnswer?.notes_text]);
+
   const onSave = async () => {
     setSaving(true);
     setMessage('');
     try {
-      const updated = await saveProjectSMQAnswer(projectId, section.id, value);
+      const updated = await saveProjectSMQAnswer(projectId, section.id, value, notes);
       onUpdated(section.id, updated);
       setMessage('Saved.');
     } catch {
@@ -49,14 +55,16 @@ export default function SMQSection({
         section_number: section.section_number,
         section_title: section.title,
         answer_text: generated.answer_text || '',
+        notes_text: generated.notes_text || notes,
         ai_generated: generated.ai_generated,
         is_stale: false,
         last_generated_at: null,
         chunk_ids_used: generated.chunk_ids_used || [],
       });
+      setNotes(generated.notes_text || notes);
       setMessage('Generated with AI.');
-    } catch {
-      setMessage('AI generation failed.');
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'SMQ generation'));
     } finally {
       setGenerating(false);
     }
@@ -78,6 +86,17 @@ export default function SMQSection({
         placeholder="Write your answer here or use Generate with AI"
         title={`SMQ section ${section.section_number} answer`}
       />
+
+      <label className="grid gap-1.5">
+        <span className="text-xs text-[var(--text2)]">Section Notes (context for AI generation)</span>
+        <textarea
+          className="input-field min-h-[110px]"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add your notes, assumptions, constraints, and priorities for this section"
+          title={`SMQ section ${section.section_number} notes`}
+        />
+      </label>
 
       <div className="flex items-center gap-2">
         <button className="btn-primary" onClick={() => void onSave()} disabled={saving}>

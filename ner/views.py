@@ -3,7 +3,10 @@
 import csv
 import io
 import logging
+import time
+from datetime import timedelta
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -43,16 +46,24 @@ from .serializers import (
     ProjectSMQAnswerSerializer,
     ReportSectionSerializer,
     StakeholderPrioritySerializer,
+    LLMConnectionTestSerializer,
+    ReportExportStatusSerializer,
 )
 from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress, get_active_entity_style_map
 from .services.report_staleness import flag_stale_report_sections
 from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
 from .services.pdf_utils import pdf_safe, resolve_pdf_fonts
-from .services.provider_runtime import ProviderConfigError
+from .services.provider_runtime import ProviderConfigError, classify_provider_error, validate_provider_runtime_config
+from .services.provider_factory import resolve_provider_model
 from .services.smq_generator import generate_smq_section
 from .services.priority_table import compute_priority_scores
-from .tasks import generate_report_sections_task, regenerate_report_section_task, generate_priority_notes_task
+from .tasks import (
+    generate_report_sections_task,
+    regenerate_report_section_task,
+    generate_priority_notes_task,
+    generate_workplan_task,
+)
 
 logger = logging.getLogger(__name__)
 _entity_dedup_service = EntityDedupService()
@@ -92,6 +103,26 @@ def _active_entity_style_map() -> dict:
     return get_active_entity_style_map()
 
 
+def _get_preferred_smq_template() -> SMQTemplate | None:
+    return (
+        SMQTemplate.objects.filter(is_active=True)
+        .annotate(
+            active_section_count=models.Count(
+                'sections',
+                filter=models.Q(sections__is_active=True),
+                distinct=True,
+            ),
+            default_template_rank=models.Case(
+                models.When(title='Stakeholder Mapping Questionnaire', then=models.Value(0)),
+                default=models.Value(1),
+                output_field=models.IntegerField(),
+            ),
+        )
+        .order_by('-active_section_count', 'default_template_rank', '-created_at')
+        .first()
+    )
+
+
 def _default_smq_answer_from_context(project: Project, section: SMQSection) -> str:
     context = get_project_context(project).strip()
     if not context:
@@ -123,6 +154,48 @@ def _default_smq_answer_from_context(project: Project, section: SMQSection) -> s
         8: success_metrics or expected_outcomes or context,
     }
     return section_defaults.get(section.section_number, context).strip()
+
+
+def _report_task_cache_key(project_id: str) -> str:
+    return f"report_generation_tasks:{project_id}"
+
+
+def _report_cancel_cache_key(project_id: str) -> str:
+    return f"report_generation_cancel:{project_id}"
+
+
+def _persona_generation_cache_key(project_id: str) -> str:
+    return f"persona_generation_status:{project_id}"
+
+
+def _workplan_generation_cache_key(project_id: str) -> str:
+    return f"workplan_generation_status:{project_id}"
+
+
+def _set_generation_status(cache_key: str, status_value: str, message: str = '') -> None:
+    cache.set(cache_key, {'status': status_value, 'message': message}, timeout=60 * 60)
+
+
+def _get_generation_status(cache_key: str, fallback_status: str) -> dict:
+    cached = cache.get(cache_key) or {}
+    if not isinstance(cached, dict):
+        return {'status': fallback_status, 'message': ''}
+    status_value = cached.get('status') or fallback_status
+    message = cached.get('message') or ''
+    return {'status': status_value, 'message': message}
+
+
+def _mark_stuck_report_sections(project: Project, timeout_minutes: int = 10) -> int:
+    cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
+    stuck_qs = ReportSection.objects.filter(
+        project=project,
+        status__in=[ReportSection.STATUS_PENDING, ReportSection.STATUS_GENERATING],
+        updated_at__lt=cutoff,
+    )
+    return stuck_qs.update(
+        status=ReportSection.STATUS_ERROR,
+        error_message='Generation timed out. Please retry or use Stop generation and restart.',
+    )
 
 
 class EntityLabelAdminView(APIView):
@@ -229,33 +302,27 @@ class RelationshipTypeAdminDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-def _resolve_provider_and_model(request) -> tuple[str, str]:
-    """Resolve and validate provider/model from request payload with settings defaults."""
+def _resolve_provider_and_model(request, project=None) -> tuple[str, str]:
+    """Resolve provider/model using request payload with project-aware fallback defaults."""
     payload = request.data if isinstance(request.data, dict) else {}
-    provider = str(payload.get('provider') or settings.NER_DEFAULT_PROVIDER).strip().lower()
-    model = str(payload.get('model') or '').strip()
-
-    if provider not in settings.NER_PROVIDER_MODEL_ALLOWLIST:
-        raise ValueError(f"Unsupported provider '{provider}'")
-
-    if not model:
-        model = settings.NER_PROVIDER_MODEL_ALLOWLIST[provider][0]
-
-    if model not in settings.NER_PROVIDER_MODEL_ALLOWLIST[provider]:
-        raise ValueError(f"Unsupported model '{model}' for provider '{provider}'")
-
-    return provider, model
+    provider = str(payload.get('provider') or '').strip().lower() or (getattr(project, 'provider', '') or '').strip().lower() or None
+    model = str(payload.get('model') or '').strip() or (getattr(project, 'model', '') or '').strip() or None
+    resolved = resolve_provider_model(provider, model)
+    return resolved.provider, resolved.model
 
 
 def handle_groq_error(exception):
-    """Convert Groq exceptions to DRF responses."""
+    """Convert provider exceptions to normalized DRF error responses."""
     error_msg = str(exception).lower()
     if isinstance(exception, ProviderConfigError) or 'api_key' in error_msg or 'credential' in error_msg:
         provider = getattr(exception, 'provider', None)
         provider_name = str(provider or 'selected provider')
         return Response(
             {
-                'error': {
+                'error': 'llm_error',
+                'error_kind': 'configuration',
+                'detail': str(exception),
+                'provider_error': {
                     'code': 'PROVIDER_CONFIG_ERROR',
                     'message': f'{provider_name} credentials are missing or invalid.',
                     'detail': str(exception),
@@ -274,7 +341,10 @@ def handle_groq_error(exception):
         guidance = 'Switch to OpenAI provider in the extraction controls and retry.' if provider_lower == 'groq' else 'Switch to another configured provider and retry.'
         return Response(
             {
-                'error': {
+                'error': 'llm_error',
+                'error_kind': 'rate_limit',
+                'detail': f'{provider_name} API rate limit exceeded.',
+                'provider_error': {
                     'code': 'PROVIDER_RATE_LIMITED',
                     'message': f'{provider_name} is currently rate limited.',
                     'detail': f'{provider_name} API rate limit exceeded.',
@@ -283,13 +353,34 @@ def handle_groq_error(exception):
             },
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
+
+    if 'timeout' in error_msg or 'timed out' in error_msg:
+        return Response(
+            {
+                'error': 'llm_error',
+                'error_kind': 'timeout',
+                'detail': 'Provider request timed out. Please retry.',
+                'error_payload': {
+                    'code': 'PROVIDER_TIMEOUT',
+                    'message': 'Provider request timed out. Please retry.',
+                },
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    normalized_kind = classify_provider_error(exception)
     logger.error(f"LLM provider error: {exception}")
     return Response(
         {
-            'error': 'extraction_failed',
-            'detail': 'Failed to extract entities from document',
+            'error': 'llm_error',
+            'error_kind': normalized_kind,
+            'detail': 'Provider request failed. Please try again.',
+            'error_payload': {
+                'code': 'PROVIDER_ERROR',
+                'message': 'Provider request failed. Please try again.',
+            },
         },
-        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 
 
@@ -322,8 +413,8 @@ class ExtractEntitiesView(AuthenticatedAPIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            provider, model = _resolve_provider_and_model(request)
-            _resolve_document_project(document, user=request.user)
+            project = _resolve_document_project(document, user=request.user)
+            provider, model = _resolve_provider_and_model(request, project=project)
             logger.info(f"[EXTRACTION MODE] Entities-only extraction started for document_id={id}")
 
             # Extract entities (synchronous)
@@ -423,8 +514,8 @@ class ExtractEntitiesRelationsView(AuthenticatedAPIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            provider, model = _resolve_provider_and_model(request)
             project = _resolve_document_project(document, user=request.user)
+            provider, model = _resolve_provider_and_model(request, project=project)
             concept_note = _get_project_concept_note_text(project)
             logger.info(f"[EXTRACTION MODE] Joint extraction (entities + relations) started for document_id={id}")
 
@@ -488,14 +579,15 @@ class ExtractRelationsOnlyView(AuthenticatedAPIView):
     def post(self, request, id):
         try:
             try:
-                _get_document_for_user_or_404(id, request.user)
+                document = _get_document_for_user_or_404(id, request.user)
             except (Document.DoesNotExist, Http404):
                 return Response(
                     {'error': 'document_not_found', 'detail': f'Document {id} does not exist'},
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            provider, model = _resolve_provider_and_model(request)
+            project = _resolve_document_project(document, user=request.user)
+            provider, model = _resolve_provider_and_model(request, project=project)
             logger.info(f"[EXTRACTION MODE] Relations-only extraction started for document_id={id}")
 
             result = extract_relations_only_for_document(id, provider=provider, model=model)
@@ -983,7 +1075,7 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-            provider, model = _resolve_provider_and_model(request)
+            provider, model = _resolve_provider_and_model(request, project=project)
             concept_note = _get_project_concept_note_text(project)
             total_entities_created = 0
             total_relations_created = 0
@@ -1169,24 +1261,136 @@ class ProjectQueryView(AuthenticatedAPIView):
     def post(self, request, id):
         from .services.semantic_search import search_entity_ids_for_project, search_chunks_for_entity
         from .services.nl_query import is_nl_question, answer_nl_query
+        from django.db.models import Q
+        from ingestion.models import Chunk
+        from ner.models import Entity, Relation, EngagementNote, ReportSection
 
         project = _get_project_for_user_or_404(id, request.user)
         query = (request.data.get('query') or '').strip()
         if not query:
             return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        entity_ids = search_entity_ids_for_project(project, query, top_k=20)
+        entity_ids = search_entity_ids_for_project(project, query, top_k=24)
+
+        # Lexical fallback: add strongly matching entity names when embedding retrieval misses terms.
+        lexical_tokens = [token.strip().lower() for token in query.split() if len(token.strip()) >= 3]
+        if lexical_tokens:
+            lexical_q = Q()
+            for token in lexical_tokens[:8]:
+                lexical_q |= Q(canonical_name__icontains=token)
+            lexical_entity_ids = list(
+                Entity.objects.filter(project=project, is_flagged=False)
+                .filter(lexical_q)
+                .values_list('id', flat=True)[:24]
+            )
+            lexical_ids_str = [str(item) for item in lexical_entity_ids]
+            merged_ids = []
+            seen = set()
+            for item in entity_ids + lexical_ids_str:
+                if item in seen:
+                    continue
+                seen.add(item)
+                merged_ids.append(item)
+            entity_ids = merged_ids[:30]
+
         count = len(entity_ids)
 
         nl = is_nl_question(query)
         answer = None
 
         if nl:
-            top_k_chunks = search_chunks_for_entity(project, query, top_k=10)
-            chunk_texts = [c.text for c in top_k_chunks if c.text]
+            top_k_chunks = list(search_chunks_for_entity(project, query, top_k=12))
+
+            # Keyword reinforcement: include chunks containing key terms for better grounded answers.
+            keyword_chunks = []
+            if lexical_tokens:
+                keyword_q = Q()
+                for token in lexical_tokens[:6]:
+                    keyword_q |= Q(text__icontains=token)
+                keyword_chunks = list(
+                    Chunk.objects.filter(document__project=project)
+                    .filter(keyword_q)
+                    .order_by('-document__upload_timestamp', 'chunk_index')[:12]
+                )
+
+            merged_chunks = []
+            seen_chunk_ids = set()
+            for chunk in top_k_chunks + keyword_chunks:
+                if not chunk or not chunk.text:
+                    continue
+                chunk_id = str(chunk.id)
+                if chunk_id in seen_chunk_ids:
+                    continue
+                seen_chunk_ids.add(chunk_id)
+                merged_chunks.append(chunk)
+
+            chunk_texts = [c.text for c in merged_chunks[:14] if c.text]
+
+            # Grounded fallback context from existing project artifacts.
+            if len(chunk_texts) < 3:
+                fallback_context: list[str] = []
+
+                # Initiative profile / concept-note context
+                concept_text = ''
+                try:
+                    concept_note = project.concept_note
+                    concept_text = (getattr(concept_note, 'content', '') or '').strip()
+                except Exception:
+                    concept_text = ''
+                if concept_text:
+                    fallback_context.append(f"[Initiative Profile] {concept_text[:1200]}")
+
+                # Recent completed report sections as curated evidence
+                report_sections = ReportSection.objects.filter(project=project, status='done').order_by('section__section_number')[:6]
+                for section in report_sections:
+                    text = (section.generated_text or '').strip()
+                    if text:
+                        fallback_context.append(
+                            f"[Report Section {section.section.section_number}: {section.section.title}] {text[:900]}"
+                        )
+
+                # Entity + relation summaries for relational questions
+                entity_summary = list(
+                    Entity.objects.filter(project=project, is_flagged=False)
+                    .order_by('-mention_count_dedup')
+                    .values_list('canonical_name', flat=True)[:20]
+                )
+                if entity_summary:
+                    fallback_context.append(f"[Entities] {', '.join(entity_summary)}")
+
+                relation_rows = Relation.objects.filter(project=project).select_related('source_entity', 'target_entity')[:30]
+                if relation_rows:
+                    relation_lines = [
+                        f"{rel.source_entity.canonical_name} --{rel.label}--> {rel.target_entity.canonical_name}"
+                        for rel in relation_rows
+                    ]
+                    fallback_context.append('[Relations]\n' + '\n'.join(relation_lines))
+
+                note_rows = EngagementNote.objects.filter(project=project).select_related('entity')[:20]
+                if note_rows:
+                    note_lines = [
+                        f"{note.entity.canonical_name}: {(note.note_text or '').strip()[:220]}"
+                        for note in note_rows if (note.note_text or '').strip()
+                    ]
+                    if note_lines:
+                        fallback_context.append('[Stakeholder Notes]\n' + '\n'.join(note_lines))
+
+                chunk_texts.extend(fallback_context[:8])
+
             provider = (getattr(project, 'provider', '') or '').strip() or settings.NER_DEFAULT_PROVIDER
             model = (getattr(project, 'model', '') or '').strip() or settings.NER_DEFAULT_MODEL
-            answer = answer_nl_query(project, query, chunk_texts, provider, model)
+            try:
+                answer = answer_nl_query(project, query, chunk_texts, provider, model)
+            except Exception as exc:
+                error_kind = classify_provider_error(exc)
+                return Response(
+                    {
+                        'error': 'llm_error',
+                        'error_kind': error_kind,
+                        'detail': str(exc),
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
 
         return Response({
             'query': query,
@@ -1201,7 +1405,7 @@ class SMQTemplateView(AuthenticatedAPIView):
     """GET /api/v1/smq/template/."""
 
     def get(self, request):
-        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        template = _get_preferred_smq_template()
         if not template:
             return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
         serializer = SMQTemplateSerializer(template)
@@ -1215,7 +1419,7 @@ class ProjectSMQView(AuthenticatedAPIView):
         project = _get_project_for_user_or_404(id, request.user)
         response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
 
-        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        template = _get_preferred_smq_template()
         if template:
             sections = SMQSection.objects.filter(template=template, is_active=True).order_by('order', 'section_number')
             for section in sections:
@@ -1242,10 +1446,12 @@ class ProjectSMQAnswerView(AuthenticatedAPIView):
         answer, _ = ProjectSMQAnswer.objects.get_or_create(response=response_obj, section=section)
 
         answer_text = str((request.data or {}).get('answer_text') or '').strip()
+        notes_text = str((request.data or {}).get('notes_text') or '').strip()
         answer.answer_text = answer_text
+        answer.notes_text = notes_text
         answer.ai_generated = False
         answer.is_stale = False
-        answer.save(update_fields=['answer_text', 'ai_generated', 'is_stale', 'updated_at'])
+        answer.save(update_fields=['answer_text', 'notes_text', 'ai_generated', 'is_stale', 'updated_at'])
 
         serializer = ProjectSMQAnswerSerializer(answer)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -1257,18 +1463,19 @@ class ProjectSMQGenerateView(AuthenticatedAPIView):
     def post(self, request, id, section_id):
         project = _get_project_for_user_or_404(id, request.user)
         section = get_object_or_404(SMQSection, id=section_id)
+        response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
+        answer, _ = ProjectSMQAnswer.objects.get_or_create(response=response_obj, section=section)
 
         try:
-            generated = generate_smq_section(project, section)
+            generated = generate_smq_section(project, section, notes_text=(answer.notes_text or ''))
         except Exception as exc:
             logger.exception('SMQ section generation failed project=%s section=%s', project.id, section.id)
+            error_kind = classify_provider_error(exc)
             return Response(
-                {'error': 'llm_error', 'detail': str(exc)},
+                {'error': 'llm_error', 'error_kind': error_kind, 'detail': str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        response_obj, _ = ProjectSMQResponse.objects.get_or_create(project=project)
-        answer, _ = ProjectSMQAnswer.objects.get_or_create(response=response_obj, section=section)
         answer.answer_text = generated.get('answer_text', '')
         answer.ai_generated = True
         answer.is_stale = False
@@ -1289,6 +1496,7 @@ class ProjectSMQGenerateView(AuthenticatedAPIView):
             {
                 'section_id': str(section.id),
                 'answer_text': answer.answer_text,
+                'notes_text': answer.notes_text,
                 'ai_generated': answer.ai_generated,
                 'chunk_ids_used': answer.chunk_ids_used,
                 'citations': generated.get('citations', []),
@@ -1302,7 +1510,8 @@ class ProjectReportView(AuthenticatedAPIView):
 
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
-        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        _mark_stuck_report_sections(project)
+        template = _get_preferred_smq_template()
         if not template:
             return Response({'project': str(project.id), 'sections': []}, status=status.HTTP_200_OK)
 
@@ -1323,7 +1532,7 @@ class ProjectReportGenerateView(AuthenticatedAPIView):
         if not project.documents.exists():
             return Response({'error': 'no_documents'}, status=status.HTTP_400_BAD_REQUEST)
 
-        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        template = _get_preferred_smq_template()
         if not template:
             return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1340,15 +1549,29 @@ class ProjectReportGenerateView(AuthenticatedAPIView):
         else:
             return Response({'error': 'validation_error', 'detail': 'sections must be "all" or an array of section ids'}, status=status.HTTP_400_BAD_REQUEST)
 
-        generate_report_sections_task.delay(str(project.id), section_ids, custom_instruction)
-        return Response(
-            {
-                'status': 'generating',
-                'sections_queued': len(section_ids),
-                'message': 'Generation started. Poll /report/ for status.',
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
+        try:
+            cache.delete(_report_cancel_cache_key(str(project.id)))
+            task = generate_report_sections_task.delay(str(project.id), section_ids, custom_instruction)
+            task_ids = cache.get(_report_task_cache_key(str(project.id))) or []
+            task_ids = [task.id] + [tid for tid in task_ids if tid != task.id]
+            cache.set(_report_task_cache_key(str(project.id)), task_ids[:25], timeout=60 * 60)
+            return Response(
+                {
+                    'status': 'generating',
+                    'sections_queued': len(section_ids),
+                    'message': 'Generation started. Poll /report/ for status.',
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+        except Exception as exc:
+            return Response(
+                {
+                    'error': 'llm_error',
+                    'error_kind': classify_provider_error(exc),
+                    'detail': 'Failed to start report generation. Please retry.',
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 class ProjectReportRegenerateView(AuthenticatedAPIView):
@@ -1368,8 +1591,59 @@ class ProjectReportRegenerateView(AuthenticatedAPIView):
         report_section.error_message = ''
         report_section.save(update_fields=['status', 'error_message', 'updated_at'])
 
-        regenerate_report_section_task.delay(str(project.id), str(section.id), custom_instruction)
-        return Response({'status': 'generating', 'section_id': str(section.id)}, status=status.HTTP_202_ACCEPTED)
+        try:
+            cache.delete(_report_cancel_cache_key(str(project.id)))
+            task = regenerate_report_section_task.delay(str(project.id), str(section.id), custom_instruction)
+            task_ids = cache.get(_report_task_cache_key(str(project.id))) or []
+            task_ids = [task.id] + [tid for tid in task_ids if tid != task.id]
+            cache.set(_report_task_cache_key(str(project.id)), task_ids[:25], timeout=60 * 60)
+            return Response({'status': 'generating', 'section_id': str(section.id)}, status=status.HTTP_202_ACCEPTED)
+        except Exception as exc:
+            return Response(
+                {
+                    'error': 'llm_error',
+                    'error_kind': classify_provider_error(exc),
+                    'detail': 'Failed to start section regeneration. Please retry.',
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+
+class ProjectReportStopGenerationView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/report/stop/."""
+
+    def post(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+
+        cache.set(_report_cancel_cache_key(str(project.id)), True, timeout=60 * 60)
+
+        task_ids = cache.get(_report_task_cache_key(str(project.id))) or []
+        revoked = 0
+        for task_id in task_ids:
+            try:
+                from celery import current_app
+
+                current_app.control.revoke(task_id, terminate=True)
+                revoked += 1
+            except Exception:
+                continue
+
+        updated = ReportSection.objects.filter(
+            project=project,
+            status__in=[ReportSection.STATUS_PENDING, ReportSection.STATUS_GENERATING],
+        ).update(
+            status=ReportSection.STATUS_ERROR,
+            error_message='Generation stopped by user.',
+        )
+
+        return Response(
+            {
+                'status': 'stopped',
+                'revoked_tasks': revoked,
+                'sections_updated': updated,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProjectReportSectionDetailView(AuthenticatedAPIView):
@@ -1396,7 +1670,7 @@ class ProjectReportExportPDFView(AuthenticatedAPIView):
 
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
-        template = SMQTemplate.objects.filter(is_active=True).order_by('-created_at').first()
+        template = _get_preferred_smq_template()
         if not template:
             return Response({'error': 'smq_template_not_found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1491,12 +1765,61 @@ class ProjectPriorityGenerateNotesView(AuthenticatedAPIView):
     """POST /api/v1/projects/{id}/stakeholders/priority/generate-notes/."""
 
     def post(self, request, id):
+        from ner.services.engagement_notes import generate_notes_for_project
+
         project = _get_project_for_user_or_404(id, request.user)
-        top_rows = compute_priority_scores(project)[:50]
+        payload = request.data if isinstance(request.data, dict) else {}
+        action = str(payload.get('action') or 'start').strip().lower()
+        if action not in {'start', 'resume'}:
+            return Response(
+                {'error': 'validation_error', 'detail': 'action must be "start" or "resume"'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        generate_priority_notes_task.delay(str(project.id))
+        max_items = payload.get('max_items', 20)
+        try:
+            max_items = int(max_items)
+        except (TypeError, ValueError):
+            max_items = 20
 
-        return Response({'status': 'generating', 'entity_count': len(top_rows)}, status=status.HTTP_202_ACCEPTED)
+        result = generate_notes_for_project(str(project.id), action=action, max_items=max_items)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class ProjectPriorityFlagOrphansView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/stakeholders/priority/flag-orphans/."""
+
+    def post(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        rows = compute_priority_scores(project)
+        orphan_entity_ids = [row['entity_id'] for row in rows if int(row.get('degree', 0) or 0) == 0]
+
+        if not orphan_entity_ids:
+            return Response(
+                {
+                    'project_id': str(project.id),
+                    'flagged_count': 0,
+                    'flagged_entity_ids': [],
+                    'detail': 'No isolated stakeholders found.',
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        updated = Entity.objects.filter(
+            project=project,
+            id__in=orphan_entity_ids,
+            is_flagged=False,
+        ).update(is_flagged=True)
+
+        return Response(
+            {
+                'project_id': str(project.id),
+                'flagged_count': int(updated),
+                'flagged_entity_ids': orphan_entity_ids,
+                'detail': f'Flagged {updated} isolated stakeholder(s).',
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProjectPriorityExportCSVView(AuthenticatedAPIView):
@@ -1954,6 +2277,68 @@ class ProjectProviderView(AuthenticatedAPIView):
         }, status=status.HTTP_200_OK)
 
 
+class LLMConnectionTestView(AuthenticatedAPIView):
+    """GET /api/v1/settings/llm/test/?provider=...&model=..."""
+
+    def get(self, request):
+        from .services.nl_query import _call_provider
+
+        provider_param = (request.query_params.get('provider') or '').strip().lower() or None
+        model_param = (request.query_params.get('model') or '').strip() or None
+
+        try:
+            resolved = resolve_provider_model(provider_param, model_param)
+        except ValueError as exc:
+            payload = {
+                'provider': provider_param or '',
+                'model': model_param or '',
+                'status': 'error',
+                'error_message': str(exc),
+                'latency_ms': 0,
+            }
+            serializer = LLMConnectionTestSerializer(data=payload)
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.validated_data, status=status.HTTP_400_BAD_REQUEST)
+
+        start = time.perf_counter()
+        try:
+            validate_provider_runtime_config(resolved.provider)
+            _call_provider('Reply with exactly: OK', resolved.provider, resolved.model, max_tokens=8)
+            payload = {
+                'provider': resolved.provider,
+                'model': resolved.model,
+                'status': 'ok',
+                'error_message': None,
+                'latency_ms': int((time.perf_counter() - start) * 1000),
+            }
+            serializer = LLMConnectionTestSerializer(data=payload)
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.validated_data, status=status.HTTP_200_OK)
+        except ProviderConfigError as exc:
+            payload = {
+                'provider': resolved.provider,
+                'model': resolved.model,
+                'status': 'error',
+                'error_message': str(exc),
+                'latency_ms': int((time.perf_counter() - start) * 1000),
+            }
+            serializer = LLMConnectionTestSerializer(data=payload)
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.validated_data, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            error_kind = classify_provider_error(exc)
+            payload = {
+                'provider': resolved.provider,
+                'model': resolved.model,
+                'status': 'error',
+                'error_message': f"{error_kind}: {str(exc)}",
+                'latency_ms': int((time.perf_counter() - start) * 1000),
+            }
+            serializer = LLMConnectionTestSerializer(data=payload)
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
 class ExtractionProgressView(AuthenticatedAPIView):
     """Lightweight polling endpoint for chunk-level extraction progress.
 
@@ -2158,8 +2543,12 @@ def _generate_report_narrative(project, data: dict) -> dict:
     """
     from ner.services.nl_query import _call_provider
 
-    provider = (getattr(project, 'provider', '') or '').strip() or settings.NER_DEFAULT_PROVIDER
-    model = (getattr(project, 'model', '') or '').strip() or settings.NER_DEFAULT_MODEL
+    provider_config = resolve_provider_model(
+        (getattr(project, 'provider', '') or '').strip() or None,
+        (getattr(project, 'model', '') or '').strip() or None,
+    )
+    provider = provider_config.provider
+    model = provider_config.model
 
     # Build context
     doc_names = [d.filename for d in data['documents']]
@@ -2707,11 +3096,31 @@ class PersonaGenerateView(AuthenticatedAPIView):
                 {'error': 'no_entities', 'detail': 'No entities extracted for this project yet.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        generate_personas_task.delay(str(project.id))
-        return Response(
-            {'status': 'generating', 'message': 'Persona generation started. Poll /personas/ for results.'},
-            status=status.HTTP_202_ACCEPTED,
-        )
+        try:
+            _set_generation_status(
+                _persona_generation_cache_key(str(project.id)),
+                'running',
+                'Persona generation is in progress.',
+            )
+            generate_personas_task.delay(str(project.id))
+            return Response(
+                {'status': 'generating', 'message': 'Persona generation started. Poll /personas/ for results.'},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        except Exception as exc:
+            _set_generation_status(
+                _persona_generation_cache_key(str(project.id)),
+                'error',
+                'Failed to start persona generation. Please retry.',
+            )
+            return Response(
+                {
+                    'error': 'llm_error',
+                    'error_kind': classify_provider_error(exc),
+                    'detail': 'Failed to start persona generation. Please retry.',
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 # ─── US-014: Workplan ────────────────────────────────────────────────────────
@@ -2750,12 +3159,45 @@ class WorkplanStatusView(AuthenticatedAPIView):
             status=ReportSection.STATUS_DONE,
         ).exists()
 
+        fallback_status = 'completed' if component_count > 0 else 'idle'
+        generation = _get_generation_status(
+            _workplan_generation_cache_key(str(project.id)),
+            fallback_status=fallback_status,
+        )
+
         return Response(
             {
                 'generated': component_count > 0,
                 'section_6_complete': section_6_complete,
                 'component_count': component_count,
                 'task_count': task_count,
+                'generation_status': generation['status'],
+                'generation_message': generation['message'],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PersonaStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/personas/status/"""
+
+    def get(self, request, id):
+        from .models import StakeholderPersona
+
+        project = _get_project_for_user_or_404(id, request.user)
+        persona_count = StakeholderPersona.objects.filter(project=project).count()
+        fallback_status = 'completed' if persona_count > 0 else 'idle'
+        generation = _get_generation_status(
+            _persona_generation_cache_key(str(project.id)),
+            fallback_status=fallback_status,
+        )
+
+        return Response(
+            {
+                'generated': persona_count > 0,
+                'count': persona_count,
+                'generation_status': generation['status'],
+                'generation_message': generation['message'],
             },
             status=status.HTTP_200_OK,
         )
@@ -2765,26 +3207,33 @@ class WorkplanGenerateView(AuthenticatedAPIView):
     """POST /api/v1/projects/{id}/workplan/generate/"""
 
     def post(self, request, id):
-        from .tasks import generate_workplan_task
         project = _get_project_for_user_or_404(id, request.user)
 
-        section_6_complete = ReportSection.objects.filter(
-            project=project,
-            section__section_number=6,
-            status=ReportSection.STATUS_DONE,
-        ).exists()
-
-        if not section_6_complete:
-            return Response(
-                {'error': 'section_6_incomplete', 'detail': 'Section 6 must be complete first.'},
-                status=status.HTTP_400_BAD_REQUEST,
+        try:
+            _set_generation_status(
+                _workplan_generation_cache_key(str(project.id)),
+                'running',
+                'Workplan generation is in progress.',
             )
-
-        generate_workplan_task.delay(str(project.id))
-        return Response(
-            {'status': 'generating', 'message': 'Workplan generation started. Poll /workplan/ for results.'},
-            status=status.HTTP_202_ACCEPTED,
-        )
+            generate_workplan_task.delay(str(project.id))
+            return Response(
+                {'status': 'generating', 'message': 'Workplan generation started. Poll /workplan/ for results.'},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        except Exception as exc:
+            _set_generation_status(
+                _workplan_generation_cache_key(str(project.id)),
+                'error',
+                'Failed to start workplan generation. Please retry.',
+            )
+            return Response(
+                {
+                    'error': 'llm_error',
+                    'error_kind': classify_provider_error(exc),
+                    'detail': 'Failed to start workplan generation. Please retry.',
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
 
 # ─── US-014: Report Staleness ─────────────────────────────────────────────────
@@ -2880,7 +3329,8 @@ class ReportExportStatusView(AuthenticatedAPIView):
         from .services.report_export import get_export_status
         project = _get_project_for_user_or_404(id, request.user)
         export_status = get_export_status(project)
-        return Response(export_status, status=status.HTTP_200_OK)
+        serializer = ReportExportStatusSerializer(export_status)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ReportExportView(AuthenticatedAPIView):

@@ -15,6 +15,8 @@ from ingestion.views import (
     ProjectDocumentUploadView,
     ProjectDocumentDetailView,
     ProjectDocumentStatusView,
+    ProjectWebSourceListCreateView,
+    ProjectWebSourceDetailView,
 )
 
 urlpatterns = [
@@ -30,6 +32,8 @@ urlpatterns = [
     path('projects/<uuid:id>/documents/', ProjectDocumentUploadView.as_view(), name='project-documents'),
     path('projects/<uuid:id>/documents/<uuid:doc_id>/', ProjectDocumentDetailView.as_view(), name='project-document-detail'),
     path('projects/<uuid:id>/documents/<uuid:doc_id>/status/', ProjectDocumentStatusView.as_view(), name='project-document-status'),
+    path('projects/<uuid:id>/web-sources/', ProjectWebSourceListCreateView.as_view(), name='project-web-sources'),
+    path('projects/<uuid:id>/web-sources/<uuid:web_source_id>/', ProjectWebSourceDetailView.as_view(), name='project-web-source-detail'),
     path('documents/', IngestView.as_view(), name='ingest-document'),
     path('documents/<uuid:id>/', DocumentDetailView.as_view(), name='document-detail'),
 ]

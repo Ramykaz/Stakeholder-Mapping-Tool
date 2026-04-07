@@ -115,7 +115,7 @@ describe('error interceptor', () => {
       request: {},
       message: '',
     };
-    await expect(rejectHandler(error)).rejects.toThrow('Switch to OpenAI provider');
+    await expect(rejectHandler(error)).rejects.toThrow('Provider is rate-limited');
   });
 
   it('maps 500 responses to server-error message', async () => {

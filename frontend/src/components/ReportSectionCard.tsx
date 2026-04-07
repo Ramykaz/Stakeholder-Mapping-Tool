@@ -14,7 +14,7 @@ function isRateLimit(msg: string | null | undefined): boolean {
 }
 
 function statusLabel(status: ReportSectionResponse['status']) {
-  if (status === 'pending') return 'Pending';
+  if (status === 'pending') return 'Start generation';
   if (status === 'generating') return 'Generating';
   if (status === 'done') return 'Done';
   if (status === 'stale') return 'Stale';
@@ -47,7 +47,7 @@ export default function ReportSectionCard({ section, onRegenerate, onSaveEdit, b
           onChange={(event) => setDraftText(event.target.value)}
         />
       ) : section.status === 'done' && section.generated_text ? (
-        <p className="text-sm text-[var(--text2)] whitespace-pre-wrap">{section.generated_text}</p>
+        <p className="text-sm text-[var(--text)] whitespace-pre-wrap">{section.generated_text}</p>
       ) : section.status === 'error' ? (
         <div style={{
           padding: '10px 14px',
@@ -59,7 +59,7 @@ export default function ReportSectionCard({ section, onRegenerate, onSaveEdit, b
           gap: 10,
         }}>
           <span style={{ fontSize: 16, flexShrink: 0 }}>{isRateLimit(section.error_message) ? '⏳' : '⚠'}</span>
-          <p className="text-sm" style={{ color: isRateLimit(section.error_message) ? '#92400E' : 'var(--coral,#f0614a)', margin: 0 }}>
+          <p className="text-sm" style={{ color: isRateLimit(section.error_message) ? '#7a3f02' : 'var(--coral,#f0614a)', margin: 0 }}>
             {section.error_message || 'Generation failed.'}
           </p>
         </div>

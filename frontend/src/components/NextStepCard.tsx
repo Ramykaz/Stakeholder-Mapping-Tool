@@ -12,6 +12,22 @@ export default function NextStepCard({ step, show = true }: NextStepCardProps) {
 
   if (!show) return null;
 
+  const onDocumentsPage = router.asPath.includes('/documents');
+  const onMapPage = router.asPath.includes('/map');
+
+  const contextualDescription = (() => {
+    if (onDocumentsPage && step.number === 3) {
+      return 'Run extraction to create entities and relationships from uploaded files.';
+    }
+    if (onDocumentsPage && step.number === 4) {
+      return 'Extraction is complete. Open the map to review and refine your graph.';
+    }
+    if (onMapPage && step.number === 5) {
+      return 'Generate report sections from the graph insights you have reviewed.';
+    }
+    return step.description;
+  })();
+
   return (
     <div
       className="w-full flex items-center justify-between gap-4 p-4 rounded-lg border-l-4 bg-[var(--surface)]"
@@ -22,8 +38,8 @@ export default function NextStepCard({ step, show = true }: NextStepCardProps) {
           Next step
         </p>
         <p className="font-semibold text-[var(--text)]">{step.label}</p>
-        {step.description && (
-          <p className="text-sm text-[var(--muted)] mt-0.5 truncate">{step.description}</p>
+        {contextualDescription && (
+          <p className="text-sm text-[var(--text2)] mt-0.5 truncate">{contextualDescription}</p>
         )}
       </div>
       <button

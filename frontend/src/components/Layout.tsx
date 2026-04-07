@@ -36,9 +36,7 @@ export default function Layout({ children, title, subtitle, workspaceId, hideSid
       .catch(() => {}); // non-blocking
   }, [activeWorkspaceId, isAuthenticated]);
 
-  const nextStep = workflow
-    ? workflow.steps.find((s) => !s.complete) ?? null
-    : null;
+  const nextStep = workflow?.next_step ?? null;
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
@@ -58,12 +56,12 @@ export default function Layout({ children, title, subtitle, workspaceId, hideSid
           {(title || subtitle) && (
             <div style={{ marginBottom: 32 }}>
               {title && (
-                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: '#fff', marginBottom: 4 }}>
+                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 32, color: '#fff', marginBottom: 6 }}>
                   {title}
                 </h1>
               )}
               {subtitle && (
-                <p style={{ color: 'var(--text2)', fontSize: 14 }}>{subtitle}</p>
+                <p style={{ color: 'var(--text2)', fontSize: 16 }}>{subtitle}</p>
               )}
             </div>
           )}

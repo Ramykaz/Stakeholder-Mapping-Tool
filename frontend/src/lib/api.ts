@@ -168,6 +168,45 @@ function normalizeErrorMessage(data: any): string {
   return 'Unknown error';
 }
 
+export type LLMErrorKind = 'rate_limit' | 'timeout' | 'configuration' | 'generic';
+
+export function mapLLMErrorMessage(error: unknown): { kind: LLMErrorKind; message: string } {
+  const fallback = { kind: 'generic' as const, message: 'AI provider request failed. Please try again.' };
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = (error.message || '').toLowerCase();
+  if (message.includes('rate limit') || message.includes('429') || message.includes('provider is rate limited')) {
+    return {
+      kind: 'rate_limit',
+      message: 'Provider is rate-limited. Please wait a moment, switch provider, then retry.',
+    };
+  }
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return {
+      kind: 'timeout',
+      message: 'Provider timed out. Please retry in a moment.',
+    };
+  }
+  if (message.includes('api key') || message.includes('credential') || message.includes('configuration')) {
+    return {
+      kind: 'configuration',
+      message: 'Provider configuration is incomplete or invalid. Check Settings and test connection.',
+    };
+  }
+
+  return fallback;
+}
+
+export function renderLLMErrorMessage(error: unknown, action = 'AI action'): string {
+  const mapped = mapLLMErrorMessage(error);
+  if (mapped.kind === 'rate_limit') return 'Provider is rate-limited. Please wait a moment, then retry.';
+  if (mapped.kind === 'timeout') return `${action} timed out. Please retry in a moment.`;
+  if (mapped.kind === 'configuration') return 'Provider configuration is incomplete. Update Settings and test connection.';
+  return `${action} failed. Please try again.`;
+}
+
 // Error interceptor
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
@@ -192,7 +231,8 @@ apiClient.interceptors.response.use(
       }
 
       if (errorCode === 'provider_rate_limited') {
-        return Promise.reject(new Error(errorDetail || 'Provider is rate limited. Switch provider and retry.'));
+        const mapped = mapLLMErrorMessage(new Error(errorDetail || 'Provider is rate limited. Switch provider and retry.'));
+        return Promise.reject(new Error(mapped.message));
       }
 
       const errorMessage =
@@ -391,6 +431,23 @@ export interface DocumentSummary {
   } | null;
 }
 
+export interface WebSourceSummary {
+  id: string;
+  project_id: string;
+  source_type: 'url' | 'crawl' | 'paste';
+  url: string;
+  crawl_depth: number;
+  raw_text: string;
+  title: string;
+  status: 'queued' | 'processing' | 'processed' | 'error';
+  page_count: number;
+  character_count: number;
+  error_message: string;
+  document_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface NERRunSummary {
   id: string;
   document_id: string;
@@ -473,6 +530,7 @@ export interface ProjectSMQAnswer {
   section_number: number;
   section_title: string;
   answer_text: string;
+  notes_text: string;
   ai_generated: boolean;
   is_stale: boolean;
   last_generated_at: string | null;
@@ -661,7 +719,7 @@ export async function upsertProjectIntake(
     'stakeholder_focus'
   >>
 ): Promise<InitiativeProfileResponse> {
-  const response = await apiClient.put(`/api/v1/projects/${projectId}/intake/`, payload);
+  const response = await apiClient.patch(`/api/v1/projects/${projectId}/intake/`, payload);
   return response.data;
 }
 
@@ -714,10 +772,12 @@ export async function getProjectSMQ(projectId: string): Promise<ProjectSMQRespon
 export async function saveProjectSMQAnswer(
   projectId: string,
   sectionId: string,
-  answerText: string
+  answerText: string,
+  notesText: string
 ): Promise<ProjectSMQAnswer> {
   const response = await apiClient.put(`/api/v1/projects/${projectId}/smq/${sectionId}/`, {
     answer_text: answerText,
+    notes_text: notesText,
   });
   return response.data;
 }
@@ -728,6 +788,7 @@ export async function generateProjectSMQAnswer(
 ): Promise<{
   section_id: string;
   answer_text: string;
+  notes_text: string;
   ai_generated: boolean;
   chunk_ids_used: string[];
   citations: Array<{ doc_name: string; chunk_id: string; snippet: string }>;
@@ -746,6 +807,13 @@ export async function generateProjectReport(
   sections: 'all' | string[] = 'all'
 ): Promise<{ status: string; sections_queued: number; message: string }> {
   const response = await apiClient.post(`/api/v1/projects/${projectId}/report/generate/`, { sections });
+  return response.data;
+}
+
+export async function stopProjectReportGeneration(
+  projectId: string
+): Promise<{ status: string; revoked_tasks: number; sections_updated: number }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/report/stop/`, {});
   return response.data;
 }
 
@@ -788,10 +856,22 @@ export async function getProjectStakeholderPriority(
   return response.data;
 }
 
+export interface StakeholderNotesGenerationResponse {
+  status: 'running' | 'paused_rate_limited' | 'completed' | 'error';
+  total_target: number;
+  completed_count: number;
+  current_index: number;
+  message?: string;
+}
+
 export async function generateProjectStakeholderNotes(
-  projectId: string
-): Promise<{ status: string; entity_count: number }> {
-  const response = await apiClient.post(`/api/v1/projects/${projectId}/stakeholders/priority/generate-notes/`, {});
+  projectId: string,
+  payload?: { action?: 'start' | 'resume'; max_items?: number }
+): Promise<StakeholderNotesGenerationResponse> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/stakeholders/priority/generate-notes/`, {
+    action: payload?.action || 'start',
+    max_items: payload?.max_items ?? 20,
+  });
   return response.data;
 }
 
@@ -821,6 +901,29 @@ export async function uploadDocumentToProject(
 export async function getProjectDocuments(projectId: string): Promise<DocumentSummary[]> {
   const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/`);
   return response.data || [];
+}
+
+export async function getProjectWebSources(projectId: string): Promise<WebSourceSummary[]> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/web-sources/`);
+  return response.data || [];
+}
+
+export async function createProjectWebSource(
+  projectId: string,
+  payload: {
+    source_type: 'url' | 'crawl' | 'paste';
+    url?: string;
+    crawl_depth?: number;
+    raw_text?: string;
+    title?: string;
+  }
+): Promise<WebSourceSummary> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/web-sources/`, payload);
+  return response.data;
+}
+
+export async function deleteProjectWebSource(projectId: string, webSourceId: string): Promise<void> {
+  await apiClient.delete(`/api/v1/projects/${projectId}/web-sources/${webSourceId}/`);
 }
 
 export async function deleteProjectDocument(projectId: string, docId: string): Promise<void> {
@@ -1183,6 +1286,16 @@ export async function getProjectFlaggedCount(projectId: string): Promise<number>
   return response.data.flagged_count ?? 0;
 }
 
+export async function flagProjectOrphanStakeholders(projectId: string): Promise<{
+  project_id: string;
+  flagged_count: number;
+  flagged_entity_ids: string[];
+  detail: string;
+}> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/stakeholders/priority/flag-orphans/`, {});
+  return response.data;
+}
+
 // ── Dedup review queue ────────────────────────────────────────────────────────
 
 export interface ReviewCandidate {
@@ -1270,6 +1383,14 @@ export interface ProjectProviders {
   providers: ProviderOption[];
 }
 
+export interface LLMConnectionTestResponse {
+  provider: string;
+  model: string;
+  status: 'ok' | 'error';
+  error_message: string | null;
+  latency_ms: number;
+}
+
 export async function getProjectProviders(projectId: string): Promise<ProjectProviders> {
   const response = await apiClient.get(`/api/v1/projects/${projectId}/providers/`);
   return response.data;
@@ -1281,6 +1402,16 @@ export async function updateProjectProvider(
   model: string
 ): Promise<ProjectSummary> {
   const response = await apiClient.patch(`/api/v1/projects/${projectId}/`, { provider, model });
+  return response.data;
+}
+
+export async function testLLMConnection(
+  provider: string,
+  model: string
+): Promise<LLMConnectionTestResponse> {
+  const response = await apiClient.get('/api/v1/settings/llm/test/', {
+    params: { provider, model },
+  });
   return response.data;
 }
 
@@ -1431,8 +1562,20 @@ export interface PersonaListResponse {
   results: StakeholderPersonaResponse[];
 }
 
+export interface PersonaGenerationStatusResponse {
+  generated: boolean;
+  count: number;
+  generation_status: 'idle' | 'running' | 'completed' | 'error';
+  generation_message: string;
+}
+
 export async function getProjectPersonas(projectId: string): Promise<PersonaListResponse> {
   const response = await apiClient.get(`/api/v1/projects/${projectId}/personas/`);
+  return response.data;
+}
+
+export async function getProjectPersonaGenerationStatus(projectId: string): Promise<PersonaGenerationStatusResponse> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/personas/status/`);
   return response.data;
 }
 
@@ -1473,6 +1616,8 @@ export interface WorkplanStatusResponse {
   section_6_complete: boolean;
   component_count: number;
   task_count: number;
+  generation_status: 'idle' | 'running' | 'completed' | 'error';
+  generation_message: string;
 }
 
 export async function getProjectWorkplan(projectId: string): Promise<WorkplanResponse> {
@@ -1503,11 +1648,26 @@ export interface WorkflowStep {
 export interface WorkflowStatus {
   current_step: number;
   steps: WorkflowStep[];
+  next_step?: WorkflowStep | null;
 }
 
 export async function getProjectWorkflow(projectId: string): Promise<WorkflowStatus> {
   const response = await apiClient.get(`/api/v1/projects/${projectId}/workflow/`);
-  return response.data;
+  const data = response.data as WorkflowStatus;
+
+  const normalizeStepUrl = (step: WorkflowStep): WorkflowStep => {
+    const isLegacyProjectRoot = /^\/projects\/[^/]+\/?$/.test(step.url || '');
+    if (step.number === 4 && isLegacyProjectRoot) {
+      return { ...step, url: `${step.url.replace(/\/$/, '')}/map` };
+    }
+    return step;
+  };
+
+  return {
+    ...data,
+    steps: (data.steps || []).map(normalizeStepUrl),
+    next_step: data.next_step ? normalizeStepUrl(data.next_step) : null,
+  };
 }
 
 // ── US-014: Staleness ─────────────────────────────────────────────────────────
@@ -1541,6 +1701,7 @@ export interface ReportExportStatus {
   total_sections: number;
   has_stakeholder_table: boolean;
   has_personas: boolean;
+  has_workplan: boolean;
   section_statuses: Array<{ section_number: number; title: string; status: string }>;
 }
 

@@ -79,6 +79,18 @@ class TestIngestView:
 
         assert response.status_code == 201
 
+    @patch('ingestion.views.ingest_document')
+    def test_valid_markdown_returns_201(self, mock_ingest):
+        from ingestion.views import IngestView
+
+        mock_ingest.return_value = _make_mock_document(file_format='txt', filename='notes.md')
+        md_file = SimpleUploadedFile('notes.md', b'# Header\n\nSome markdown content', content_type='text/markdown')
+
+        request = self._authed_request('post', '/api/v1/documents/', {'file': md_file})
+        response = IngestView.as_view()(request)
+
+        assert response.status_code == 201
+
     def test_oversized_file_returns_413(self):
         from ingestion.views import IngestView
 

@@ -157,12 +157,12 @@ export default function ProjectsDashboard() {
 
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: '#fff' }}>Your projects</h1>
+              <h1 style={{ fontFamily: 'var(--serif)', fontSize: 32, color: '#fff' }}>Your projects</h1>
               <button onClick={() => setShowModal(true)} className="btn-primary">
                 + New Project
               </button>
             </div>
-            <p style={{ color: 'var(--text2)', marginBottom: 32 }}>
+            <p style={{ color: 'var(--text2)', marginBottom: 32, fontSize: 16 }}>
               Each project is an independent stakeholder map guided by its own concept note.
             </p>
 
@@ -261,7 +261,7 @@ export default function ProjectsDashboard() {
 
                     {/* Project name */}
                     <div style={{
-                      fontFamily: 'var(--serif)', fontSize: 20, color: '#fff',
+                      fontFamily: 'var(--serif)', fontSize: 23, color: '#fff',
                       margin: '12px 0 6px', lineHeight: 1.2,
                     }}>
                       {project.name}
@@ -269,7 +269,7 @@ export default function ProjectsDashboard() {
 
                     {/* Description */}
                     <div style={{
-                      fontSize: 13, color: 'var(--text2)', marginBottom: 16,
+                      fontSize: 15, color: 'var(--text2)', marginBottom: 16,
                       display: '-webkit-box', WebkitLineClamp: 2,
                       WebkitBoxOrient: 'vertical', overflow: 'hidden',
                     } as React.CSSProperties}>
@@ -280,10 +280,10 @@ export default function ProjectsDashboard() {
 
                     {/* Footer */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text3)' }}>
                         {project.entity_count ?? 0} entities · {project.document_count ?? 0} docs
                       </span>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text3)' }}>
                         {formatDate(project.created_at)}
                       </span>
                     </div>

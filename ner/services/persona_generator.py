@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ner.services.gemini_compat import generate_gemini_text
+from ner.services.provider_factory import resolve_provider_model_for_project
 
 if TYPE_CHECKING:
     from ingestion.models import Project
@@ -163,8 +164,9 @@ def generate_personas_for_project(project_id: str) -> int:
     from ingestion.services.context import get_project_context
 
     project = Project.objects.select_related('initiative_profile').get(id=project_id)
-    provider = (project.provider or 'groq').strip()
-    model = project.model or 'llama-3.3-70b-versatile'
+    provider_config = resolve_provider_model_for_project(project)
+    provider = provider_config.provider
+    model = provider_config.model
     project_context = get_project_context(project)
 
     # Group entities by entity_type (CharField value like 'PERSON')

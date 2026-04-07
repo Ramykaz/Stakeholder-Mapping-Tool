@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal
 
+from django.conf import settings
+
 
 @dataclass
 class ProviderConfigError(RuntimeError):
@@ -16,6 +18,40 @@ class ProviderConfigError(RuntimeError):
 
     def __str__(self) -> str:
         return f"{self.provider}: {self.detail}"
+
+
+def get_missing_provider_settings(provider: str) -> list[str]:
+    """Return missing required setting keys for a given provider."""
+    normalized_provider = (provider or '').strip().lower()
+    required: list[str] = []
+
+    if normalized_provider == 'groq':
+        required = ['GROQ_API_KEY']
+    elif normalized_provider == 'openai':
+        required = ['OPENAI_API_KEY']
+    elif normalized_provider == 'gemini':
+        required = ['GEMINI_API_KEY']
+    elif normalized_provider == 'azure_openai':
+        required = [
+            'AZURE_OPENAI_API_KEY',
+            'AZURE_OPENAI_ENDPOINT',
+            'AZURE_OPENAI_DEPLOYMENT',
+        ]
+    else:
+        return []
+
+    return [key for key in required if not str(getattr(settings, key, '') or '').strip()]
+
+
+def validate_provider_runtime_config(provider: str) -> None:
+    """Raise ProviderConfigError when selected provider config is incomplete."""
+    normalized_provider = (provider or '').strip().lower()
+    missing = get_missing_provider_settings(normalized_provider)
+    if missing:
+        raise ProviderConfigError(
+            provider=normalized_provider,
+            detail=f"Missing required configuration: {', '.join(missing)}",
+        )
 
 
 def normalize_usage(data: dict | None) -> dict:
@@ -45,6 +81,23 @@ def is_auth_config_error(exc: Exception) -> bool:
         'forbidden',
     ]
     return any(marker in msg for marker in markers)
+
+
+def normalize_provider_error_kind(exc: Exception) -> str:
+    """Normalize provider errors into stable categories for UX handling."""
+    if is_rate_limit_error(exc):
+        return 'rate_limit'
+    msg = str(exc).lower()
+    if 'timeout' in msg or 'timed out' in msg:
+        return 'timeout'
+    return 'generic'
+
+
+def classify_provider_error(exc: Exception) -> str:
+    """Backward-compatible classifier used by older call sites."""
+    if is_auth_config_error(exc):
+        return 'configuration'
+    return normalize_provider_error_kind(exc)
 
 
 def run_with_retry(provider: str, func, *, retries: int = 3, base_delay_seconds: float = 1.0):

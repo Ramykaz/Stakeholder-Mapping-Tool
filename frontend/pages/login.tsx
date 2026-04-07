@@ -147,7 +147,7 @@ export default function LoginPage() {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
-                  { icon: '📄', text: 'Upload PDFs, DOCX or text files' },
+                  { icon: '📄', text: 'Upload PDFs, DOCX, TXT, or Markdown files' },
                   { icon: '🧠', text: 'LLM extracts entities & relationships' },
                   { icon: '🗺️', text: 'Explore an interactive knowledge graph' },
                 ].map(f => (

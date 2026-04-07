@@ -491,6 +491,7 @@ class ProjectSMQAnswer(models.Model):
         related_name='project_answers',
     )
     answer_text = models.TextField(blank=True, default='')
+    notes_text = models.TextField(blank=True, default='')
     ai_generated = models.BooleanField(default=False)
     is_stale = models.BooleanField(default=False)
     last_generated_at = models.DateTimeField(null=True, blank=True)

@@ -16,7 +16,7 @@ from ner.services.relation_deduplicator import deduplicate_relations
 from ner.services.relation_extractor import extract_relations_from_chunk
 from ner.services.costing import calculate_openai_cost_usd
 from ner.services.taxonomy import get_active_entity_labels, get_active_relationship_types
-from ner.services.provider_factory import ProviderConfig, get_provider, validate_provider_config
+from ner.services.provider_factory import ProviderConfig, get_provider, resolve_provider_model
 from ner.services.provider_interface import JointExtractionRequest, RelationshipTypeInput
 
 logger = logging.getLogger(__name__)
@@ -61,15 +61,10 @@ def _deduplicate_entities_for_save(
     )
 
 
-def _resolve_provider_config(provider: str | None, model: str | None) -> ProviderConfig:
-    resolved_provider = (provider or settings.NER_DEFAULT_PROVIDER).strip().lower()
-    if resolved_provider not in settings.NER_PROVIDER_MODEL_ALLOWLIST:
-        raise ValueError(f"Unsupported provider: {resolved_provider}")
-    default_model_for_provider = settings.NER_PROVIDER_MODEL_ALLOWLIST[resolved_provider][0]
-    resolved_model = (model or default_model_for_provider).strip()
-    config = ProviderConfig(provider=resolved_provider, model=resolved_model)
-    validate_provider_config(config, settings.NER_PROVIDER_MODEL_ALLOWLIST)
-    return config
+def _resolve_provider_config(provider: str | None, model: str | None, project=None) -> ProviderConfig:
+    project_provider = (getattr(project, 'provider', '') or '').strip() or None
+    project_model = (getattr(project, 'model', '') or '').strip() or None
+    return resolve_provider_model(provider or project_provider, model or project_model)
 
 
 def _extract_chunk_entities(chunk_text: str, provider_config: ProviderConfig) -> dict:
@@ -264,14 +259,14 @@ def extract_entities_for_document(
         ValueError: If Groq API rate-limited or returns invalid data.
         RuntimeError: If extraction fails.
     """
-    provider_config = _resolve_provider_config(provider, model)
-
     try:
         # Get document (404 if not found)
         document = Document.objects.get(id=document_id)
     except Document.DoesNotExist:
         logger.error(f"Document {document_id} not found")
         raise
+
+    provider_config = _resolve_provider_config(provider, model, project=document.project)
 
     _t_ner_start = perf_counter()
     logger.info(
@@ -429,13 +424,13 @@ def extract_relations_for_document(
     concept_note: str | None = None,
 ) -> dict:
     """Extract entities and relations in one provider call per chunk."""
-    provider_config = _resolve_provider_config(provider, model)
-
     try:
         document = Document.objects.get(id=document_id)
     except Document.DoesNotExist:
         logger.error(f"Document {document_id} not found")
         raise
+
+    provider_config = _resolve_provider_config(provider, model, project=document.project)
 
     effective_concept_note = _compose_guided_context(document, concept_note)
 
@@ -726,13 +721,13 @@ def extract_relations_only_for_document(
     """
     from collections import defaultdict
 
-    provider_config = _resolve_provider_config(provider, model)
-
     try:
         document = Document.objects.get(id=document_id)
     except Document.DoesNotExist:
         logger.error(f"Document {document_id} not found")
         raise
+
+    provider_config = _resolve_provider_config(provider, model, project=document.project)
 
     entity_count = Entity.objects.filter(document_id=document_id).count()
     if entity_count < 2:

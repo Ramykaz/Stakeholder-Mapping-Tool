@@ -9,6 +9,7 @@ import {
   generateEntitySummary,
   queryProjectGraph,
   flagEntity,
+  flagProjectOrphanStakeholders,
   getProjectFlaggedCount,
   getStoredAuthToken,
   downloadProjectExport,
@@ -76,7 +77,14 @@ export default function MapPage() {
     getProjectFlaggedCount(id)
       .then(setFlaggedCount)
       .catch(() => {});
-    getProjectGraph(id)
+    (async () => {
+      try {
+        await flagProjectOrphanStakeholders(id);
+      } catch {
+        // Non-blocking; graph still loads even if orphan flagging fails.
+      }
+
+      return getProjectGraph(id)
       .then(({ nodes: n, edges: e }) => {
         // Compute degree (connection count) for each node
         const degreeMap = new Map<string, number>();
@@ -84,6 +92,11 @@ export default function MapPage() {
         e.forEach(edge => {
           degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1);
           degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1);
+        });
+        const connectedNodeIds = new Set<string>();
+        e.forEach(edge => {
+          connectedNodeIds.add(edge.source);
+          connectedNodeIds.add(edge.target);
         });
         const degrees = Array.from(degreeMap.values());
         const minDeg = Math.min(...degrees, 0);
@@ -104,14 +117,18 @@ export default function MapPage() {
           };
         });
 
-        setNodes(enrichedNodes);
+        const connectedNodesOnly = enrichedNodes.filter((node) => connectedNodeIds.has(node.id));
+
+        setNodes(connectedNodesOnly);
         setEdges(e);
+        void getProjectFlaggedCount(id).then(setFlaggedCount).catch(() => {});
         setLoading(false);
       })
       .catch(() => {
         setError('Failed to load graph. Make sure documents are processed and entities extracted.');
         setLoading(false);
       });
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -362,36 +379,6 @@ export default function MapPage() {
                     showFilterPanel
                     showLegend
                   />
-                )}
-
-                {/* Toolbar overlay (top-left) */}
-                {!loading && !error && (
-                  <div style={{
-                    position: 'absolute', top: 16, left: 16, zIndex: 5,
-                    display: 'flex', flexDirection: 'column', gap: 4,
-                  }}>
-                    {[
-                      { label: '+', title: 'Zoom in',     type: 'zoomIn'  as const },
-                      { label: '−', title: 'Zoom out',    type: 'zoomOut' as const },
-                      { label: '⊡', title: 'Fit view',    type: 'fit'     as const },
-                      { label: '↺', title: 'Reset layout',type: 'reset'   as const },
-                    ].map(({ label, title, type }) => (
-                      <button
-                        key={type}
-                        onClick={() => cmd(type)}
-                        title={title}
-                        style={{
-                          width: 32, height: 32, borderRadius: 8,
-                          background: 'var(--bg2)', border: '1px solid var(--border)',
-                          color: 'var(--text2)', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 16, fontWeight: 400,
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                 )}
 
                 {/* Entity side panel (right overlay) */}

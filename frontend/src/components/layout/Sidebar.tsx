@@ -130,7 +130,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
   return (
     <>
       <aside style={{
-        width: 220,
+        width: 248,
         background: 'var(--bg2)',
         borderRight: '1px solid var(--border)',
         height: '100%',
@@ -148,7 +148,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
           <button
             onClick={onNewProject}
             className="btn-primary"
-            style={{ width: '100%', padding: '7px 12px', fontSize: 12, justifyContent: 'center' }}
+            style={{ width: '100%', padding: '8px 13px', fontSize: 14, justifyContent: 'center' }}
           >
             + New Project
           </button>
@@ -176,12 +176,12 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
                             : 'var(--amber)',
                 }}/>
                 <span style={{
-                  fontFamily: 'var(--sans)', fontSize: 13, color: 'var(--text)',
+                  fontFamily: 'var(--sans)', fontSize: 15, color: 'var(--text)',
                   flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
                   {project.name}
                 </span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--text2)' }}>
                   {project.entity_count ?? 0}
                 </span>
                 {/* Three-dot menu button */}
@@ -245,12 +245,12 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
                     padding: '5px 10px 5px 28px', borderRadius: 6, cursor: 'pointer',
                     margin: '1px 8px',
                     background: router.asPath === sub.path ? 'rgba(255,255,255,0.04)' : 'transparent',
-                    color: router.asPath === sub.path ? 'var(--accent)' : 'var(--text3)',
-                    fontSize: 12,
+                    color: router.asPath === sub.path ? 'var(--accent)' : 'var(--text2)',
+                    fontSize: 13,
                     transition: 'color .15s',
                   }}
                   onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = router.asPath === sub.path ? 'var(--accent)' : 'var(--text3)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = router.asPath === sub.path ? 'var(--accent)' : 'var(--text2)'; }}
                 >
                   {sub.label}
                 </div>
@@ -259,7 +259,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
               {isActive(project.id) && activeProvider && (
                 <div style={{
                   padding: '3px 10px 5px 28px', margin: '0 8px',
-                  fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)',
+                  fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
                   LLM: {activeProvider}
@@ -290,7 +290,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '7px 10px', borderRadius: 8, cursor: 'pointer',
-                fontFamily: 'var(--sans)', fontSize: 13, color: 'var(--text2)',
+                fontFamily: 'var(--sans)', fontSize: 14, color: 'var(--text2)',
                 transition: 'color .15s, background .15s',
               }}
               onMouseEnter={e => {

@@ -18,6 +18,12 @@ class TestExtractText:
         result = extract_text(file_obj, 'txt')
         assert "José" in result
 
+    def test_extract_markdown_returns_text(self):
+        file_obj = io.BytesIO(b"# Title\n\n- Item 1\n- Item 2")
+        result = extract_text(file_obj, 'md')
+        assert "Title" in result
+        assert "Item 1" in result
+
     def test_extract_txt_empty_file_raises(self):
         file_obj = io.BytesIO(b"")
         with pytest.raises(ExtractionError, match="No extractable text"):

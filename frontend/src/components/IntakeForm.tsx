@@ -8,6 +8,7 @@ import {
 
 interface IntakeFormProps {
   projectId: string;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const EMPTY_PROFILE: InitiativeProfileResponse = {
@@ -26,13 +27,13 @@ const EMPTY_PROFILE: InitiativeProfileResponse = {
   updated_at: null,
 };
 
-export default function IntakeForm({ projectId }: IntakeFormProps) {
+export default function IntakeForm({ projectId, onDirtyChange }: IntakeFormProps) {
   const [profile, setProfile] = useState<InitiativeProfileResponse>(EMPTY_PROFILE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [contextPreview, setContextPreview] = useState('');
-  const [initialized, setInitialized] = useState(false);
+  const [baseline, setBaseline] = useState<InitiativeProfileResponse>(EMPTY_PROFILE);
 
   useEffect(() => {
     if (!projectId) return;
@@ -40,14 +41,12 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
     getProjectIntake(projectId)
       .then(async (data) => {
         setProfile(data);
+        setBaseline(data);
         const preview = await getProjectContextPreview(projectId);
         setContextPreview(preview.context || '');
       })
       .catch(() => setMessage('Failed to load initiative profile.'))
-      .finally(() => {
-        setInitialized(true);
-        setLoading(false);
-      });
+      .finally(() => setLoading(false));
   }, [projectId]);
 
   const autosavePayload = useMemo(() => ({
@@ -68,6 +67,28 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
     setMessage('');
   };
 
+  const isDirty = useMemo(
+    () => JSON.stringify(autosavePayload) !== JSON.stringify({
+      initiative_name: baseline.initiative_name,
+      host_organization: baseline.host_organization,
+      country: baseline.country,
+      geography: baseline.geography,
+      thematic_area: baseline.thematic_area,
+      core_objectives: baseline.core_objectives,
+      expected_outcomes: baseline.expected_outcomes,
+      target_beneficiaries: baseline.target_beneficiaries,
+      success_metrics: baseline.success_metrics,
+      stakeholder_focus: baseline.stakeholder_focus,
+    }),
+    [autosavePayload, baseline]
+  );
+
+  const canSave = Boolean((profile.initiative_name || '').trim()) && isDirty && !saving;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const onSave = useCallback(async (silent = false) => {
     setSaving(true);
     if (!silent) {
@@ -77,6 +98,7 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
     try {
       const saved = await upsertProjectIntake(projectId, autosavePayload);
       setProfile(saved);
+      setBaseline(saved);
       const preview = await getProjectContextPreview(projectId);
       setContextPreview(preview.context || '');
       if (!silent) {
@@ -90,14 +112,6 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       setSaving(false);
     }
   }, [autosavePayload, projectId]);
-
-  useEffect(() => {
-    if (!initialized || !projectId) return;
-    const timer = setTimeout(() => {
-      void onSave(true);
-    }, 900);
-    return () => clearTimeout(timer);
-  }, [initialized, projectId, onSave]);
 
   if (loading) {
     return <div className="text-sm text-[var(--text3)]">Loading initiative profile…</div>;
@@ -113,9 +127,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </div>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Initiative Title</span>
+        <span className="text-sm text-[var(--text2)]">Initiative Title</span>
         <input
-          className="input-field"
+          className="input-field text-sm"
           value={profile.initiative_name}
           onChange={(e) => setField('initiative_name', e.target.value)}
           placeholder="AI for Good Hackathon"
@@ -123,9 +137,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Host Organisation</span>
+        <span className="text-sm text-[var(--text2)]">Host Organisation</span>
         <input
-          className="input-field"
+          className="input-field text-sm"
           value={profile.host_organization}
           onChange={(e) => setField('host_organization', e.target.value)}
           placeholder="UNDP SDG AI Lab"
@@ -133,9 +147,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Country</span>
+        <span className="text-sm text-[var(--text2)]">Country</span>
         <input
-          className="input-field"
+          className="input-field text-sm"
           value={profile.country}
           onChange={(e) => setField('country', e.target.value)}
           placeholder="Uzbekistan"
@@ -143,9 +157,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Geography / Country Context</span>
+        <span className="text-sm text-[var(--text2)]">Geography / Country Context</span>
         <input
-          className="input-field"
+          className="input-field text-sm"
           value={profile.geography}
           onChange={(e) => setField('geography', e.target.value)}
           placeholder="Uzbekistan, Central Asia"
@@ -153,9 +167,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Thematic Area</span>
+        <span className="text-sm text-[var(--text2)]">Thematic Area</span>
         <input
-          className="input-field"
+          className="input-field text-sm"
           value={profile.thematic_area}
           onChange={(e) => setField('thematic_area', e.target.value)}
           placeholder="Youth Employment"
@@ -163,9 +177,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Core Objectives</span>
+        <span className="text-sm text-[var(--text2)]">Core Objectives</span>
         <textarea
-          className="input-field min-h-[140px]"
+          className="input-field min-h-[140px] text-sm"
           value={profile.core_objectives}
           onChange={(e) => setField('core_objectives', e.target.value)}
           placeholder="Describe the initiative mission and objectives"
@@ -173,9 +187,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Expected Outcomes</span>
+        <span className="text-sm text-[var(--text2)]">Expected Outcomes</span>
         <textarea
-          className="input-field min-h-[140px]"
+          className="input-field min-h-[140px] text-sm"
           value={profile.expected_outcomes}
           onChange={(e) => setField('expected_outcomes', e.target.value)}
           placeholder="Describe expected outcomes and measurable success"
@@ -183,9 +197,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Target Beneficiaries</span>
+        <span className="text-sm text-[var(--text2)]">Target Beneficiaries</span>
         <textarea
-          className="input-field min-h-[120px]"
+          className="input-field min-h-[120px] text-sm"
           value={profile.target_beneficiaries}
           onChange={(e) => setField('target_beneficiaries', e.target.value)}
           placeholder="Primary groups that should benefit"
@@ -193,9 +207,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Success Metrics</span>
+        <span className="text-sm text-[var(--text2)]">Success Metrics</span>
         <textarea
-          className="input-field min-h-[120px]"
+          className="input-field min-h-[120px] text-sm"
           value={profile.success_metrics}
           onChange={(e) => setField('success_metrics', e.target.value)}
           placeholder="How success will be measured"
@@ -203,9 +217,9 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </label>
 
       <label className="grid gap-1.5">
-        <span className="text-xs text-[var(--text2)]">Stakeholder Focus</span>
+        <span className="text-sm text-[var(--text2)]">Stakeholder Focus</span>
         <textarea
-          className="input-field min-h-[120px]"
+          className="input-field min-h-[120px] text-sm"
           value={profile.stakeholder_focus}
           onChange={(e) => setField('stakeholder_focus', e.target.value)}
           placeholder="Describe priority stakeholder groups to focus on"
@@ -224,7 +238,7 @@ export default function IntakeForm({ projectId }: IntakeFormProps) {
       </div>
 
       <div className="flex justify-end">
-        <button className="btn-primary" onClick={() => void onSave()} disabled={saving}>
+        <button className="btn-primary" onClick={() => void onSave()} disabled={!canSave}>
           {saving ? 'Saving…' : 'Save Initiative Profile'}
         </button>
       </div>

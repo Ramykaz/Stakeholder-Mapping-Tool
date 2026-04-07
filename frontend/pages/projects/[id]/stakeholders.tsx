@@ -8,7 +8,9 @@ import {
   generateProjectStakeholderNotes,
   getReportStaleness,
   keepStakeholderTableCurrent,
+  renderLLMErrorMessage,
   ReportStalenessResponse,
+  StakeholderNotesGenerationResponse,
 } from '@/lib/api';
 
 export default function ProjectStakeholdersPage() {
@@ -17,6 +19,7 @@ export default function ProjectStakeholdersPage() {
   const projectId = typeof id === 'string' ? id : '';
   const [staleness, setStaleness] = useState<ReportStalenessResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [generationState, setGenerationState] = useState<StakeholderNotesGenerationResponse | null>(null);
 
   const loadStaleness = useCallback(async () => {
     if (!projectId) return;
@@ -50,6 +53,25 @@ export default function ProjectStakeholdersPage() {
     }
   };
 
+  const onResumeGeneration = async () => {
+    if (!projectId) return;
+    setBusy(true);
+    try {
+      const result = await generateProjectStakeholderNotes(projectId, { action: 'resume', max_items: 20 });
+      setGenerationState(result);
+    } catch (error) {
+      setGenerationState({
+        status: 'error',
+        total_target: generationState?.total_target || 0,
+        completed_count: generationState?.completed_count || 0,
+        current_index: generationState?.current_index || 0,
+        message: renderLLMErrorMessage(error, 'Stakeholder note generation'),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <Head>
@@ -70,7 +92,24 @@ export default function ProjectStakeholdersPage() {
                 />
               </div>
             )}
-            <StakeholderPriorityTable projectId={projectId} />
+            {generationState?.status === 'paused_rate_limited' && (
+              <div className="mb-3">
+                <StalenessNotice
+                  variant="rate_limit"
+                  title={generationState.message || 'Provider rate limit reached. Retry now or adjust provider settings.'}
+                  primaryLabel="Resume generation"
+                  secondaryLabel="Open settings"
+                  onRegenerate={() => void onResumeGeneration()}
+                  onKeepCurrent={() => void router.push(`/projects/${projectId}/settings`)}
+                  isRegenerating={busy}
+                />
+              </div>
+            )}
+            <StakeholderPriorityTable
+              projectId={projectId}
+              generationState={generationState}
+              onGenerationStateChange={setGenerationState}
+            />
           </>
         )}
       </Layout>

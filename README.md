@@ -6,7 +6,7 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 
 ### Graph Visualization
 - **Node Visual Consistency**: All graph nodes are circles sized by degree (influence score, 28–72 px), border color by entity type, with a visible size legend
-- **Theme-Adaptive Canvas**: Cytoscape canvas background and label outlines update instantly on light/dark theme toggle (no reload)
+- **Theme-Adaptive Canvas**: D3 graph canvas background and label readability update instantly on light/dark theme toggle (no reload)
 - **Live Filtering Panel**: Filter entities by type (checkboxes), confidence threshold (slider), and minimum degree (slider) — all client-side, no backend refetch
 - **Cluster Layout**: Toggle between default force-directed layout and type-based cluster layout (groups nodes by entity type)
 - **Persistent Focus Mode**: Click any node to enter focus mode — dims the rest of the graph, shows 1-hop or 2-hop neighbourhood, opens a side panel with entity details; exit via toolbar button or Escape
@@ -18,12 +18,20 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 - **Dark Design System**: Full dark UI with light/dark toggle, DM Serif Display + Outfit + DM Mono fonts, CSS design tokens, and a consistent component library
 
 ### Analysis Pipeline
-- **Document Ingestion**: Upload PDF, DOCX, or TXT files (up to 50 MB) with background processing, status badges, and polling
+- **Document Ingestion**: Upload PDF, DOCX, TXT, or Markdown (`.md`) files (up to 50 MB) with background processing, status badges, and polling
+- **Web Ingestion Sources**: Add URL, crawl (bounded depth), or pasted text sources that flow into the same document chunking/embedding pipeline
 - **Entity Extraction**: Extract PERSON, ORGANIZATION, LOCATION, ROLE, EVENT, and more using LLMs (Groq / OpenAI / Azure OpenAI / Gemini)
 - **Relation Extraction**: Identify directional relationships between entities (e.g. REPORTS_TO, EMPLOYS, MANAGES)
 - **Joint Extraction + Labels**: Two-pass extraction for entities and relations in a single API call; typed relation labels
 - **Entity Deduplication + Aliases**: Save-time exact/acronym/fuzzy dedup, alias tracking, and review workflow for borderline matches
 - **Provider Flexibility**: Shared provider abstraction — switch between Groq, OpenAI, Azure OpenAI, and Gemini without code changes
+
+### Generation Workflow
+- **SMQ (8 sections)**: Per-project stakeholder mapping questionnaire with section-focused generation and analyst notes
+- **Report Generation**: Per-section report generation using semantic retrieval + project context, with stale detection and regeneration controls
+- **Personas**: AI persona generation grouped by stakeholder entity type
+- **Workplan**: AI workplan generation using Section 6 when available, with fallback to other completed report sections + project context
+- **Export**: PDF/DOCX export with conditional appendices for personas and workplan
 
 ### Project Management
 - **Project-Scoped Workflow**: Create project → write concept note → upload documents → run extraction → explore graph map
@@ -35,7 +43,7 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | Next.js 14 · TypeScript · Cytoscape.js · CSS Design Tokens |
+| **Frontend** | Next.js 14 · TypeScript · D3.js · CSS Design Tokens |
 | **Backend** | Python 3.11 · Django 4.2 · Django REST Framework |
 | **Database** | PostgreSQL 15 + pgvector (via Supabase) |
 | **Embeddings** | all-MiniLM-L6-v2 (local, sentence-transformers) |
@@ -115,10 +123,10 @@ curl http://localhost:8000/health
 | `/login` | Split-panel sign-in / register |
 | `/projects` | Projects dashboard with card grid (Edit + Delete modals) |
 | `/projects/{id}/setup` | Concept note editor — always editable, accessible from sidebar |
-| `/projects/{id}/documents` | Document upload, list, and processing status |
+| `/projects/{id}/documents` | Document upload (`.pdf`, `.docx`, `.txt`, `.md`), web sources, and processing status |
 | `/projects/{id}/analyze` | Extraction controls + link back to concept note editor |
 | `/projects/{id}/map` | Interactive graph map (filter panel, focus mode, NL query, legend) |
-| `/projects/{id}/settings` | Project settings (rename, description, LLM provider selection) |
+| `/projects/{id}/settings` | Project settings (rename, description, LLM provider/model selection + connection test) |
 | `/projects/{id}/entities/{entityId}` | Entity detail — aliases, AI summary, relationships, timeline, unflag |
 | `/projects/{id}/review` | Dedup review queue — merge or keep-separate for borderline entity pairs |
 | `/entities` | Global entity view across all projects, sorted by cross-project frequency |
@@ -142,11 +150,14 @@ curl http://localhost:8000/health
 | `/api/v1/projects/{id}/` | GET, PATCH, DELETE | Project detail / update / delete |
 | `/api/v1/projects/{id}/concept-note/` | GET, POST | Read / upsert concept note |
 | `/api/v1/projects/{id}/documents/` | GET, POST | List / upload project documents |
+| `/api/v1/projects/{id}/web-sources/` | GET, POST | List / create web ingestion sources (url/crawl/paste) |
+| `/api/v1/projects/{id}/web-sources/{webSourceId}/` | DELETE | Delete a web ingestion source |
 | `/api/v1/projects/{id}/documents/{doc_id}/` | DELETE | Delete a project document |
+| `/api/v1/settings/llm/test/` | GET | Test selected provider/model connectivity (`provider`, `model` query params) |
 | `/api/v1/projects/{id}/documents/{doc_id}/status/` | GET | Poll processing status |
 | `/api/v1/projects/{id}/extract-entities/` | POST | Run entity extraction for all project documents |
 | `/api/v1/projects/{id}/entities/` | GET | List all entities in project scope |
-| `/api/v1/projects/{id}/graph/` | GET | Project knowledge graph (nodes + edges, Cytoscape.js format) |
+| `/api/v1/projects/{id}/graph/` | GET | Project knowledge graph (nodes + edges for D3 frontend rendering) |
 | `/api/v1/projects/{id}/query/` | POST | NL keyword search — returns matching entity IDs + answer |
 
 ### Entities & Graph
@@ -198,26 +209,35 @@ docker compose run --rm app pytest --tb=short
 
 Tests use mocked embeddings — no model weights or API keys required in CI.
 
+## Recommended First Run Workflow
+
+1. Create a project and complete the initiative profile.
+2. Upload sources from the Documents page (`.pdf`, `.docx`, `.txt`, `.md`) or add URL/crawl/paste sources.
+3. Run extraction from Analyze.
+4. Review graph relationships from Map.
+5. Complete SMQ sections and generate report sections.
+6. Generate stakeholder table, personas, and workplan.
+7. Export final report as PDF or DOCX.
+
 ## Project Structure
 
 ```
 stakeholder-analysis-tool/
-├── backend/
-│   ├── stakeholder_analysis/   Django project config
-│   ├── ingestion/              Document ingestion (models, views, services)
-│   ├── ner/                    Named entity recognition + relation extraction
-│   ├── reasoning/              RAG reasoning
-│   ├── graph/                  Knowledge graph API
-│   ├── models/                 Docker volume: embedding model weights
-│   └── prompts/                Versioned LLM prompt templates
+├── stakeholder_analysis/       Django project config
+├── ingestion/                  Document ingestion (models, views, services)
+├── ner/                        Entity/relation extraction + generation services
+├── reasoning/                  Reasoning module
+├── graph/                      Graph app module
+├── prompts/                    Versioned LLM prompt templates
+├── models/                     Docker volume: embedding model weights
 ├── frontend/
-│   ├── pages/                  Next.js pages router (app routes)
+│   ├── pages/                  Next.js pages router
 │   │   └── projects/[id]/      Per-project workspace pages
 │   └── src/
-│       ├── components/         React components (GraphVisualization, Sidebar, …)
-│       ├── lib/                Utilities (cytoscapeStyle, graphFocus, uiState, api)
+│       ├── components/         React components
+│       ├── lib/                API + utility modules
 │       └── types/              Shared TypeScript types
-└── specs/                      Feature specifications (spec-driven development)
+└── specs/                      Spec-driven feature docs
 ```
 
 ## Role Model
@@ -240,7 +260,7 @@ This project uses [Spec-Kit](https://github.com/SDG-AI-Lab/speckit) (spec-driven
 
 | Spec | Feature |
 |------|---------|
-| [001-doc-ingestion-pipeline](specs/001-doc-ingestion-pipeline/) | Document ingestion — upload, parse, embed PDF/DOCX/TXT |
+| [001-doc-ingestion-pipeline](specs/001-doc-ingestion-pipeline/) | Document ingestion — upload, parse, embed PDF/DOCX/TXT/MD |
 | [002-ner-pipeline](specs/002-ner-pipeline/) | Named entity recognition pipeline (spaCy + LLM) |
 | [003-openai-llm-toggle](specs/003-openai-llm-toggle/) | Multi-provider LLM toggle (Groq / OpenAI / Azure / Gemini) |
 | [004-entity-relation-extraction](specs/004-entity-relation-extraction/) | Relation extraction — directional triplets with confidence scores |

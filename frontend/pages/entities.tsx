@@ -43,11 +43,12 @@ export default function GlobalEntitiesPage() {
                   <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 6 }}>
                     All Entities
                   </h1>
-                  <p style={{ color: 'var(--text3)', fontSize: 13 }}>
+                  <p style={{ color: 'var(--text2)', fontSize: 13 }}>
                     Entities across all your projects, sorted by cross-project frequency.
                   </p>
                 </div>
                 <select
+                  aria-label="Entity type filter"
                   value={typeFilter}
                   onChange={e => setTypeFilter(e.target.value)}
                   style={{
@@ -74,7 +75,7 @@ export default function GlobalEntitiesPage() {
               {entities.length > 0 && (
                 <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
                   {/* Table header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 80px 80px 100px', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 80px 80px 100px', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase' }}>
                     <span>Name</span>
                     <span>Type</span>
                     <span style={{ textAlign: 'center' }}>Projects</span>
@@ -105,17 +106,17 @@ export default function GlobalEntitiesPage() {
                           display: 'inline-flex', alignItems: 'center',
                           padding: '2px 8px', borderRadius: 4,
                           background: `${color}22`, color, border: `1px solid ${color}44`,
-                          fontFamily: 'var(--mono)', fontSize: 10, whiteSpace: 'nowrap',
+                          fontFamily: 'var(--mono)', fontSize: 12, whiteSpace: 'nowrap',
                         }}>
                           {e.entity_type}
                         </span>
                         <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', textAlign: 'center' }}>
                           {e.project_count}
                         </span>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', textAlign: 'center' }}>
                           {e.document_count}
                         </span>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' }}>
                           {Math.round((e.confidence_min ?? 0) * 100)}–{Math.round((e.confidence_max ?? 0) * 100)}%
                         </span>
                       </div>

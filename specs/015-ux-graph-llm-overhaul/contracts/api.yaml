@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: Stakeholder Analysis Tool — US-015 Contracts
+  version: 0.1.0
+paths:
+  /api/v1/settings/llm/test/:
+    get:
+      summary: Test current LLM provider connection
+      responses:
+        '200':
+          description: Provider test completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [provider, model, status, latency_ms]
+                properties:
+                  provider: { type: string }
+                  model: { type: string }
+                  status:
+                    type: string
+                    enum: [ok, error]
+                  error_message:
+                    type: string
+                    nullable: true
+                  latency_ms:
+                    type: integer
+        '400':
+          description: Provider configuration invalid
+
+  /api/v1/projects/{id}/web-sources/:
+    get:
+      summary: List web ingestion sources for project
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Web sources list
+    post:
+      summary: Create web ingestion source
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_type]
+              properties:
+                source_type:
+                  type: string
+                  enum: [url, crawl, paste]
+                url:
+                  type: string
+                  format: uri
+                crawl_depth:
+                  type: integer
+                  minimum: 1
+                  maximum: 2
+                raw_text:
+                  type: string
+                title:
+                  type: string
+      responses:
+        '201':
+          description: Source queued
+        '400':
+          description: Validation error
+
+  /api/v1/projects/{id}/web-sources/{webSourceId}/:
+    delete:
+      summary: Delete web ingestion source
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: webSourceId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+
+  /api/v1/projects/{id}/entities/flag-orphans/:
+    post:
+      summary: Persistently flag isolated entities from current filter context
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                entity_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Flagging completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [flagged_count]
+                properties:
+                  flagged_count: { type: integer }
+
+  /api/v1/projects/{id}/stakeholders/priority/generate-notes/:
+    post:
+      summary: Sequential stakeholder note generation with progress and resume support
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [start, resume]
+                max_items:
+                  type: integer
+                  default: 20
+                  maximum: 20
+      responses:
+        '200':
+          description: Progress update or completion
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [running, paused_rate_limited, completed, error]
+                  total_target: { type: integer }
+                  completed_count: { type: integer }
+                  current_index: { type: integer }
+                  message: { type: string }
+
+  /api/v1/projects/{id}/report/export/status/:
+    get:
+      summary: Export readiness status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Export readiness
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  [can_export, complete_sections, total_sections, has_stakeholder_table, has_personas, has_workplan]
+                properties:
+                  can_export: { type: boolean }
+                  complete_sections: { type: integer }
+                  total_sections: { type: integer }
+                  has_stakeholder_table: { type: boolean }
+                  has_personas: { type: boolean }
+                  has_workplan: { type: boolean }
+                  section_statuses:
+                    type: array
+                    items: { type: object }

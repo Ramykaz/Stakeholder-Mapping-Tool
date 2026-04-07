@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from ingestion.models import Project, ConceptNote, Document, InitiativeProfile, ExtractionGuidance, get_or_create_default_project
+from ingestion.models import Project, ConceptNote, Document, InitiativeProfile, ExtractionGuidance, WebSource, get_or_create_default_project
 from ingestion.serializers import (
     DocumentSerializer,
     ProjectSummarySerializer,
@@ -19,14 +19,17 @@ from ingestion.serializers import (
     ConceptNoteSerializer,
     InitiativeProfileSerializer,
     ExtractionGuidanceSerializer,
+    WebSourceSerializer,
 )
 from ingestion.services.extractor import ExtractionError
 from ingestion.services.pipeline import ingest_document, IngestionError
 from ingestion.services.context import get_project_context
+from ingestion.tasks import process_web_source
+from ingestion.services.web_source import process_web_source_record
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_FORMATS = {'pdf', 'docx', 'txt'}
+ALLOWED_FORMATS = {'pdf', 'docx', 'txt', 'md'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
@@ -144,7 +147,7 @@ class ProjectConceptNoteView(AuthenticatedAPIView):
 
 
 class InitiativeProfileView(AuthenticatedAPIView):
-    """GET/PUT /api/v1/projects/{id}/intake/."""
+    """GET/PUT/PATCH /api/v1/projects/{id}/intake/."""
 
     parser_classes = [JSONParser]
 
@@ -174,7 +177,7 @@ class InitiativeProfileView(AuthenticatedAPIView):
         }
         return Response(defaults, status=status.HTTP_200_OK)
 
-    def put(self, request, id):
+    def _save_profile(self, request, id):
         project = resolve_project_for_user_or_404(id, request.user)
         profile, _ = InitiativeProfile.objects.get_or_create(project=project)
         serializer = InitiativeProfileSerializer(profile, data=request.data, partial=True)
@@ -210,6 +213,12 @@ class InitiativeProfileView(AuthenticatedAPIView):
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    def put(self, request, id):
+        return self._save_profile(request, id)
+
+    def patch(self, request, id):
+        return self._save_profile(request, id)
+
 
 class ProjectContextPreviewView(AuthenticatedAPIView):
     """GET /api/v1/projects/{id}/context-preview/."""
@@ -224,7 +233,15 @@ class WorkflowStatusView(AuthenticatedAPIView):
 
     def get(self, request, id):
         project = resolve_project_for_user_or_404(id, request.user)
-        return Response(project.get_workflow_status(), status=status.HTTP_200_OK)
+        workflow = project.get_workflow_status()
+        return Response(
+            {
+                'current_step': workflow.get('current_step', 1),
+                'steps': workflow.get('steps', []),
+                'next_step': workflow.get('next_step'),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ExtractionGuidanceListView(AuthenticatedAPIView):
@@ -292,6 +309,44 @@ class ExtractionGuidanceReorderView(AuthenticatedAPIView):
         return Response({'status': 'reordered'}, status=status.HTTP_200_OK)
 
 
+class ProjectWebSourceListCreateView(AuthenticatedAPIView):
+    """GET/POST /api/v1/projects/{id}/web-sources/."""
+
+    parser_classes = [JSONParser]
+
+    def get(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        queryset = WebSource.objects.filter(project=project).order_by('-created_at')
+        serializer = WebSourceSerializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        serializer = WebSourceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        web_source = serializer.save(project=project, status=WebSource.STATUS_QUEUED)
+
+        try:
+            process_web_source.delay(str(web_source.id))
+        except Exception:
+            process_web_source_record(str(web_source.id))
+
+        return Response(WebSourceSerializer(web_source).data, status=status.HTTP_201_CREATED)
+
+
+class ProjectWebSourceDetailView(AuthenticatedAPIView):
+    """DELETE /api/v1/projects/{id}/web-sources/{web_source_id}/."""
+
+    def delete(self, request, id, web_source_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        web_source = get_object_or_404(WebSource, id=web_source_id, project=project)
+        linked_document = web_source.document
+        web_source.delete()
+        if linked_document and linked_document.project_id == project.id:
+            linked_document.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ProjectDocumentUploadView(AuthenticatedAPIView):
     """POST /api/v1/projects/{id}/documents/."""
 
@@ -355,15 +410,16 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
 
         filename = file_obj.name or ''
         ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        normalized_ext = 'txt' if ext == 'md' else ext
         if ext not in ALLOWED_FORMATS:
             return Response(
-                {'error': 'Unsupported file format. Accepted formats: pdf, docx, txt.'},
+                {'error': 'Unsupported file format. Accepted formats: pdf, docx, txt, md.'},
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             )
 
         try:
             logger.info('[UPLOAD] start project=%s user=%s filename=%s', project.id, request.user.id, filename)
-            document = ingest_document(file_obj, filename, ext, project=project)
+            document = ingest_document(file_obj, filename, normalized_ext, project=project)
             logger.info('[UPLOAD] success document=%s project=%s user=%s', document.id, project.id, request.user.id)
         except ExtractionError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
@@ -431,16 +487,17 @@ class IngestView(AuthenticatedAPIView):
 
         filename = file_obj.name or ''
         ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        normalized_ext = 'txt' if ext == 'md' else ext
 
         if ext not in ALLOWED_FORMATS:
             return Response(
-                {'error': 'Unsupported file format. Accepted formats: pdf, docx, txt.'},
+                {'error': 'Unsupported file format. Accepted formats: pdf, docx, txt, md.'},
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             )
 
         try:
             logger.info('[UPLOAD] legacy start project=%s user=%s filename=%s', project.id, request.user.id, filename)
-            document = ingest_document(file_obj, filename, ext, project=project)
+            document = ingest_document(file_obj, filename, normalized_ext, project=project)
             logger.info('[UPLOAD] legacy success document=%s project=%s user=%s', document.id, project.id, request.user.id)
         except ExtractionError as exc:
             return Response(

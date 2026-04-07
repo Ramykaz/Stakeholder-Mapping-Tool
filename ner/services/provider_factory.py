@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from django.conf import settings
+
 from ner.services.azure_openai_client import extract_joint_from_chunk as extract_azure_joint_from_chunk
 from ner.services.gemini_client import extract_joint_from_chunk as extract_gemini_joint_from_chunk
 from ner.services.groq_client import extract_entities_from_chunk as extract_groq_entities_from_chunk
 from ner.services.openai_client import extract_entities_from_chunk as extract_openai_entities_from_chunk
 from ner.services.provider_interface import JointExtractionRequest
-from ner.services.provider_runtime import ProviderConfigError, run_with_retry
+from ner.services.provider_runtime import ProviderConfigError, run_with_retry, validate_provider_runtime_config
 
 
 @dataclass(frozen=True)
@@ -163,10 +165,43 @@ def validate_provider_config(config: ProviderConfig, allowlist: dict[str, list[s
         raise ValueError(f"Unsupported model '{model}' for provider '{provider}'")
 
 
+def resolve_provider_model(provider: str | None = None, model: str | None = None) -> ProviderConfig:
+    """Resolve provider/model against the runtime allowlist and defaults."""
+    allowlist = getattr(settings, 'NER_PROVIDER_MODEL_ALLOWLIST', {})
+    default_provider = getattr(settings, 'NER_DEFAULT_PROVIDER', 'groq')
+
+    resolved_provider = (provider or default_provider).strip().lower()
+    if resolved_provider not in allowlist:
+        raise ValueError(f"Unsupported provider: {resolved_provider}")
+
+    resolved_model = (model or '').strip()
+    if not resolved_model:
+        resolved_model = allowlist[resolved_provider][0]
+
+    config = ProviderConfig(provider=resolved_provider, model=resolved_model)
+    validate_provider_config(config, allowlist)
+    return config
+
+
+def resolve_provider_model_for_project(project) -> ProviderConfig:
+    """Resolve provider/model at call time from current project settings."""
+    provider = (getattr(project, 'provider', '') or '').strip() or None
+    model = (getattr(project, 'model', '') or '').strip() or None
+    return resolve_provider_model(provider, model)
+
+
 def get_provider(config: ProviderConfig, api_keys: dict[str, str]) -> LLMProvider:
     """Instantiate a concrete provider implementation for the given config."""
     provider = config.provider.strip().lower()
-    key = (api_keys.get(provider) or '').strip()
+    env_key_by_provider = {
+        'groq': 'GROQ_API_KEY',
+        'openai': 'OPENAI_API_KEY',
+        'azure_openai': 'AZURE_OPENAI_API_KEY',
+        'gemini': 'GEMINI_API_KEY',
+    }
+    env_key_name = env_key_by_provider.get(provider, '')
+    key = (api_keys.get(provider) or getattr(settings, env_key_name, '') or '').strip()
+    validate_provider_runtime_config(provider)
     if not key:
         raise ProviderConfigError(
             provider=provider,
@@ -177,8 +212,6 @@ def get_provider(config: ProviderConfig, api_keys: dict[str, str]) -> LLMProvide
     if provider == 'openai':
         return OpenAIProvider(api_key=key, model=config.model)
     if provider == 'azure_openai':
-        from django.conf import settings
-
         endpoint = getattr(settings, 'AZURE_OPENAI_ENDPOINT', '').strip()
         deployment = getattr(settings, 'AZURE_OPENAI_DEPLOYMENT', '').strip()
         if not endpoint or not deployment:

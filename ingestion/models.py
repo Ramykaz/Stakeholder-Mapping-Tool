@@ -41,6 +41,19 @@ class Project(models.Model):
     def __str__(self):
         return f"{self.name} [{self.status}]"
 
+    @staticmethod
+    def derive_next_step(steps: list[dict]) -> dict | None:
+        """Return the first incomplete step payload, or None when all are complete."""
+        for step in steps:
+            if not step.get('complete', False):
+                return {
+                    'number': step.get('number'),
+                    'label': step.get('label'),
+                    'url': step.get('url'),
+                    'description': step.get('description', ''),
+                }
+        return None
+
     def get_workflow_status(self) -> dict:
         """Compute current workflow step and return full step status array."""
         steps_config = [
@@ -65,7 +78,7 @@ class Project(models.Model):
             {
                 'number': 4,
                 'label': 'Review graph',
-                'url': f'/projects/{self.id}',
+                'url': f'/projects/{self.id}/map',
                 'description': 'Review and refine the extracted knowledge graph',
             },
             {
@@ -142,7 +155,11 @@ class Project(models.Model):
             if not complete and current_step == 7:
                 current_step = config['number']
 
-        return {'current_step': current_step, 'steps': steps}
+        return {
+            'current_step': current_step,
+            'steps': steps,
+            'next_step': self.derive_next_step(steps),
+        }
 
 
 class ConceptNote(models.Model):
@@ -266,6 +283,60 @@ class Document(models.Model):
 
     def __str__(self):
         return f"{self.filename} [{self.processing_status}]"
+
+
+class WebSource(models.Model):
+    SOURCE_URL = 'url'
+    SOURCE_CRAWL = 'crawl'
+    SOURCE_PASTE = 'paste'
+    SOURCE_CHOICES = [
+        (SOURCE_URL, 'URL'),
+        (SOURCE_CRAWL, 'Crawl'),
+        (SOURCE_PASTE, 'Paste'),
+    ]
+
+    STATUS_QUEUED = 'queued'
+    STATUS_PROCESSING = 'processing'
+    STATUS_PROCESSED = 'processed'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, 'Queued'),
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_PROCESSED, 'Processed'),
+        (STATUS_ERROR, 'Error'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='web_sources')
+    source_type = models.CharField(max_length=16, choices=SOURCE_CHOICES)
+    url = models.TextField(blank=True, default='')
+    crawl_depth = models.PositiveSmallIntegerField(default=1)
+    raw_text = models.TextField(blank=True, default='')
+    title = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    page_count = models.PositiveIntegerField(default=0)
+    character_count = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True, default='')
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.SET_NULL,
+        related_name='web_sources',
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ingestion_web_sources'
+        indexes = [
+            models.Index(fields=['project', 'status', 'updated_at']),
+            models.Index(fields=['source_type', 'status']),
+        ]
+
+    def __str__(self):
+        label = self.title or self.url or str(self.id)
+        return f"WebSource<{self.source_type}:{label}>"
 
 
 def get_or_create_default_project(owner=None) -> Project:

@@ -33,7 +33,7 @@ services:
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-    entrypoint: ["celery", "-A", "stakeholder_analysis", "worker", "--loglevel=INFO", "--concurrency=2"]
+    entrypoint: ["celery", "-A", "stakeholder_analysis", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1"]
     depends_on:
       - redis
       - app

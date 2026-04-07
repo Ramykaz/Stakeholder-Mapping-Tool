@@ -4,6 +4,7 @@ import {
   getReportExportStatus,
   downloadReportPdf,
   downloadReportDocx,
+  renderLLMErrorMessage,
 } from '@/lib/api';
 
 interface ExportTabProps {
@@ -65,7 +66,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
     setLoading(true);
     getReportExportStatus(projectId)
       .then(setExportStatus)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(renderLLMErrorMessage(e, 'Export status check')))
       .finally(() => setLoading(false));
   }, [projectId]);
 
@@ -74,7 +75,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
     try {
       await downloadReportPdf(projectId);
     } catch (e: any) {
-      setError(e.message || 'PDF download failed');
+      setError(renderLLMErrorMessage(e, 'PDF export'));
     } finally {
       setPdfBusy(false);
     }
@@ -85,7 +86,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
     try {
       await downloadReportDocx(projectId);
     } catch (e: any) {
-      setError(e.message || 'DOCX download failed');
+      setError(renderLLMErrorMessage(e, 'Word export'));
     } finally {
       setDocxBusy(false);
     }
@@ -108,7 +109,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
     );
   }
 
-  const { can_export, complete_sections, total_sections, has_stakeholder_table, has_personas, section_statuses } = exportStatus;
+  const { can_export, complete_sections, total_sections, has_stakeholder_table, has_personas, has_workplan, section_statuses } = exportStatus;
 
   const summaryParts = [
     'cover page',
@@ -116,6 +117,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
     `${complete_sections} of ${total_sections} analysis sections`,
     ...(has_stakeholder_table ? ['stakeholder priority table'] : []),
     ...(has_personas ? ['stakeholder personas'] : []),
+    ...(has_workplan ? ['engagement workplan'] : []),
   ];
 
   return (
@@ -155,6 +157,10 @@ export default function ExportTab({ projectId }: ExportTabProps) {
         <div className="flex items-center gap-2">
           <CheckIcon ok={has_personas} />
           <span className="text-sm text-[var(--text)]">Stakeholder personas</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <CheckIcon ok={has_workplan} />
+          <span className="text-sm text-[var(--text)]">Stakeholder engagement workplan</span>
         </div>
       </div>
 

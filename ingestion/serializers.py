@@ -1,6 +1,8 @@
 """DRF serializers for the ingestion app."""
+import unicodedata
+
 from rest_framework import serializers
-from ingestion.models import Document, Project, ConceptNote, InitiativeProfile, ExtractionGuidance
+from ingestion.models import Document, Project, ConceptNote, InitiativeProfile, ExtractionGuidance, WebSource
 
 
 class ProjectSummarySerializer(serializers.ModelSerializer):
@@ -118,3 +120,65 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     def get_relation_count(self, obj):
         return getattr(obj, 'relation_count', 0) or 0
+
+
+class WebSourceSerializer(serializers.ModelSerializer):
+    project_id = serializers.UUIDField(source='project.id', read_only=True)
+    document_id = serializers.UUIDField(source='document.id', allow_null=True, read_only=True)
+
+    class Meta:
+        model = WebSource
+        fields = [
+            'id',
+            'project_id',
+            'source_type',
+            'url',
+            'crawl_depth',
+            'raw_text',
+            'title',
+            'status',
+            'page_count',
+            'character_count',
+            'error_message',
+            'document_id',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'project_id',
+            'status',
+            'page_count',
+            'character_count',
+            'error_message',
+            'document_id',
+            'created_at',
+            'updated_at',
+        ]
+
+    @staticmethod
+    def _sanitize_url(url: str) -> str:
+        raw = (url or '').strip()
+        return ''.join(char for char in raw if not unicodedata.category(char).startswith('C'))
+
+    def validate(self, attrs):
+        source_type = (attrs.get('source_type') or '').strip().lower()
+        url = self._sanitize_url(attrs.get('url') or '')
+        attrs['url'] = url
+        raw_text = (attrs.get('raw_text') or '').strip()
+        title = (attrs.get('title') or '').strip()
+        crawl_depth = attrs.get('crawl_depth', 1)
+
+        if source_type in {WebSource.SOURCE_URL, WebSource.SOURCE_CRAWL} and not url:
+            raise serializers.ValidationError({'url': 'url is required for url/crawl sources'})
+
+        if source_type == WebSource.SOURCE_PASTE:
+            if not raw_text:
+                raise serializers.ValidationError({'raw_text': 'raw_text is required for paste source'})
+            if not title:
+                raise serializers.ValidationError({'title': 'title is required for paste source'})
+
+        if source_type == WebSource.SOURCE_CRAWL and (crawl_depth < 1 or crawl_depth > 2):
+            raise serializers.ValidationError({'crawl_depth': 'crawl_depth must be between 1 and 2'})
+
+        return attrs

@@ -20,5 +20,14 @@ Output requirements:
 - Keep it focused and evidence-backed.
 - Include inline citations in the form [Doc: filename, p.chunk_index].
 - If evidence is weak, clearly state limitations.
+- Use plain text only; do NOT use markdown, asterisks, hash headings, or decorative symbols.
+- Use this structure exactly:
+	Title line
+	blank line
+	Subheading line ending with ":"
+	paragraph(s)
+	blank line
+	Next subheading line ending with ":"
+	paragraph(s)
 
 Section Narrative:

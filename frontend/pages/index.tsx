@@ -133,7 +133,7 @@ export default function Home() {
               { bg: 'rgba(155,110,243,0.08)', border: 'rgba(155,110,243,0.2)', title: 'Entity detail profiles',      body: 'Click any node for a full profile: description, all relationships, source documents, and an AI-generated role summary.' },
               { bg: 'rgba(245,166,35,0.08)',  border: 'rgba(245,166,35,0.2)',  title: 'Natural language queries',    body: "Ask questions in plain English: 'Who funds this ecosystem?' or 'What connects these two organizations?'" },
               { bg: 'rgba(240,97,74,0.08)',   border: 'rgba(240,97,74,0.2)',   title: 'Global entity registry',      body: 'The same entity across projects exists once globally. Relationships are scoped per project — no duplication.' },
-              { bg: 'rgba(255,255,255,0.04)', border: 'var(--border2)',         title: 'Multi-document processing',  body: 'Upload PDFs, DOCX, and text files. The graph grows incrementally as each document is processed.' },
+              { bg: 'rgba(255,255,255,0.04)', border: 'var(--border2)',         title: 'Multi-document processing',  body: 'Upload PDFs, DOCX, TXT, and Markdown files. The graph grows incrementally as each document is processed.' },
             ].map(card => (
               <div
                 key={card.title}
@@ -177,7 +177,7 @@ export default function Home() {
               {[
                 { n: '01', title: 'Create a project',    body: 'Name it and write a concept note describing the stakeholder context you care about.' },
                 { n: '02', title: 'Write a concept note', body: 'Tell the AI what this project is about and which stakeholder types matter. This guides every extraction.' },
-                { n: '03', title: 'Upload documents',     body: 'Drop in PDFs, Word files, or text articles. Any combination of project-relevant files.' },
+                { n: '03', title: 'Upload documents',     body: 'Drop in PDFs, Word files, plain text, or Markdown files. Any combination of project-relevant files.' },
                 { n: '04', title: 'Explore the map',      body: 'Navigate the graph, click nodes for detail, filter by type, and query in natural language.' },
               ].map((step, i) => (
                 <div key={step.n} style={{ padding: '0 20px', position: 'relative', zIndex: 1 }}>

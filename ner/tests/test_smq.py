@@ -80,3 +80,20 @@ class TestSMQ(APITestCase):
         self.assertEqual(body['answer_text'], 'Manual answer for testing.')
         self.assertEqual(body['section_id'], str(self.section.id))
         self.assertFalse(body['ai_generated'])
+
+    def test_smq_template_endpoint_prefers_complete_template_over_partial_newer_template(self):
+        partial_template = SMQTemplate.objects.create(title='Partial Template', is_active=True)
+        SMQSection.objects.create(
+            template=partial_template,
+            section_number=6,
+            title='Stakeholder Engagement Strategies',
+            question_prompts='Partial section only',
+            order=0,
+            is_active=True,
+        )
+
+        template_response = self.client.get('/api/v1/smq/template/')
+        self.assertEqual(template_response.status_code, 200)
+        sections = template_response.json().get('sections', [])
+        self.assertEqual(len(sections), 8)
+        self.assertEqual([section['section_number'] for section in sections], [1, 2, 3, 4, 5, 6, 7, 8])

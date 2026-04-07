@@ -84,6 +84,18 @@ describe('UploadPage', () => {
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
   });
 
+  it('accepts markdown file selection', () => {
+    render(<UploadPage />);
+
+    const file = new File(['# heading'], 'notes.md', { type: 'text/markdown' });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(screen.queryByText(/unsupported format/i)).not.toBeInTheDocument();
+    expect(screen.getByText('notes.md')).toBeInTheDocument();
+  });
+
   it('validates unsupported file formats', () => {
     render(<UploadPage />);
 

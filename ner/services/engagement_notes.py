@@ -1,29 +1,58 @@
 import time
 from pathlib import Path
 
-from django.conf import settings as django_settings
+from django.core.cache import cache
 from django.db import close_old_connections, models
 
 from ingestion.models import Project
 from ner.models import EngagementNote, Entity, ProjectSMQResponse, Relation
 from ner.services.nl_query import _call_provider
+from ner.services.provider_factory import resolve_provider_model_for_project
+from ner.services.provider_runtime import normalize_provider_error_kind
 from ner.services.priority_table import compute_priority_scores
 from ner.services.semantic_search import search_chunks_for_entity
 
-# Only generate notes for the top N entities — keeps total token usage within free-tier limits
-_MAX_ENTITIES = 15
+# Only generate notes for the top N entities — US4 caps at 20 for resumable processing
+_MAX_ENTITIES = 20
 # Seconds to wait between calls on Groq to avoid hitting the TPM rate limit
 _INTER_CALL_DELAY = 2.0
+_BATCH_SIZE = 5
+_STATE_TTL_SECONDS = 60 * 30
 
 
-def generate_notes_for_project(project_id: str) -> int:
+def _state_key(project_id: str) -> str:
+    return f"stakeholder_notes_state:{project_id}"
+
+
+def generate_notes_for_project(
+    project_id: str,
+    action: str = 'start',
+    max_items: int = _MAX_ENTITIES,
+) -> dict:
     close_old_connections()
 
     project = Project.objects.filter(id=project_id).first()
     if not project:
-        return 0
+        return {
+            'status': 'error',
+            'total_target': 0,
+            'completed_count': 0,
+            'current_index': 0,
+            'message': 'Project not found.',
+        }
 
-    top_rows = compute_priority_scores(project)[:_MAX_ENTITIES]
+    capped_max_items = min(max(int(max_items or _MAX_ENTITIES), 1), _MAX_ENTITIES)
+    top_rows = compute_priority_scores(project)[:capped_max_items]
+    total_target = len(top_rows)
+
+    state_cache_key = _state_key(str(project_id))
+    cached_state = cache.get(state_cache_key) or {}
+    if action == 'resume' and cached_state:
+        current_index = int(cached_state.get('current_index', 0) or 0)
+        completed_count = int(cached_state.get('completed_count', 0) or 0)
+    else:
+        current_index = 0
+        completed_count = 0
 
     section_2 = ''
     section_6 = ''
@@ -45,15 +74,20 @@ def generate_notes_for_project(project_id: str) -> int:
             "Evidence: {chunk_excerpts}\n"
         )
 
-    provider = (project.provider or django_settings.NER_DEFAULT_PROVIDER).strip().lower()
-    model = (project.model or '').strip()
-    if not model:
-        model = django_settings.NER_PROVIDER_MODEL_ALLOWLIST.get(provider, [django_settings.NER_DEFAULT_MODEL])[0]
+    provider_config = resolve_provider_model_for_project(project)
+    provider = provider_config.provider
+    model = provider_config.model
 
-    generated = 0
-    for row in top_rows:
+    processed_in_batch = 0
+    for row in top_rows[current_index:]:
+        if processed_in_batch >= _BATCH_SIZE:
+            break
+
         entity = Entity.objects.filter(id=row['entity_id'], project=project).first()
+        current_index += 1
+        processed_in_batch += 1
         if not entity:
+            completed_count += 1
             continue
 
         relations = Relation.objects.filter(project=project).filter(
@@ -81,21 +115,62 @@ def generate_notes_for_project(project_id: str) -> int:
 
         try:
             note_text = (_call_provider(prompt, provider, model, max_tokens=256) or '').strip()
-        except Exception:
-            note_text = ''
+        except Exception as exc:
+            kind = normalize_provider_error_kind(exc)
+            if kind == 'rate_limit':
+                payload = {
+                    'status': 'paused_rate_limited',
+                    'total_target': total_target,
+                    'completed_count': completed_count,
+                    'current_index': max(0, current_index - 1),
+                    'message': 'Provider rate-limited. Resume generation in a moment.',
+                }
+                cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+                close_old_connections()
+                return payload
 
-        if not note_text:
-            continue
+            payload = {
+                'status': 'error',
+                'total_target': total_target,
+                'completed_count': completed_count,
+                'current_index': max(0, current_index - 1),
+                'message': 'Stakeholder note generation failed. Please retry.',
+            }
+            cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+            close_old_connections()
+            return payload
 
-        if provider == 'groq' and generated > 0:
+        if provider == 'groq' and completed_count > 0:
             time.sleep(_INTER_CALL_DELAY)
 
-        EngagementNote.objects.update_or_create(
-            project=project,
-            entity=entity,
-            defaults={'note_text': note_text},
-        )
-        generated += 1
+        if note_text:
+            EngagementNote.objects.update_or_create(
+                project=project,
+                entity=entity,
+                defaults={'note_text': note_text},
+            )
+        completed_count += 1
+
+    if current_index >= total_target:
+        payload = {
+            'status': 'completed',
+            'total_target': total_target,
+            'completed_count': completed_count,
+            'current_index': total_target,
+            'message': 'Stakeholder notes generated.',
+        }
+        cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+        close_old_connections()
+        return payload
+
+    payload = {
+        'status': 'running',
+        'total_target': total_target,
+        'completed_count': completed_count,
+        'current_index': current_index,
+        'message': 'Stakeholder note generation is in progress.',
+    }
+    cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
 
     close_old_connections()
-    return generated
+    return payload

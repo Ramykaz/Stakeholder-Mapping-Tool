@@ -462,7 +462,7 @@ export default function ProjectWorkspacePage() {
             </div>
 
             <div className="pt-3 border-t border-gray-100 flex flex-wrap gap-2">
-              <Link href={`/projects/${projectId}/settings`} className="btn-ghost text-sm">Project Settings</Link>
+              <Link href={projectId ? `/projects/${projectId}/settings` : '/projects'} className="btn-ghost text-sm">Project Settings</Link>
               <button className="btn-ghost text-sm" onClick={() => void reload()}>Refresh</button>
             </div>
 

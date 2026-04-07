@@ -20,6 +20,55 @@ class IngestionError(Exception):
     """Raised when the ingestion pipeline fails after extraction."""
 
 
+def ingest_text_document(text: str, title: str, project=None) -> Document:
+    """Ingest already-extracted text through chunk/embed/storage pipeline."""
+    document = Document.objects.create(
+        filename=(title or 'web-source.txt')[:255],
+        file_format=Document.FORMAT_TXT,
+        project=project,
+        processing_status=Document.STATUS_PENDING,
+    )
+    logger.info("[INGEST] START text document=%s filename=%s", document.id, document.filename)
+
+    try:
+        chunks_text = chunk_text(text or '')
+        if not chunks_text:
+            raise ExtractionError("No extractable text found in the web source.")
+
+        try:
+            embeddings = embed_chunks(chunks_text)
+        except EmbeddingError as exc:
+            raise IngestionError(f"Embedding generation failed: {exc}") from exc
+
+        with transaction.atomic():
+            chunk_objects = [
+                Chunk(
+                    document=document,
+                    text=chunks_text[i],
+                    embedding=embeddings[i].tolist(),
+                    chunk_index=i,
+                    token_count=count_tokens(chunks_text[i]),
+                )
+                for i in range(len(chunks_text))
+            ]
+            Chunk.objects.bulk_create(chunk_objects)
+
+            document.processing_status = Document.STATUS_COMPLETED
+            document.chunk_count = len(chunk_objects)
+            document.save(update_fields=['processing_status', 'chunk_count'])
+    except ExtractionError as exc:
+        _mark_failed(document, str(exc))
+        raise
+    except IngestionError as exc:
+        _mark_failed(document, str(exc))
+        raise
+    except Exception as exc:
+        _mark_failed(document, str(exc))
+        raise IngestionError(f"Unexpected ingestion error: {exc}") from exc
+
+    return document
+
+
 def ingest_document(file_obj, filename: str, file_format: str, project=None) -> Document:
     """
     Run the full ingestion pipeline for an uploaded file.
@@ -129,3 +178,5 @@ def _mark_failed(document: Document, error_message: str = '') -> None:
         document.save(update_fields=['processing_status', 'error_message'])
     except Exception as exc:
         logger.error("Failed to update document %s status to 'failed': %s", document.id, exc)
+
+

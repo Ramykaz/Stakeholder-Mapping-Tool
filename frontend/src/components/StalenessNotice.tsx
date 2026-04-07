@@ -5,6 +5,9 @@ interface StalenessNoticeProps {
   onRegenerate: () => void;
   onKeepCurrent: () => void;
   isRegenerating?: boolean;
+  variant?: 'stale' | 'rate_limit';
+  primaryLabel?: string;
+  secondaryLabel?: string;
 }
 
 export default function StalenessNotice({
@@ -12,7 +15,14 @@ export default function StalenessNotice({
   onRegenerate,
   onKeepCurrent,
   isRegenerating = false,
+  variant = 'stale',
+  primaryLabel,
+  secondaryLabel,
 }: StalenessNoticeProps) {
+  const iconColor = variant === 'rate_limit' ? '#D97706' : '#D97706';
+  const primaryActionLabel = primaryLabel || (variant === 'rate_limit' ? 'Retry now' : 'Regenerate this section');
+  const secondaryActionLabel = secondaryLabel || (variant === 'rate_limit' ? 'Open settings' : 'Keep current version');
+
   return (
     <div
       className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-lg border"
@@ -24,7 +34,7 @@ export default function StalenessNotice({
       <div className="flex items-start gap-2">
         <svg
           className="w-4 h-4 mt-0.5 shrink-0"
-          style={{ color: '#D97706' }}
+          style={{ color: iconColor }}
           fill="currentColor"
           viewBox="0 0 20 20"
         >
@@ -51,7 +61,7 @@ export default function StalenessNotice({
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           )}
-          {isRegenerating ? 'Regenerating…' : 'Regenerate this section'}
+          {isRegenerating ? 'Working…' : primaryActionLabel}
         </button>
         <button
           onClick={onKeepCurrent}
@@ -59,7 +69,7 @@ export default function StalenessNotice({
           className="text-sm px-3 py-1.5 rounded font-medium border transition-opacity disabled:opacity-60"
           style={{ borderColor: '#F59E0B', color: '#92400E', background: 'transparent' }}
         >
-          Keep current version
+          {secondaryActionLabel}
         </button>
       </div>
     </div>

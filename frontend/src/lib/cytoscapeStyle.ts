@@ -1,6 +1,11 @@
 // Cytoscape.js stylesheet — theme-adaptive, advanced visualization
 import { Theme } from '@/lib/uiState';
 
+type GraphStylesheetStyle = {
+  selector: string;
+  style: Record<string, unknown>;
+};
+
 export const TYPE_PALETTE: Record<string, string> = {
   PERSON:       '#2edfb8',
   ORGANIZATION: '#5b8fff',
@@ -23,7 +28,7 @@ function hex2rgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function buildTypeSelector(entityType: string): cytoscape.StylesheetStyle {
+function buildTypeSelector(entityType: string): GraphStylesheetStyle {
   const color = TYPE_PALETTE[entityType] || DEFAULT_COLOR;
   return {
     selector: `node[entity_type="${entityType}"]`,
@@ -41,7 +46,7 @@ function buildTypeSelector(entityType: string): cytoscape.StylesheetStyle {
   };
 }
 
-export function buildCytoscapeStylesheet(theme: Theme): cytoscape.StylesheetStyle[] {
+export function buildCytoscapeStylesheet(theme: Theme): GraphStylesheetStyle[] {
   const isDark = theme === 'dark';
   const edgeLineColor    = isDark ? '#3a4a72'  : '#2a3a70';
   const labelColor       = isDark ? '#c8cad8'  : '#1a1f2e';
@@ -136,12 +141,15 @@ export function buildCytoscapeStylesheet(theme: Theme): cytoscape.StylesheetStyl
         'target-arrow-color': edgeLineColor,
         'arrow-scale': 0.75,
         label: 'data(label)',
-        'font-size': '9px',
+        'font-size': '11px',
         'font-family': 'monospace',
         color: edgeLabelColor,
         'text-rotation': 'autorotate' as any,
         'text-margin-y': -7,
-        'text-background-opacity': 0,
+        'text-background-opacity': isDark ? 0.78 : 0.9,
+        'text-background-color': isDark ? '#0d1220' : '#f0ece2',
+        'text-background-padding': '2px',
+        'text-background-shape': 'roundrectangle' as any,
         'overlay-opacity': 0,
         'z-index': 1,
         'transition-property': 'opacity, line-color' as any,

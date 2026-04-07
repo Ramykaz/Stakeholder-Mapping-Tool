@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 
 from ingestion.models import Document, Project
 from ner.models import Entity, ReportSection, SMQSection, SMQTemplate, WorkplanComponent
-from ner.services.workplan_generator import WorkplanGenerationError, generate_workplan_for_project
+from ner.services.workplan_generator import generate_workplan_for_project
 
 
 User = get_user_model()
@@ -50,16 +50,23 @@ class TestWorkplan(APITestCase):
             project=self.project,
         )
 
-    def test_generate_workplan_raises_when_section_6_not_complete(self):
+    @patch('ner.services.priority_table.compute_priority_scores', return_value=[])
+    @patch('ner.services.workplan_generator._call_provider')
+    def test_generate_workplan_falls_back_when_section_6_not_complete(self, mock_call, _mock_scores):
         ReportSection.objects.create(
             project=self.project,
             section=self.section_6,
             status=ReportSection.STATUS_PENDING,
             generated_text='Draft content',
         )
+        mock_call.return_value = (
+            '{"components":[{"title":"Fallback Component","tasks":[{"task_description":"Fallback task",'
+            '"suggested_owner":"Owner","timeline":"Q1","dependencies":"","kpis":"Done",'
+            '"related_stakeholder":""}]}]}'
+        )
 
-        with self.assertRaises(WorkplanGenerationError):
-            generate_workplan_for_project(str(self.project.id))
+        created = generate_workplan_for_project(str(self.project.id))
+        self.assertEqual(created, 1)
 
     @patch('ner.services.priority_table.compute_priority_scores')
     @patch('ner.services.workplan_generator._call_provider')
@@ -111,7 +118,8 @@ class TestWorkplan(APITestCase):
         self.assertEqual(components.count(), 1)
         self.assertEqual(components.first().title, 'New Component')
 
-    def test_workplan_generate_view_returns_400_when_section_6_incomplete(self):
+    @patch('ner.views.generate_workplan_task.delay')
+    def test_workplan_generate_view_starts_even_when_section_6_incomplete(self, mock_delay):
         ReportSection.objects.create(
             project=self.project,
             section=self.section_6,
@@ -121,5 +129,6 @@ class TestWorkplan(APITestCase):
 
         response = self.client.post(f'/api/v1/projects/{self.project.id}/workplan/generate/', data={}, format='json')
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()['error'], 'section_6_incomplete')
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()['status'], 'generating')
+        mock_delay.assert_called_once_with(str(self.project.id))

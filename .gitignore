@@ -238,3 +238,6 @@ Thumbs.db
 tsconfig.tsbuildinfo
 frontend/tsconfig.tsbuildinfo
 
+# Local private documentation
+docs/LOCAL_SYSTEM_WORKINGS_PRIVATE.md
+

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ner.services.gemini_compat import generate_gemini_text
+from ner.services.provider_factory import resolve_provider_model_for_project
 
 if TYPE_CHECKING:
     from ingestion.models import Project
@@ -107,7 +108,8 @@ def _parse_json_response(text: str) -> dict | None:
 def generate_workplan_for_project(project_id: str) -> int:
     """Generate a structured engagement workplan from SMQ Section 6 report content.
 
-    Raises WorkplanGenerationError if Section 6 report is not complete.
+    Uses Section 6 content when available; otherwise falls back to other completed
+    report sections and project context.
     Deletes existing workplan and creates new components + tasks.
     Returns count of components created.
     """
@@ -117,26 +119,34 @@ def generate_workplan_for_project(project_id: str) -> int:
     from ner.services.priority_table import compute_priority_scores
 
     project = Project.objects.select_related('initiative_profile').get(id=project_id)
-    provider = (project.provider or 'groq').strip()
-    model = project.model or 'llama-3.3-70b-versatile'
+    provider_config = resolve_provider_model_for_project(project)
+    provider = provider_config.provider
+    model = provider_config.model
     project_context = get_project_context(project)
 
-    # Check Section 6 is complete
-    try:
-        section_6 = ReportSection.objects.select_related('section').get(
+    section_6 = (
+        ReportSection.objects.select_related('section')
+        .filter(
             project=project,
             section__section_number=6,
+            status=ReportSection.STATUS_DONE,
         )
-    except ReportSection.DoesNotExist:
-        raise WorkplanGenerationError("Section 6 report does not exist for this project.")
+        .first()
+    )
 
-    if section_6.status != ReportSection.STATUS_DONE:
-        raise WorkplanGenerationError(
-            f"Section 6 report is not complete (status: {section_6.status}). "
-            "Generate the report section first."
+    section_6_content = (section_6.generated_text or '').strip() if section_6 else ''
+    if not section_6_content:
+        fallback_sections = list(
+            ReportSection.objects.select_related('section')
+            .filter(project=project, status=ReportSection.STATUS_DONE)
+            .order_by('section__section_number')
         )
-
-    section_6_content = section_6.generated_text or ''
+        if fallback_sections:
+            section_6_content = '\n\n'.join(
+                f"Section {item.section.section_number}: {(item.generated_text or '').strip()}"
+                for item in fallback_sections
+                if (item.generated_text or '').strip()
+            ).strip()
 
     # Get top-10 stakeholder names from priority scores
     try:
@@ -153,7 +163,10 @@ def generate_workplan_for_project(project_id: str) -> int:
     template = _load_prompt_template()
     prompt = template
     prompt = prompt.replace('{project_context}', project_context or '(No project context available)')
-    prompt = prompt.replace('{section_6_content}', section_6_content or '(No Section 6 content available)')
+    prompt = prompt.replace(
+        '{section_6_content}',
+        section_6_content or '(No generated section content available; infer from project context.)',
+    )
     prompt = prompt.replace('{stakeholder_names}', stakeholder_names)
 
     raw = _call_provider(prompt, provider=provider, model=model)

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import GuidancePanel from '@/components/GuidancePanel';
-import { deleteProject, getProject, getProjectConceptNote, getProjectProviders, updateProjectProvider, updateProject, upsertProjectConceptNote, ProjectProviders, ProviderOption } from '@/lib/api';
+import { deleteProject, getProject, getProjectConceptNote, getProjectProviders, updateProjectProvider, updateProject, upsertProjectConceptNote, ProjectProviders, ProviderOption, testLLMConnection, LLMConnectionTestResponse } from '@/lib/api';
 
 export default function ProjectSettingsPage() {
   const router = useRouter();
@@ -19,6 +19,9 @@ export default function ProjectSettingsPage() {
   const [selectedProvider, setSelectedProvider] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionResult, setConnectionResult] = useState<LLMConnectionTestResponse | null>(null);
+  const [connectionError, setConnectionError] = useState('');
 
   useEffect(() => {
     if (!projectId) return;
@@ -72,6 +75,36 @@ export default function ProjectSettingsPage() {
       setSaving(false);
     }
   };
+
+  const runConnectionTest = async () => {
+    if (!selectedProvider || !selectedModel) return;
+    setTestingConnection(true);
+    setConnectionError('');
+    try {
+      const result = await testLLMConnection(selectedProvider, selectedModel);
+      setConnectionResult(result);
+      if (result.status === 'ok') {
+        setMessage(`Connection OK (${result.latency_ms} ms)`);
+      } else {
+        setMessage(result.error_message || 'Connection test failed');
+      }
+    } catch (err: any) {
+      setConnectionResult(null);
+      setConnectionError(err.message || 'Connection test failed');
+      setMessage(err.message || 'Connection test failed');
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const providerEnvHint = (() => {
+    if (selectedProvider === 'azure_openai') {
+      return 'Requires: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT';
+    }
+    if (selectedProvider === 'openai') return 'Requires: OPENAI_API_KEY';
+    if (selectedProvider === 'gemini') return 'Requires: GEMINI_API_KEY';
+    return 'Requires: GROQ_API_KEY';
+  })();
 
   return (
     <Layout title="Project Settings" subtitle={name || 'Concept note configuration'}>
@@ -156,7 +189,8 @@ export default function ProjectSettingsPage() {
                 setSavingProvider(true);
                 try {
                   await updateProjectProvider(projectId, selectedProvider, selectedModel);
-                  setMessage('Provider saved');
+                  setMessage('Provider saved. Testing connection…');
+                  await runConnectionTest();
                 } catch {
                   setMessage('Failed to save provider');
                 } finally {
@@ -169,7 +203,28 @@ export default function ProjectSettingsPage() {
             >
               {savingProvider ? 'Saving…' : 'Save Provider'}
             </button>
+            <button
+              onClick={() => void runConnectionTest()}
+              disabled={testingConnection || !selectedProvider || !selectedModel}
+              className="btn-ghost"
+              style={{ height: 36, fontSize: 13 }}
+            >
+              {testingConnection ? 'Testing…' : 'Test connection'}
+            </button>
           </div>
+          <p style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
+            {providerEnvHint}
+          </p>
+          {connectionResult && (
+            <p style={{ fontSize: 12, color: connectionResult.status === 'ok' ? 'var(--teal)' : 'var(--coral)' }}>
+              {connectionResult.status === 'ok'
+                ? `Connection successful (${connectionResult.latency_ms} ms)`
+                : (connectionResult.error_message || 'Connection test failed')}
+            </p>
+          )}
+          {!connectionResult && connectionError && (
+            <p style={{ fontSize: 12, color: 'var(--coral)' }}>{connectionError}</p>
+          )}
         </div>
       )}
 

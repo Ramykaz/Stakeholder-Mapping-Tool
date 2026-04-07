@@ -1,4 +1,4 @@
-"""Text extraction service: PDF, DOCX, and TXT → plain string."""
+"""Text extraction service: PDF, DOCX, TXT, and Markdown → plain string."""
 
 
 class ExtractionError(Exception):
@@ -11,7 +11,7 @@ def extract_text(file_obj, file_format: str) -> str:
 
     Args:
         file_obj: File-like object (Django UploadedFile or BytesIO).
-        file_format: One of 'pdf', 'docx', 'txt'.
+        file_format: One of 'pdf', 'docx', 'txt', 'md'.
 
     Returns:
         Non-empty string of extracted text.
@@ -23,7 +23,7 @@ def extract_text(file_obj, file_format: str) -> str:
         text = _extract_pdf(file_obj)
     elif file_format == 'docx':
         text = _extract_docx(file_obj)
-    elif file_format == 'txt':
+    elif file_format in ('txt', 'md'):
         text = _extract_txt(file_obj)
     else:
         raise ExtractionError(f"Unsupported file format: {file_format!r}")

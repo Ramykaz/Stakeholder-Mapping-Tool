@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from ner.services.gemini_compat import generate_gemini_text
 from ner.services.provider_factory import resolve_provider_model_for_project
+from ner.services.provider_runtime import normalize_azure_endpoint
 
 if TYPE_CHECKING:
     from ingestion.models import Project
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path('prompts/persona_generate.txt')
+_REASONING_MODELS = frozenset({'gpt-5-mini', 'gpt-5-nano', 'o1', 'o3-mini'})
 
 
 def _load_prompt_template() -> str:
@@ -31,6 +33,32 @@ def _load_prompt_template() -> str:
         )
 
 
+def _normalize_message_content(content) -> str:
+    if content is None:
+        return ''
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        for key in ('text', 'output_text', 'content', 'value'):
+            value = content.get(key)
+            if value:
+                return _normalize_message_content(value)
+        return str(content)
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            normalized = _normalize_message_content(item)
+            if normalized:
+                parts.append(normalized)
+        return '\n'.join(parts)
+
+    for attr in ('text', 'output_text', 'content', 'value'):
+        value = getattr(content, attr, None)
+        if value:
+            return _normalize_message_content(value)
+    return str(content)
+
+
 def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 1024) -> str:
     """Call the configured LLM provider and return the text response."""
     provider = provider.strip().lower()
@@ -42,37 +70,52 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 102
             model=model,
             messages=[{'role': 'user', 'content': prompt}],
             max_tokens=max_tokens,
-            temperature=0.3,
         )
         return resp.choices[0].message.content.strip()
 
     if provider == 'openai':
         from openai import OpenAI
         client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.3,
-        )
-        return resp.choices[0].message.content.strip()
+        request_kwargs: dict = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_completion_tokens': max_tokens,
+        }
+        if model in _REASONING_MODELS:
+            request_kwargs['reasoning_effort'] = 'low'
+        resp = client.chat.completions.create(**request_kwargs)
+        content = _normalize_message_content(resp.choices[0].message.content).strip()
+        if not content:
+            retry_kwargs = dict(request_kwargs)
+            retry_kwargs['max_completion_tokens'] = max(max_tokens * 3, 1600)
+            resp = client.chat.completions.create(**retry_kwargs)
+            content = _normalize_message_content(resp.choices[0].message.content).strip()
+        return content
 
     if provider == 'azure_openai':
         from openai import AzureOpenAI
         from django.conf import settings as django_settings
         client = AzureOpenAI(
             api_key=os.environ.get('AZURE_OPENAI_API_KEY', ''),
-            azure_endpoint=getattr(django_settings, 'AZURE_OPENAI_ENDPOINT', ''),
-            api_version='2024-02-01',
+            azure_endpoint=normalize_azure_endpoint(getattr(django_settings, 'AZURE_OPENAI_ENDPOINT', '')),
+            api_version=os.environ.get('AZURE_OPENAI_API_VERSION', '2024-12-01-preview'),
         )
         deployment = getattr(django_settings, 'AZURE_OPENAI_DEPLOYMENT', model)
-        resp = client.chat.completions.create(
-            model=deployment,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.3,
-        )
-        return resp.choices[0].message.content.strip()
+        request_kwargs: dict = {
+            'model': deployment,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_completion_tokens': max_tokens,
+        }
+        if model in _REASONING_MODELS:
+            request_kwargs['reasoning_effort'] = 'low'
+        resp = client.chat.completions.create(**request_kwargs)
+        content = _normalize_message_content(resp.choices[0].message.content).strip()
+        if not content:
+            retry_kwargs = dict(request_kwargs)
+            retry_kwargs['max_completion_tokens'] = max(max_tokens * 3, 1600)
+            resp = client.chat.completions.create(**retry_kwargs)
+            content = _normalize_message_content(resp.choices[0].message.content).strip()
+        return content
 
     if provider == 'gemini':
         return generate_gemini_text(prompt, model)
@@ -124,8 +167,27 @@ def _generate_single_persona(
     prompt = prompt.replace('{project_context}', project_context or '(No project context available)')
 
     try:
-        raw = _call_provider(prompt, provider=provider, model=model)
-        data = _parse_json_response(raw)
+        prompt_variants = [
+            prompt,
+            (
+                prompt
+                + '\n\nReturn ONLY a valid JSON object with keys: '
+                'persona_name, archetype_label, demographics, motivations, frustrations. '
+                'No markdown and no explanatory text.'
+            ),
+        ]
+        token_budgets = [1200, 2200]
+
+        data = None
+        for variant in prompt_variants:
+            if data:
+                break
+            for budget in token_budgets:
+                raw = _call_provider(variant, provider=provider, model=model, max_tokens=budget)
+                data = _parse_json_response(raw)
+                if data:
+                    break
+
         if not data:
             logger.warning("Persona generation: failed to parse JSON for type '%s'", entity_type_name)
             return None
@@ -152,9 +214,9 @@ def _generate_single_persona(
 
 
 def generate_personas_for_project(project_id: str) -> int:
-    """Generate persona cards for all entity types with >= 3 entities in the project.
+    """Generate persona cards for all entity types with at least one entity in the project.
 
-    Groups entities by type, generates one persona per type with sufficient data.
+    Groups entities by type, generates one persona per type with available data.
     Deletes existing personas for the project and creates new ones.
 
     Returns count of personas created.
@@ -186,9 +248,9 @@ def generate_personas_for_project(project_id: str) -> int:
     new_personas = []
 
     for entity_type_str, entity_list in type_to_entities.items():
-        if len(entity_list) < 3:
+        if len(entity_list) < 1:
             logger.info(
-                "Skipping persona for type '%s' — only %d entities (need >= 3)",
+                "Skipping persona for type '%s' — no entities found",
                 entity_type_str,
                 len(entity_list),
             )

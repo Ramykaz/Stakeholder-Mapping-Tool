@@ -1,22 +1,30 @@
-You are a stakeholder analysis expert. Generate a detailed stakeholder persona for a specific entity type based on the entities extracted from project documents.
+You are a stakeholder analysis expert. Generate a high-quality, specific stakeholder persona for one entity type using ONLY the project context and representative entities provided.
 
 Return ONLY valid JSON with no markdown wrapping, no code blocks, no explanation. The JSON must exactly match this structure:
 
 {
   "persona_name": "A memorable descriptive name (e.g. 'The Policy Architect')",
   "archetype_label": "A short archetype label (e.g. 'Institutional Champion')",
-  "demographics": "A 2-4 sentence description of the typical demographic profile, role, seniority level, and institutional context of this stakeholder type.",
+  "demographics": "A 2-4 sentence profile describing role, institutional position, typical decision scope, and operating context for this stakeholder type in this project.",
   "motivations": [
-    "First key motivation (what drives this stakeholder type)",
+    "First key motivation (specific and evidence-linked)",
     "Second key motivation",
     "Third key motivation"
   ],
   "frustrations": [
-    "First key frustration (what obstacles or pain points does this stakeholder face)",
+    "First key frustration (specific obstacle or constraint)",
     "Second key frustration",
     "Third key frustration"
   ]
 }
+
+QUALITY RULES (MANDATORY):
+1) Ground all content in the provided project context and representative entities.
+2) Be specific: avoid generic phrases such as "plays a key role", "important stakeholder", or "in this project" without concrete details.
+3) Motivations/frustrations must be concise, concrete, and action-relevant (one sentence each).
+4) Do not invent named organizations, policies, or events not implied by the provided evidence.
+5) If evidence is sparse, provide cautious but useful inferences tied to the available entities/context.
+6) Keep tone practical and professional.
 
 PROJECT CONTEXT:
 {project_context}
@@ -29,4 +37,4 @@ REPRESENTATIVE ENTITIES (sample of this type extracted from project documents):
 ADDITIONAL DESCRIPTIONS:
 {descriptions}
 
-Based on the above, generate a realistic and insightful stakeholder persona that reflects the likely profile, motivations, and frustrations of entities of this type in the context of this project. Return ONLY the JSON object.
+Based on the above, generate a realistic and insightful stakeholder persona that reflects likely profile, motivations, and frustrations for this entity type. Return ONLY the JSON object.

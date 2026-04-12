@@ -9,7 +9,7 @@ import time
 from django.db import transaction
 
 from ingestion.models import Document, Chunk
-from ingestion.services.extractor import extract_text, ExtractionError
+from ingestion.services.extractor import extract_text, ExtractionError, clean_text, clean_web_text
 from ingestion.services.chunker import chunk_text, count_tokens
 from ingestion.services.embedder import embed_chunks, EmbeddingError
 
@@ -20,18 +20,23 @@ class IngestionError(Exception):
     """Raised when the ingestion pipeline fails after extraction."""
 
 
-def ingest_text_document(text: str, title: str, project=None) -> Document:
+def ingest_text_document(text: str, title: str, project=None, is_web_source: bool = False) -> Document:
     """Ingest already-extracted text through chunk/embed/storage pipeline."""
+    raw_text = text or ''
+    cleaned_text = clean_web_text(raw_text) if is_web_source else clean_text(raw_text)
+
     document = Document.objects.create(
         filename=(title or 'web-source.txt')[:255],
         file_format=Document.FORMAT_TXT,
         project=project,
         processing_status=Document.STATUS_PENDING,
+        raw_text=raw_text,
+        cleaned_text=cleaned_text,
     )
     logger.info("[INGEST] START text document=%s filename=%s", document.id, document.filename)
 
     try:
-        chunks_text = chunk_text(text or '')
+        chunks_text = chunk_text(cleaned_text or '')
         if not chunks_text:
             raise ExtractionError("No extractable text found in the web source.")
 
@@ -107,12 +112,16 @@ def ingest_document(file_obj, filename: str, file_format: str, project=None) -> 
     try:
         # Step 1: Extract text (may raise ExtractionError).
         _t0 = time.perf_counter()
-        text = extract_text(file_obj, file_format)
-        logger.info("[INGEST] step=extract_text  chars=%d  duration=%.2fs", len(text), time.perf_counter() - _t0)
+        raw_text = extract_text(file_obj, file_format)
+        cleaned_text = clean_text(raw_text)
+        document.raw_text = raw_text
+        document.cleaned_text = cleaned_text
+        document.save(update_fields=['raw_text', 'cleaned_text'])
+        logger.info("[INGEST] step=extract_text  chars=%d  duration=%.2fs", len(raw_text), time.perf_counter() - _t0)
 
         # Step 2: Chunk the text.
         _t0 = time.perf_counter()
-        chunks_text = chunk_text(text)
+        chunks_text = chunk_text(cleaned_text)
         if not chunks_text:
             raise ExtractionError(
                 "No extractable text found in the uploaded document."

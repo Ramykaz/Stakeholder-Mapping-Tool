@@ -88,6 +88,63 @@ def _parse_section_text(text: str) -> list[dict]:
     return blocks
 
 
+def _sanitize_export_narrative(text: str) -> str:
+    value = text or ''
+    value = re.sub(r'\[\s*Doc\s*:[^\]]+\]', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'\bSMQ_?Answer\.md\b', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'\bProject_?Context\.md\b', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'\bSMQ Answer\b', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'\bProject Context\b', '', value, flags=re.IGNORECASE)
+    value = re.sub(r'\s{2,}', ' ', value)
+    value = re.sub(r'\n{3,}', '\n\n', value)
+    return value.strip()
+
+
+def _collect_section_references(section) -> list[dict]:
+    raw_citations = section.citations or []
+    if not isinstance(raw_citations, list):
+        return []
+
+    refs = []
+    seen = set()
+    fallback_ref = 1
+    for citation in raw_citations:
+        if not isinstance(citation, dict):
+            continue
+        doc_name = (citation.get('doc_name') or '').strip()
+        if not doc_name:
+            continue
+        ref_id = citation.get('ref_id') or fallback_ref
+        fallback_ref += 1
+        try:
+            ref_id = int(ref_id)
+        except (TypeError, ValueError):
+            ref_id = fallback_ref - 1
+
+        chunk_index = citation.get('chunk_index')
+        try:
+            chunk_index = int(chunk_index)
+        except (TypeError, ValueError):
+            chunk_index = None
+
+        snippet = str(citation.get('snippet') or '').strip()
+        unique_key = (ref_id, doc_name, chunk_index, snippet)
+        if unique_key in seen:
+            continue
+        seen.add(unique_key)
+        refs.append(
+            {
+                'ref_id': ref_id,
+                'doc_name': doc_name,
+                'chunk_index': chunk_index,
+                'snippet': snippet,
+            }
+        )
+
+    refs.sort(key=lambda item: item['ref_id'])
+    return refs
+
+
 def generate_pdf_report(project) -> bytes:
     """Generate a full PDF stakeholder analysis report.
 
@@ -118,7 +175,7 @@ def generate_pdf_report(project) -> bytes:
     styles = getSampleStyleSheet()
     cover_title = ParagraphStyle(
         'CoverTitle', fontName=FONT_BOLD, fontSize=28, textColor=navy_color,
-        spaceAfter=16, alignment=TA_CENTER,
+        spaceAfter=24, alignment=TA_CENTER, leading=34,
     )
     cover_sub = ParagraphStyle(
         'CoverSub', fontName=FONT_REGULAR, fontSize=14, textColor=teal_color,
@@ -245,6 +302,8 @@ def generate_pdf_report(project) -> bytes:
         story.append(Paragraph('Appendix B: Stakeholder Personas', toc_style))
     if workplan_components:
         story.append(Paragraph('Appendix C: Stakeholder Engagement Workplan', toc_style))
+    if any(_collect_section_references(section) for section in sections):
+        story.append(Paragraph('References', toc_style))
     story.append(PageBreak())
 
     # Report sections
@@ -256,7 +315,7 @@ def generate_pdf_report(project) -> bytes:
         story.append(HRFlowable(width='100%', thickness=1, color=teal_color))
         story.append(Spacer(1, 0.2 * cm))
 
-        blocks = _parse_section_text(s.generated_text or '')
+        blocks = _parse_section_text(_sanitize_export_narrative(s.generated_text or ''))
         for block in blocks:
             if block['type'] == 'subheading':
                 story.append(Paragraph(pdf_safe(block['text']), h2_style))
@@ -348,6 +407,29 @@ def generate_pdf_report(project) -> bytes:
                 if (task.kpis or '').strip():
                     story.append(Paragraph(f'KPIs: {pdf_safe(task.kpis)}', bullet_style))
             story.append(Spacer(1, 0.3 * cm))
+
+    # References (document-only evidence citations)
+    section_references = [
+        (section, _collect_section_references(section))
+        for section in sections
+    ]
+    section_references = [item for item in section_references if item[1]]
+    if section_references:
+        story.append(PageBreak())
+        story.append(Paragraph('References', h1_style))
+        story.append(HRFlowable(width='100%', thickness=1, color=teal_color))
+        story.append(Spacer(1, 0.2 * cm))
+        for section, refs in section_references:
+            story.append(
+                Paragraph(
+                    f'Section {section.section.section_number}: {pdf_safe(section.section.title)}',
+                    h2_style,
+                )
+            )
+            for ref in refs:
+                location = f"chunk {ref['chunk_index']}" if ref['chunk_index'] is not None else 'chunk n/a'
+                ref_line = f"[{ref['ref_id']}] {pdf_safe(ref['doc_name'])} ({location})"
+                story.append(Paragraph(ref_line, body_style))
 
     doc.build(story)
     buffer.seek(0)
@@ -467,7 +549,7 @@ def generate_docx_report(project) -> bytes:
         )
         _set_heading_colour(h, NAVY_COLOR)
 
-        blocks = _parse_section_text(s.generated_text or '')
+        blocks = _parse_section_text(_sanitize_export_narrative(s.generated_text or ''))
         for block in blocks:
             if block['type'] == 'subheading':
                 sh = doc.add_heading(block['text'], level=2)
@@ -548,6 +630,270 @@ def generate_docx_report(project) -> bytes:
                     doc.add_paragraph(f'Dependencies: {task.dependencies}')
                 if task.kpis:
                     doc.add_paragraph(f'KPIs: {task.kpis}')
+
+    section_references = [
+        (section, _collect_section_references(section))
+        for section in sections
+    ]
+    section_references = [item for item in section_references if item[1]]
+    if section_references:
+        doc.add_page_break()
+        ref_heading = doc.add_heading('References', level=1)
+        _set_heading_colour(ref_heading, NAVY_COLOR)
+
+        for section, refs in section_references:
+            section_heading = doc.add_heading(
+                f'Section {section.section.section_number}: {section.section.title}',
+                level=2,
+            )
+            _set_heading_colour(section_heading, TEAL_COLOR)
+            for ref in refs:
+                location = f"chunk {ref['chunk_index']}" if ref['chunk_index'] is not None else 'chunk n/a'
+                text = f"[{ref['ref_id']}] {ref['doc_name']} ({location})"
+                doc.add_paragraph(text)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.read()
+
+
+def generate_pdf_workplan(project) -> bytes:
+    """Generate a standalone stakeholder engagement workplan PDF."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.enums import TA_CENTER
+    from ner.models import WorkplanComponent
+    from ner.services.pdf_utils import pdf_safe, resolve_pdf_fonts
+
+    workplan_components = list(
+        WorkplanComponent.objects.filter(project=project)
+        .prefetch_related('tasks__related_entity')
+        .order_by('order')
+    )
+    if not workplan_components:
+        raise ValueError('No workplan components available to export.')
+
+    initiative_name = project.name
+    try:
+        initiative_name = project.initiative_profile.initiative_name or project.name
+    except Exception:
+        pass
+
+    FONT_REGULAR, FONT_BOLD, _ = resolve_pdf_fonts()
+    navy_color = colors.HexColor(NAVY)
+    teal_color = colors.HexColor(TEAL)
+    light_grey_color = colors.HexColor(LIGHT_GREY)
+
+    styles = getSampleStyleSheet()
+    cover_title = ParagraphStyle(
+        'WpCoverTitle', fontName=FONT_BOLD, fontSize=24, textColor=navy_color,
+        spaceAfter=18, alignment=TA_CENTER, leading=30,
+    )
+    cover_sub = ParagraphStyle(
+        'WpCoverSub', fontName=FONT_REGULAR, fontSize=13, textColor=teal_color,
+        spaceAfter=10, alignment=TA_CENTER, leading=18,
+    )
+    h1_style = ParagraphStyle(
+        'WpH1', fontName=FONT_BOLD, fontSize=16, textColor=navy_color,
+        spaceBefore=20, spaceAfter=10,
+    )
+    h2_style = ParagraphStyle(
+        'WpH2', fontName=FONT_BOLD, fontSize=12, textColor=teal_color,
+        spaceBefore=10, spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        'WpBody', fontName=FONT_REGULAR, fontSize=10,
+        spaceBefore=3, spaceAfter=6, leading=14,
+    )
+    table_header_style = ParagraphStyle(
+        'WpTblHeader', fontName=FONT_BOLD, fontSize=8.5, textColor=colors.white,
+    )
+    table_cell_style = ParagraphStyle(
+        'WpTblCell', fontName=FONT_REGULAR, fontSize=8.5, leading=11,
+    )
+
+    def _table_style():
+        return TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), teal_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), FONT_BOLD),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, light_grey_color]),
+            ('GRID', (0, 0), (-1, -1), 0.45, colors.HexColor('#D1D5DB')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ])
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=2.0 * cm,
+        bottomMargin=2.0 * cm,
+    )
+    story = []
+
+    story.append(Spacer(1, 3.2 * cm))
+    story.append(Paragraph(pdf_safe(initiative_name), cover_title))
+    story.append(Paragraph('Stakeholder Engagement Workplan', cover_sub))
+    story.append(Paragraph('Implementation Roadmap', cover_sub))
+    story.append(Paragraph(f'Generated: {date.today().strftime("%d %B %Y")}', cover_sub))
+    story.append(PageBreak())
+
+    story.append(Paragraph('Workplan Overview', h1_style))
+    story.append(Paragraph(
+        'This standalone workplan translates stakeholder strategy into execution-ready components, '
+        'with tasks, owners, timelines, dependencies, and KPIs.',
+        body_style,
+    ))
+
+    for index, component in enumerate(workplan_components, 1):
+        story.append(Paragraph(f'{index}. {pdf_safe(component.title)}', h2_style))
+        rows = [[
+            Paragraph('Task Description', table_header_style),
+            Paragraph('Owner', table_header_style),
+            Paragraph('Timeline', table_header_style),
+            Paragraph('Dependencies', table_header_style),
+            Paragraph('KPIs', table_header_style),
+        ]]
+
+        tasks = list(component.tasks.all())
+        for task in tasks:
+            stakeholder_note = ''
+            if task.related_entity:
+                stakeholder_note = f"\nRelated stakeholder: {task.related_entity.canonical_name}"
+
+            rows.append([
+                Paragraph(pdf_safe((task.task_description or '') + stakeholder_note), table_cell_style),
+                Paragraph(pdf_safe(task.suggested_owner or '—'), table_cell_style),
+                Paragraph(pdf_safe(task.timeline or '—'), table_cell_style),
+                Paragraph(pdf_safe(task.dependencies or '—'), table_cell_style),
+                Paragraph(pdf_safe(task.kpis or '—'), table_cell_style),
+            ])
+
+        if len(rows) == 1:
+            rows.append([
+                Paragraph('No tasks defined.', table_cell_style),
+                Paragraph('—', table_cell_style),
+                Paragraph('—', table_cell_style),
+                Paragraph('—', table_cell_style),
+                Paragraph('—', table_cell_style),
+            ])
+
+        table = Table(rows, colWidths=[6.2 * cm, 2.6 * cm, 2.6 * cm, 3.0 * cm, 3.2 * cm])
+        table.setStyle(_table_style())
+        story.append(table)
+        story.append(Spacer(1, 0.35 * cm))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()
+
+
+def generate_docx_workplan(project) -> bytes:
+    """Generate a standalone stakeholder engagement workplan DOCX."""
+    from docx import Document as DocxDocument
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from ner.models import WorkplanComponent
+
+    workplan_components = list(
+        WorkplanComponent.objects.filter(project=project)
+        .prefetch_related('tasks__related_entity')
+        .order_by('order')
+    )
+    if not workplan_components:
+        raise ValueError('No workplan components available to export.')
+
+    initiative_name = project.name
+    try:
+        initiative_name = project.initiative_profile.initiative_name or project.name
+    except Exception:
+        pass
+
+    navy_color = RGBColor(0x0D, 0x1B, 0x3E)
+    teal_color = RGBColor(0x00, 0x7A, 0x87)
+
+    def _set_heading_colour(paragraph, colour):
+        for run in paragraph.runs:
+            run.font.color.rgb = colour
+
+    doc = DocxDocument()
+    normal_style = doc.styles['Normal']
+    normal_style.paragraph_format.space_after = Pt(8)
+    normal_style.paragraph_format.line_spacing = 1.2
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = title.add_run(initiative_name)
+    run.bold = True
+    run.font.size = Pt(24)
+    run.font.color.rgb = navy_color
+
+    subtitle = doc.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = subtitle.add_run('Stakeholder Engagement Workplan')
+    run.font.size = Pt(14)
+    run.font.color.rgb = teal_color
+
+    strapline = doc.add_paragraph()
+    strapline.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    strapline.add_run('Implementation Roadmap').font.size = Pt(11)
+
+    generated = doc.add_paragraph()
+    generated.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    generated.add_run(f'Generated: {date.today().strftime("%d %B %Y")}').font.size = Pt(11)
+
+    doc.add_page_break()
+
+    heading = doc.add_heading('Workplan Overview', level=1)
+    _set_heading_colour(heading, navy_color)
+    doc.add_paragraph(
+        'This standalone workplan translates stakeholder strategy into execution-ready components, '
+        'with tasks, owners, timelines, dependencies, and KPIs.'
+    )
+
+    for index, component in enumerate(workplan_components, 1):
+        component_heading = doc.add_heading(f'{index}. {component.title}', level=2)
+        _set_heading_colour(component_heading, teal_color)
+
+        table = doc.add_table(rows=1, cols=5)
+        table.style = 'Table Grid'
+        headers = ['Task Description', 'Owner', 'Timeline', 'Dependencies', 'KPIs']
+        for cell, label in zip(table.rows[0].cells, headers):
+            run = cell.paragraphs[0].add_run(label)
+            run.bold = True
+            run.font.color.rgb = teal_color
+
+        tasks = list(component.tasks.all())
+        if not tasks:
+            row = table.add_row().cells
+            row[0].text = 'No tasks defined.'
+            row[1].text = '—'
+            row[2].text = '—'
+            row[3].text = '—'
+            row[4].text = '—'
+            continue
+
+        for task in tasks:
+            related = f"\nRelated stakeholder: {task.related_entity.canonical_name}" if task.related_entity else ''
+            row = table.add_row().cells
+            row[0].text = f"{task.task_description or ''}{related}"
+            row[1].text = task.suggested_owner or '—'
+            row[2].text = task.timeline or '—'
+            row[3].text = task.dependencies or '—'
+            row[4].text = task.kpis or '—'
+
+        doc.add_paragraph('')
 
     buffer = io.BytesIO()
     doc.save(buffer)

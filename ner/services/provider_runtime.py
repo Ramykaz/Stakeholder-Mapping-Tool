@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -43,6 +44,16 @@ def get_missing_provider_settings(provider: str) -> list[str]:
     return [key for key in required if not str(getattr(settings, key, '') or '').strip()]
 
 
+def normalize_azure_endpoint(value: str) -> str:
+    """Normalize common Azure endpoint typo variants into a canonical URL."""
+    endpoint = str(value or '').strip()
+    if endpoint.startswith('https:https://'):
+        endpoint = f"https://{endpoint[len('https:https://'):] }"
+    elif endpoint.startswith('http:http://'):
+        endpoint = f"http://{endpoint[len('http:http://'):] }"
+    return endpoint
+
+
 def validate_provider_runtime_config(provider: str) -> None:
     """Raise ProviderConfigError when selected provider config is incomplete."""
     normalized_provider = (provider or '').strip().lower()
@@ -52,6 +63,15 @@ def validate_provider_runtime_config(provider: str) -> None:
             provider=normalized_provider,
             detail=f"Missing required configuration: {', '.join(missing)}",
         )
+
+    if normalized_provider == 'azure_openai':
+        endpoint = normalize_azure_endpoint(getattr(settings, 'AZURE_OPENAI_ENDPOINT', ''))
+        parsed = urlparse(endpoint)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+            raise ProviderConfigError(
+                provider=normalized_provider,
+                detail='Invalid AZURE_OPENAI_ENDPOINT format. Expected https://<resource>.openai.azure.com',
+            )
 
 
 def normalize_usage(data: dict | None) -> dict:
@@ -88,6 +108,18 @@ def normalize_provider_error_kind(exc: Exception) -> str:
     if is_rate_limit_error(exc):
         return 'rate_limit'
     msg = str(exc).lower()
+    connection_markers = (
+        'connection error',
+        'connection refused',
+        'temporary failure in name resolution',
+        'name or service not known',
+        'failed to resolve',
+        'getaddrinfo',
+        'ssl',
+        'certificate',
+    )
+    if any(marker in msg for marker in connection_markers):
+        return 'configuration'
     if 'timeout' in msg or 'timed out' in msg:
         return 'timeout'
     return 'generic'

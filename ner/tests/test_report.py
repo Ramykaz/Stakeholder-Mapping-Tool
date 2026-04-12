@@ -4,20 +4,24 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.db import OperationalError
 
 from ingestion.models import Chunk, Document, Project
 from ner.models import ProjectSMQAnswer, ProjectSMQResponse, ReportSection, SMQSection, SMQTemplate
-from ner.services.report_generator import generate_all_sections, generate_report_section
+from ner.services.report_generator import _friendly_error, generate_all_sections, generate_report_section
 
 
 User = get_user_model()
 
 
 class _ImmediateFuture:
-    def __init__(self, value=None):
+    def __init__(self, value=None, error: Exception | None = None):
         self._value = value
+        self._error = error
 
     def result(self):
+        if self._error is not None:
+            raise self._error
         return self._value
 
 
@@ -32,7 +36,10 @@ class _ImmediateExecutor:
         return False
 
     def submit(self, fn, *args, **kwargs):
-        return _ImmediateFuture(fn(*args, **kwargs))
+        try:
+            return _ImmediateFuture(fn(*args, **kwargs))
+        except Exception as exc:
+            return _ImmediateFuture(error=exc)
 
 
 class TestReportGenerator(TestCase):
@@ -89,6 +96,23 @@ class TestReportGenerator(TestCase):
         self.assertEqual(report.error_message, '')
 
     @patch('ner.services.report_generator.close_old_connections', return_value=None)
+    @patch('ner.services.report_generator._call_provider')
+    @patch('ner.services.report_generator.search_chunks')
+    @patch('ner.services.report_generator.embed_query')
+    def test_generate_report_section_normalizes_markdown_artifacts(self, mock_embed, mock_search, mock_call, _mock_close):
+        mock_embed.return_value = [0.0] * 384
+        mock_search.return_value = [self.chunk]
+        mock_call.return_value = "# Title\n\n- **Point** about *stakeholders*."
+
+        generate_report_section(str(self.project.id), str(self.section.id))
+
+        report = ReportSection.objects.get(project=self.project, section=self.section)
+        self.assertEqual(report.status, ReportSection.STATUS_DONE)
+        self.assertNotIn('#', report.generated_text)
+        self.assertNotIn('*', report.generated_text)
+        self.assertIn('Point about stakeholders.', report.generated_text)
+
+    @patch('ner.services.report_generator.close_old_connections', return_value=None)
     @patch('ner.services.report_generator._call_provider', side_effect=RuntimeError('provider failed'))
     @patch('ner.services.report_generator.search_chunks', return_value=[])
     @patch('ner.services.report_generator.embed_query', return_value=[0.0] * 384)
@@ -121,3 +145,20 @@ class TestReportGenerator(TestCase):
         reports = ReportSection.objects.filter(project=self.project).order_by('section__section_number')
         self.assertEqual(reports.count(), 2)
         self.assertTrue(all(item.status == ReportSection.STATUS_DONE for item in reports))
+
+    @patch('ner.services.report_generator.ThreadPoolExecutor', _ImmediateExecutor)
+    def test_generate_all_sections_handles_worker_exception_without_crashing(self):
+        with patch('ner.services.report_generator.generate_report_section', side_effect=RuntimeError('db busy')):
+            generate_all_sections(self.project, [str(self.section.id)])
+
+        report = ReportSection.objects.get(project=self.project, section=self.section)
+        self.assertEqual(report.status, ReportSection.STATUS_PENDING)
+
+    def test_friendly_error_maps_db_capacity_limit(self):
+        message = _friendly_error(
+            OperationalError(
+                'FATAL: MaxClientsInSessionMode: max clients reached - in Session mode max clients are limited to pool_size'
+            )
+        )
+
+        self.assertIn('Database is temporarily busy', message)

@@ -56,6 +56,16 @@ def compute_priority_scores(project, entity_type: str | None = None) -> list[dic
 
         recommended_ask = note_map.get(str(entity.id))
 
+        confidence_pct = int(round(avg_confidence * 100))
+        if degree == 0:
+            priority_reason = (
+                f"Low network centrality: no direct graph links, {mention_count} mention(s), confidence {confidence_pct}%"
+            )
+        else:
+            priority_reason = (
+                f"Connected stakeholder: {degree} graph link(s), {mention_count} mention(s), confidence {confidence_pct}%"
+            )
+
         rows.append(
             {
                 'entity_id': str(entity.id),
@@ -69,6 +79,7 @@ def compute_priority_scores(project, entity_type: str | None = None) -> list[dic
                 'priority_level': priority_level,
                 'recommended_ask': recommended_ask,
                 'engagement_note': recommended_ask,
+                'priority_reason': priority_reason,
             }
         )
 

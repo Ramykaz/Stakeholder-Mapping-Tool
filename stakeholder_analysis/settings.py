@@ -10,6 +10,8 @@ from django.core.exceptions import ImproperlyConfigured
 
 
 import sys
+
+
 def _require_env(name: str, default=None, required=True) -> str:
     value = os.environ.get(name, default)
     if required and (value is None or str(value).strip() == ''):
@@ -18,6 +20,13 @@ def _require_env(name: str, default=None, required=True) -> str:
             f"Copy .env.example to .env and set this value."
         )
     return str(value).strip() if value is not None else value
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in ('true', '1', 'yes', 'on')
 
 # Only require DATABASE_URL if not running collectstatic (i.e., at runtime)
 if 'collectstatic' in sys.argv:
@@ -50,6 +59,7 @@ if not OPENAI_API_KEY:
 AZURE_OPENAI_ENDPOINT = os.environ.get('AZURE_OPENAI_ENDPOINT', '').strip()
 AZURE_OPENAI_DEPLOYMENT = os.environ.get('AZURE_OPENAI_DEPLOYMENT', '').strip()
 AZURE_OPENAI_API_KEY = os.environ.get('AZURE_OPENAI_API_KEY', '').strip()
+AZURE_OPENAI_API_VERSION = os.environ.get('AZURE_OPENAI_API_VERSION', '2024-12-01-preview').strip()
 if AZURE_OPENAI_ENDPOINT and not AZURE_OPENAI_DEPLOYMENT:
     logging.getLogger(__name__).warning(
         "AZURE_OPENAI_ENDPOINT is set but AZURE_OPENAI_DEPLOYMENT is missing. "
@@ -202,6 +212,52 @@ REST_FRAMEWORK = {
     ],
     'URL_FORMAT_OVERRIDE': None,
 }
+
+# Security hardening (production-safe defaults, override via env when needed)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = _env_bool('SECURE_SSL_REDIRECT', default=not DEBUG)
+SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '31536000' if not DEBUG else '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=not DEBUG)
+SECURE_HSTS_PRELOAD = _env_bool('SECURE_HSTS_PRELOAD', default=not DEBUG)
+SECURE_CONTENT_TYPE_NOSNIFF = _env_bool('SECURE_CONTENT_TYPE_NOSNIFF', default=True)
+X_FRAME_OPTIONS = os.environ.get('X_FRAME_OPTIONS', 'DENY')
+SESSION_COOKIE_SECURE = _env_bool('SESSION_COOKIE_SECURE', default=not DEBUG)
+CSRF_COOKIE_SECURE = _env_bool('CSRF_COOKIE_SECURE', default=not DEBUG)
+SESSION_COOKIE_HTTPONLY = _env_bool('SESSION_COOKIE_HTTPONLY', default=True)
+CSRF_COOKIE_HTTPONLY = _env_bool('CSRF_COOKIE_HTTPONLY', default=False)
+SESSION_COOKIE_SAMESITE = os.environ.get('SESSION_COOKIE_SAMESITE', 'Lax')
+CSRF_COOKIE_SAMESITE = os.environ.get('CSRF_COOKIE_SAMESITE', 'Lax')
+_csrf_trusted_origins = os.environ.get('CSRF_TRUSTED_ORIGINS', '').strip()
+if _csrf_trusted_origins:
+    CSRF_TRUSTED_ORIGINS = [
+        origin.strip()
+        for origin in _csrf_trusted_origins.split(',')
+        if origin.strip()
+    ]
+
+# Shared cache (used for generation status/polling state)
+_cache_location = (
+    os.environ.get('CACHE_URL')
+    or os.environ.get('REDIS_URL')
+    or os.environ.get('CELERY_BROKER_URL')
+)
+
+if _cache_location and ('pytest' not in sys.argv and 'test' not in sys.argv):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _cache_location,
+            'TIMEOUT': 60 * 60,
+            'KEY_PREFIX': 'stakeholder_analysis',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'stakeholder-analysis-local-cache',
+        }
+    }
 
 # Celery
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', os.environ.get('REDIS_URL', 'redis://redis:6379/0'))

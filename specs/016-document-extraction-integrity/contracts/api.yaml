@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: Stakeholder Analysis Tool — US-016 Contracts
+  version: 0.1.1
+paths:
+  /api/v1/projects/{id}/extract-entities/:
+    post:
+      summary: Extract only new documents (documents where extracted_at is null)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Extraction run started/completed for new documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  documents_targeted: { type: integer }
+                  documents_skipped_existing: { type: integer }
+
+  /api/v1/projects/{id}/documents/{doc_id}/reextract/:
+    post:
+      summary: Re-extract one specific document
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Re-extraction completed synchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  project_id: { type: string, format: uuid }
+                  document_id: { type: string, format: uuid }
+                  entities_created: { type: integer }
+                  relations_created: { type: integer }
+
+  /api/v1/projects/{id}/documents/{doc_id}/entities/:
+    get:
+      summary: List entities sourced from this document
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Document-scoped entities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [entity_id, canonical_name, entity_type, confidence_score, mention_count_in_doc, excerpt]
+                  properties:
+                    entity_id: { type: string, format: uuid }
+                    canonical_name: { type: string }
+                    entity_type: { type: string }
+                    confidence_score: { type: number }
+                    mention_count_in_doc: { type: integer }
+                    excerpt: { type: string }
+
+  /api/v1/projects/{id}/documents/{doc_id}/relationships/:
+    get:
+      summary: List relationships sourced from this document
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Document-scoped relationships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [rel_id, source_entity_name, relationship_type, target_entity_name, confidence, excerpt]
+                  properties:
+                    rel_id: { type: string, format: uuid }
+                    source_entity_name: { type: string }
+                    relationship_type: { type: string }
+                    target_entity_name: { type: string }
+                    confidence: { type: number }
+                    excerpt: { type: string }
+
+  /api/v1/projects/{id}/documents/{doc_id}/entities/{entity_id}/:
+    delete:
+      summary: Remove this entity mention from this document only
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: entity_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Mention removed; entity may be deleted if orphaned
+
+  /api/v1/projects/{id}/documents/{doc_id}/relationships/{rel_id}/:
+    delete:
+      summary: Remove this document relationship
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: rel_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Relationship removed
+    patch:
+      summary: Correct relationship label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [relationship_type]
+              properties:
+                relationship_type: { type: string }
+      responses:
+        '200':
+          description: Relationship updated
+
+  /api/v1/projects/{id}/entities/{entity_id}/:
+    patch:
+      summary: Correct canonical name or entity type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                canonical_name: { type: string }
+                entity_type: { type: string }
+      responses:
+        '200':
+          description: Entity updated
+
+  /api/v1/projects/{id}/graph/:
+    get:
+      summary: Return project graph excluding entities with zero document mentions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Graph payload with mention-backed entities only

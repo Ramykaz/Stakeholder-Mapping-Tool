@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import ErrorMessage from '@/components/ErrorMessage';
 import {
+  exportProjectStakeholderPriorityDocx,
+  exportProjectStakeholderPriorityPdf,
   exportProjectStakeholderPriorityCsv,
   flagProjectOrphanStakeholders,
   generateProjectStakeholderNotes,
@@ -65,20 +67,61 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
 
   const typeOptions = useMemo(() => ENTITY_TYPES, []);
 
-  const onGenerateNotes = async (action: 'start' | 'resume' = 'start') => {
+  const onGenerateNotes = async (action: 'start' | 'resume' | 'stop' = 'start') => {
     if (!projectId) return;
+
+    if (action === 'stop') {
+      setGenerating(true);
+      try {
+        const result = await generateProjectStakeholderNotes(projectId, { action: 'stop', max_items: 20 });
+        setGenerationProgress(result);
+        onGenerationStateChange?.(result);
+        setMessage(result.message || 'Generation stopped. Existing notes are preserved.');
+        await loadRows();
+      } catch (error) {
+        setMessage(renderLLMErrorMessage(error, 'Stopping engagement note generation'));
+      } finally {
+        setGenerating(false);
+      }
+      return;
+    }
+
     setGenerating(true);
     setMessage(action === 'resume' ? 'Resuming engagement notes…' : 'Generating engagement notes… this may take up to 30 seconds.');
     try {
-      const result = await generateProjectStakeholderNotes(projectId, { action, max_items: 20 });
-      setGenerationProgress(result);
-      onGenerationStateChange?.(result);
-      if (result.status === 'paused_rate_limited') {
+      let nextAction: 'start' | 'resume' = action;
+      let attempts = 0;
+      let result: StakeholderNotesGenerationResponse | null = null;
+
+      while (attempts < 20) {
+        attempts += 1;
+        result = await generateProjectStakeholderNotes(projectId, { action: nextAction, max_items: 20 });
+        setGenerationProgress(result);
+        onGenerationStateChange?.(result);
+
+        if (result.status !== 'running') {
+          break;
+        }
+
+        setMessage(
+          result.message ||
+          `Generating engagement notes… (${result.completed_count}/${result.total_target})`
+        );
+        nextAction = 'resume';
+      }
+
+      if (!result) {
+        setMessage('Generation failed. Please try again.');
+      } else if (result.status === 'paused_rate_limited') {
         setMessage(result.message || 'Generation paused due to provider rate limit. Use Resume to continue.');
       } else if (result.status === 'completed') {
         setMessage(result.message || 'Engagement notes generated.');
       } else if (result.status === 'error') {
         setMessage(result.message || 'Generation failed.');
+      } else if (result.status === 'cancelled') {
+        setMessage(result.message || 'Generation stopped. Existing notes are preserved.');
+      } else if (result.status === 'running') {
+        setMessage('Generation is still in progress. Click Continue generation to keep processing.');
       }
     } catch (error) {
       setMessage(renderLLMErrorMessage(error, 'Engagement note generation'));
@@ -93,17 +136,51 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
   const onExportCsv = async () => {
     if (!projectId) return;
     try {
-      const blob = await exportProjectStakeholderPriorityCsv(projectId, entityType || undefined);
+      const blob = await exportProjectStakeholderPriorityCsv(projectId, entityType || undefined, 20);
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `stakeholder-priority-${projectId}.csv`;
+      anchor.download = `stakeholder-priority-top20-${projectId}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       window.URL.revokeObjectURL(url);
     } catch {
       setMessage('CSV export failed.');
+    }
+  };
+
+  const onExportPdf = async () => {
+    if (!projectId) return;
+    try {
+      const blob = await exportProjectStakeholderPriorityPdf(projectId, entityType || undefined, 20);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `stakeholder-priority-top20-${projectId}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setMessage('PDF export failed.');
+    }
+  };
+
+  const onExportDocx = async () => {
+    if (!projectId) return;
+    try {
+      const blob = await exportProjectStakeholderPriorityDocx(projectId, entityType || undefined, 20);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `stakeholder-priority-top20-${projectId}.docx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setMessage('DOCX export failed.');
     }
   };
 
@@ -122,7 +199,7 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
   };
 
   const progress = generationProgress;
-  const showResume = progress?.status === 'paused_rate_limited';
+  const showResume = progress?.status === 'paused_rate_limited' || progress?.status === 'running';
 
   return (
     <div className="space-y-3">
@@ -145,13 +222,24 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
         <button className="btn-primary" disabled={generating || loading} onClick={() => void onGenerateNotes()}>
           {generating ? 'Generating…' : 'Generate Engagement Notes'}
         </button>
+        {(generating || progress?.status === 'running') ? (
+          <button className="btn-ghost" disabled={generating && progress?.status !== 'running'} onClick={() => void onGenerateNotes('stop')}>
+            Stop generation
+          </button>
+        ) : null}
         {showResume ? (
           <button className="btn-ghost" disabled={generating || loading} onClick={() => void onGenerateNotes('resume')}>
-            Resume generation
+            {progress?.status === 'running' ? 'Continue generation' : 'Resume generation'}
           </button>
         ) : null}
         <button className="btn-ghost" disabled={loading} onClick={() => void onExportCsv()}>
-          Export CSV
+          Download Top 20 CSV
+        </button>
+        <button className="btn-ghost" disabled={loading} onClick={() => void onExportPdf()}>
+          Download Top 20 PDF
+        </button>
+        <button className="btn-ghost" disabled={loading} onClick={() => void onExportDocx()}>
+          Download Top 20 DOCX
         </button>
         <button className="btn-ghost" disabled={loading || flaggingOrphans} onClick={() => void onFlagIsolated()}>
           {flaggingOrphans ? 'Flagging…' : 'Flag Isolated'}
@@ -182,14 +270,15 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
               <th className="px-3 py-2 text-right">Confidence</th>
               <th className="px-3 py-2 text-right">Connections</th>
               <th className="px-3 py-2 text-right">Score</th>
+              <th className="px-3 py-2 text-left">Why Prioritized</th>
               <th className="px-3 py-2 text-left">Recommended Ask</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-3 py-4 text-[var(--text2)]">Loading…</td></tr>
+              <tr><td colSpan={10} className="px-3 py-4 text-[var(--text2)]">Loading…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-4 text-[var(--text2)]">No stakeholders found.</td></tr>
+              <tr><td colSpan={10} className="px-3 py-4 text-[var(--text2)]">No stakeholders found.</td></tr>
             ) : rows.map((row) => (
               <tr key={row.entity_id} className="border-t border-[var(--border)]">
                 <td className="px-3 py-2 text-[var(--text2)]">{row.rank}</td>
@@ -218,6 +307,13 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{Math.round((row.avg_confidence || 0) * 100)}%</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.degree}</td>
                 <td className="px-3 py-2 text-right text-[var(--text2)]">{row.priority_score.toFixed(2)}</td>
+                <td className="px-3 py-2 text-[var(--text2)]" title={row.priority_reason || row.reasoning || ''}>
+                  {row.priority_reason
+                    ? `${row.priority_reason.slice(0, 90)}${row.priority_reason.length > 90 ? '…' : ''}`
+                    : row.reasoning
+                      ? `${row.reasoning.slice(0, 90)}${row.reasoning.length > 90 ? '…' : ''}`
+                      : '—'}
+                </td>
                 <td className="px-3 py-2 text-[var(--text2)]" title={row.recommended_ask || row.engagement_note || ''}>
                   {row.recommended_ask
                     ? `${row.recommended_ask.slice(0, 80)}${row.recommended_ask.length > 80 ? '…' : ''}`

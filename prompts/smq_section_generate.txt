@@ -23,5 +23,7 @@ Output requirements:
 - 1 to 3 short paragraphs.
 - Include inline citations in the form [Doc: filename].
 - If evidence is insufficient, state what is missing.
+- Use plain text only (no markdown bullets/headings/asterisks).
+- Avoid generic claims; prefer specific stakeholders/actions found in evidence.
 
 Answer:

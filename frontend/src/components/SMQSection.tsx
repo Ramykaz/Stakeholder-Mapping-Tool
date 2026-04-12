@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { saveProjectSMQAnswer, generateProjectSMQAnswer, ProjectSMQAnswer, renderLLMErrorMessage, SMQTemplateSection } from '@/lib/api';
+import { replaceInitiativePlaceholders } from '@/lib/initiativeText';
 
 interface SMQSectionProps {
   projectId: string;
   section: SMQTemplateSection;
+  initiativeName?: string;
   existingAnswer?: ProjectSMQAnswer;
   aiEnabled: boolean;
   onUpdated: (sectionId: string, answer: ProjectSMQAnswer) => void;
@@ -12,6 +14,7 @@ interface SMQSectionProps {
 export default function SMQSection({
   projectId,
   section,
+  initiativeName = '',
   existingAnswer,
   aiEnabled,
   onUpdated,
@@ -47,14 +50,15 @@ export default function SMQSection({
     setMessage('');
     try {
       const generated = await generateProjectSMQAnswer(projectId, section.id);
-      setValue(generated.answer_text || '');
+      const normalizedAnswer = replaceInitiativePlaceholders(generated.answer_text || '', initiativeName);
+      setValue(normalizedAnswer);
       setCitations(generated.citations || []);
       onUpdated(section.id, {
         id: existingAnswer?.id || section.id,
         section_id: section.id,
         section_number: section.section_number,
         section_title: section.title,
-        answer_text: generated.answer_text || '',
+        answer_text: normalizedAnswer,
         notes_text: generated.notes_text || notes,
         ai_generated: generated.ai_generated,
         is_stale: false,
@@ -76,7 +80,7 @@ export default function SMQSection({
         <h3 className="font-[var(--serif)] text-lg text-[var(--text)]">
           {section.section_number}. {section.title}
         </h3>
-        <p className="text-xs text-[var(--text3)] mt-1 whitespace-pre-wrap">{section.question_prompts}</p>
+        <p className="text-xs text-[var(--text3)] mt-1 whitespace-pre-wrap">{replaceInitiativePlaceholders(section.question_prompts || '', initiativeName)}</p>
       </div>
 
       <textarea

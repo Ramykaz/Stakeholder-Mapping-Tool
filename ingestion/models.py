@@ -277,6 +277,12 @@ class Document(models.Model):
     chunk_count = models.IntegerField(null=True, blank=True)
     # Populated when processing_status='failed'
     error_message = models.TextField(blank=True, default='')
+    # Source text captured at ingestion time before normalization.
+    raw_text = models.TextField(blank=True, default='')
+    # Normalized text used for chunking/embedding/extraction and UI excerpts.
+    cleaned_text = models.TextField(blank=True, default='')
+    # Marker for successful extraction completion (used by incremental extraction selector).
+    extracted_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         db_table = 'ingestion_documents'

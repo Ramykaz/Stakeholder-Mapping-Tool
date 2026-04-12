@@ -3,6 +3,7 @@
 from unittest.mock import patch
 from uuid import uuid4
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, Client
 from rest_framework.authtoken.models import Token
 from ingestion.models import Document, Chunk, Project
@@ -754,6 +755,63 @@ class TestProjectExtractEntitiesView(TestCase):
         assert second['document_id'] == str(self.document2.id)
         assert second['relations_created'] == 2
         assert second['fallback_relations_run'] is True
+
+    def test_project_extract_status_idle_by_default(self):
+        response = self.client.get(f'/api/v1/projects/{self.project.id}/extract-entities/status/')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['status'] == 'idle'
+        assert data['project_id'] == str(self.project.id)
+
+    def test_project_extract_stop_sets_cancel_requested(self):
+        stop_response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/stop/',
+            {},
+            content_type='application/json',
+        )
+        assert stop_response.status_code == 200
+        assert stop_response.json()['cancel_requested'] is True
+
+        status_response = self.client.get(f'/api/v1/projects/{self.project.id}/extract-entities/status/')
+        assert status_response.status_code == 200
+        assert status_response.json()['cancel_requested'] is True
+
+    @patch('ner.views.extract_relations_only_for_document')
+    @patch('ner.views.extract_relations_for_document')
+    def test_extract_cancelled_returns_partial_results(self, mock_joint_extract, mock_rel_only):
+        cache.delete(f'project_extraction_cancel:{self.project.id}')
+
+        def _joint_side_effect(document_id, **kwargs):
+            if str(document_id) == str(self.document1.id):
+                cache.set(f'project_extraction_cancel:{self.project.id}', True, timeout=60)
+                return {
+                    'entities_created': 2,
+                    'relations_created': 1,
+                    'run_id': 'run-1',
+                }
+            raise AssertionError('Second document should not be processed after cancellation request')
+
+        mock_joint_extract.side_effect = _joint_side_effect
+        mock_rel_only.return_value = {'relations_created': 0, 'run_id': None}
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/',
+            {},
+            content_type='application/json',
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['status'] == 'cancelled'
+        assert data['documents_processed'] == 1
+        assert data['entities_created'] == 2
+        assert data['relations_created'] == 1
+
+        status_response = self.client.get(f'/api/v1/projects/{self.project.id}/extract-entities/status/')
+        assert status_response.status_code == 200
+        status_data = status_response.json()
+        assert status_data['status'] == 'cancelled'
+        assert status_data['documents_processed'] == 1
 
 
 class TestCrossProjectLeakageRegression(TestCase):

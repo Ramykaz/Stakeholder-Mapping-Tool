@@ -19,6 +19,9 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 
 ### Analysis Pipeline
 - **Document Ingestion**: Upload PDF, DOCX, TXT, or Markdown (`.md`) files (up to 50 MB) with background processing, status badges, and polling
+- **Incremental Extraction States**: Project extraction targets only new documents by default, shows per-document extraction state, and supports one-click re-extract per document
+- **Document Review Actions**: Per-document review panel with lazy-loaded Entities/Relationships tabs, inline relabel, and delete actions
+- **Evidence Integrity**: Document counters and review rows are mention-backed, and evidence excerpts are generated from cleaned text spans that include the referenced entities
 - **Web Ingestion Sources**: Add URL, crawl (bounded depth), or pasted text sources that flow into the same document chunking/embedding pipeline
 - **Entity Extraction**: Extract PERSON, ORGANIZATION, LOCATION, ROLE, EVENT, and more using LLMs (Groq / OpenAI / Azure OpenAI / Gemini)
 - **Relation Extraction**: Identify directional relationships between entities (e.g. REPORTS_TO, EMPLOYS, MANAGES)
@@ -31,13 +34,14 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 - **Report Generation**: Per-section report generation using semantic retrieval + project context, with stale detection and regeneration controls
 - **Personas**: AI persona generation grouped by stakeholder entity type
 - **Workplan**: AI workplan generation using Section 6 when available, with fallback to other completed report sections + project context
-- **Export**: PDF/DOCX export with conditional appendices for personas and workplan
+- **Export**: PDF/DOCX export with conditional appendices for personas and workplan, plus standalone workplan PDF/DOCX export
 
 ### Project Management
 - **Project-Scoped Workflow**: Create project → write concept note → upload documents → run extraction → explore graph map
 - **Concept Note API**: Store and retrieve free-text project context; used to guide extraction and reasoning
 - **Authentication + Roles**: Split-panel login/register with token auth; admin-only taxonomy management
 - **Entity Detail Pages**: Per-entity profile with confidence bar, aliases, contextual AI summary, and relationships
+- **Entity Mini-Graph**: Static 1-hop neighborhood mini-graph on entity detail with click-through navigation
 
 ## Tech Stack
 
@@ -155,8 +159,15 @@ curl http://localhost:8000/health
 | `/api/v1/projects/{id}/documents/{doc_id}/` | DELETE | Delete a project document |
 | `/api/v1/settings/llm/test/` | GET | Test selected provider/model connectivity (`provider`, `model` query params) |
 | `/api/v1/projects/{id}/documents/{doc_id}/status/` | GET | Poll processing status |
+| `/api/v1/projects/{id}/documents/{doc_id}/reextract/` | POST | Re-run extraction for one document |
 | `/api/v1/projects/{id}/extract-entities/` | POST | Run entity extraction for all project documents |
+| `/api/v1/projects/{id}/documents/{doc_id}/entities/` | GET | Document review entities (confidence, mentions, excerpt) |
+| `/api/v1/projects/{id}/documents/{doc_id}/relationships/` | GET | Document review relationships (source, label, target, excerpt) |
+| `/api/v1/projects/{id}/documents/{doc_id}/entities/{entity_id}/` | DELETE | Remove document entity mention and cleanup orphans |
+| `/api/v1/projects/{id}/documents/{doc_id}/relationships/{rel_id}/` | PATCH, DELETE | Relabel or delete a document relationship |
+| `/api/v1/projects/{id}/workplan/export/` | GET | Download standalone workplan export (`format=pdf|docx`) |
 | `/api/v1/projects/{id}/entities/` | GET | List all entities in project scope |
+| `/api/v1/projects/{id}/entities/{entity_id}/` | GET, PATCH | Entity detail and canonical correction |
 | `/api/v1/projects/{id}/graph/` | GET | Project knowledge graph (nodes + edges for D3 frontend rendering) |
 | `/api/v1/projects/{id}/query/` | POST | NL keyword search — returns matching entity IDs + answer |
 

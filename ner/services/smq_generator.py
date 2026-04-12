@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from ingestion.services.context import get_project_context
 from ner.services.nl_query import _call_provider
 from ner.services.provider_factory import resolve_provider_model_for_project
 from ner.services.semantic_search import embed_query, search_chunks
+from ner.services.text_quality import normalize_llm_text
 
 
 _PROMPT_PATH = Path('prompts/smq_section_generate.txt')
+
+
+def _replace_initiative_placeholders(text: str, initiative_name: str) -> str:
+    name = (initiative_name or '').strip()
+    if not name:
+        return text or ''
+    return re.sub(r'\[\s*(?:the\s+)?initiative\s*\]', name, text or '', flags=re.IGNORECASE)
 
 
 def _load_prompt_template() -> str:
@@ -29,6 +38,7 @@ def _load_prompt_template() -> str:
 
 
 def generate_smq_section(project, section, notes_text: str = '') -> dict:
+    initiative_name = (getattr(getattr(project, 'initiative_profile', None), 'initiative_name', '') or project.name or '').strip()
     query_vector = embed_query(section.question_prompts or section.title)
     chunks = list(search_chunks(project, query_vector, top_k=8))
 
@@ -48,7 +58,7 @@ def generate_smq_section(project, section, notes_text: str = '') -> dict:
 
     prompt = _load_prompt_template().format(
         section_title=section.title,
-        question_prompts=section.question_prompts,
+        question_prompts=_replace_initiative_placeholders(section.question_prompts, initiative_name),
         project_context=(get_project_context(project) or '').strip() or '(No project context provided.)',
         section_notes=(notes_text or '').strip() or '(No analyst notes provided.)',
         chunk_excerpts='\n\n---\n\n'.join(excerpts) if excerpts else '(No supporting excerpts found.)',
@@ -58,7 +68,8 @@ def generate_smq_section(project, section, notes_text: str = '') -> dict:
     provider = provider_config.provider
     model = provider_config.model
 
-    answer_text = _call_provider(prompt, provider, model, max_tokens=1024)
+    answer_text = _replace_initiative_placeholders(_call_provider(prompt, provider, model, max_tokens=1024), initiative_name)
+    answer_text = normalize_llm_text(answer_text)
     return {
         'answer_text': (answer_text or '').strip(),
         'chunk_ids_used': chunk_ids_used,

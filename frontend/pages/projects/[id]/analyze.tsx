@@ -3,9 +3,13 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import {
   getProject, getProjectDocuments, extractEntitiesForProject,
-  getProjectEntities, getProjectGraph, getStoredAuthToken, ProjectSummary, DocumentSummary,
+  getProjectEntities, getProjectGraph, getStoredAuthToken,
+  getProjectExtractionStatus, stopProjectExtraction,
+  ProjectSummary, DocumentSummary, ProjectExtractionStatus,
 } from '@/lib/api';
 import Layout from '@/components/Layout';
+
+const POLLING_INTERVAL = 3000;
 
 const TYPE_COLORS: Record<string, string> = {
   PERSON: '#2ec4a5', ORGANIZATION: '#3d6fff', GOVERNMENT: '#3d6fff',
@@ -27,6 +31,8 @@ export default function AnalyzePage() {
   const [extractResult, setExtractResult] = useState<{ entities_created: number; relations_created: number } | null>(null);
   const [error, setError] = useState('');
   const [activeView, setActiveView] = useState<'entities' | 'relations'>('entities');
+  const [projectExtractionStatus, setProjectExtractionStatus] = useState<ProjectExtractionStatus | null>(null);
+  const [stoppingExtraction, setStoppingExtraction] = useState(false);
 
   const loadData = useCallback(() => {
     if (!id) return;
@@ -51,6 +57,50 @@ export default function AnalyzePage() {
     }).catch(() => {});
     getProjectGraph(id).then(({ edges: e }) => { if (e.length > 0) setEdges(e); }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    let isMounted = true;
+
+    const loadStatus = async () => {
+      try {
+        const status = await getProjectExtractionStatus(id);
+        if (!isMounted) return;
+        setProjectExtractionStatus(status);
+
+        if (status.status === 'running' || status.cancel_requested) {
+          const latestDocs = await getProjectDocuments(id);
+          if (!isMounted) return;
+          setDocuments(latestDocs);
+        }
+
+        if (status.status === 'completed' || status.status === 'cancelled') {
+          const [latestDocs, ents, graph] = await Promise.all([
+            getProjectDocuments(id),
+            getProjectEntities(id),
+            getProjectGraph(id),
+          ]);
+          if (!isMounted) return;
+          setDocuments(latestDocs);
+          setEntities(ents);
+          setEdges(graph.edges);
+          setExtracted(ents.length > 0);
+          setExtracting(false);
+        }
+      } catch {
+        // non-blocking
+      }
+    };
+
+    void loadStatus();
+    const timer = setInterval(loadStatus, POLLING_INTERVAL);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
   }, [id]);
 
   const handleExtract = async () => {
@@ -78,8 +128,55 @@ export default function AnalyzePage() {
     }
   };
 
+  const handleStopExtraction = async () => {
+    if (!id) return;
+    setStoppingExtraction(true);
+    setError('');
+    try {
+      await stopProjectExtraction(id);
+      const status = await getProjectExtractionStatus(id);
+      setProjectExtractionStatus(status);
+    } catch (err: any) {
+      setError(err.message || 'Failed to stop analysis.');
+    } finally {
+      setStoppingExtraction(false);
+    }
+  };
+
   const completedDocs = documents.filter(d => d.processing_status === 'completed');
-  const canExtract = completedDocs.length > 0 && !extracting;
+  const newDocs = completedDocs.filter((doc) => !doc.extracted_at);
+  const extractingDocs = documents.filter((doc) => doc.extraction_state === 'extracting');
+  const hasBackgroundExtraction = extractingDocs.length > 0;
+  const isProjectRunning = projectExtractionStatus?.status === 'running';
+  const isAnalyzing = extracting || hasBackgroundExtraction || isProjectRunning;
+  const canExtract = newDocs.length > 0 && !extracting;
+
+  useEffect(() => {
+    if (!id || !hasBackgroundExtraction) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const latestDocs = await getProjectDocuments(id);
+        setDocuments(latestDocs);
+
+        const stillExtracting = latestDocs.some((doc) => doc.extraction_state === 'extracting');
+        if (!stillExtracting) {
+          const [ents, { edges: e }] = await Promise.all([
+            getProjectEntities(id),
+            getProjectGraph(id),
+          ]);
+          setEntities(ents);
+          setEdges(e);
+          setExtracted(ents.length > 0);
+          setExtracting(false);
+        }
+      } catch {
+        // non-blocking polling error
+      }
+    }, POLLING_INTERVAL);
+
+    return () => clearInterval(timer);
+  }, [id, hasBackgroundExtraction]);
 
   return (
     <>
@@ -118,21 +215,43 @@ export default function AnalyzePage() {
                   <button
                     onClick={handleExtract}
                     className="btn-primary"
-                    disabled={!canExtract}
+                    disabled={!canExtract || hasBackgroundExtraction}
                     style={{ flexShrink: 0, padding: '10px 20px' }}
                   >
-                    {extracting ? 'Analyzing…' : extracted ? 'Re-run Analysis' : 'Run Analysis'}
+                    {isAnalyzing
+                      ? 'Analyzing…'
+                      : canExtract
+                        ? `Analyze ${newDocs.length} new document${newDocs.length === 1 ? '' : 's'}`
+                        : 'No new documents'}
                   </button>
                 </div>
 
-                {extracting && (
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
+                  Incremental mode: this button runs batch analysis only for documents not extracted yet. For single-document actions, use <strong>Analyze now</strong> (first run) or <strong>Re-extract</strong> (rerun) on the Documents page.
+                </div>
+
+                {isAnalyzing && (
                   <div style={{ padding: '12px 16px', background: 'var(--accent-soft)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s infinite' }}/>
-                    <span style={{ fontSize: 13, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>Processing… this may take a minute</span>
+                    <span style={{ fontSize: 13, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>
+                      {isProjectRunning && projectExtractionStatus?.documents_total
+                        ? `Analyzing ${projectExtractionStatus.documents_processed ?? 0}/${projectExtractionStatus.documents_total} documents...`
+                        : hasBackgroundExtraction
+                        ? `Analyzing in progress for ${extractingDocs.length} document${extractingDocs.length === 1 ? '' : 's'}…`
+                        : 'Processing… this may take a minute'}
+                    </span>
+                    <button
+                      onClick={handleStopExtraction}
+                      className="btn-ghost"
+                      style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px' }}
+                      disabled={stoppingExtraction || !isAnalyzing}
+                    >
+                      {stoppingExtraction ? 'Stopping…' : 'Stop analysis'}
+                    </button>
                   </div>
                 )}
 
-                {extractResult && !extracting && (
+                {extractResult && !isAnalyzing && (
                   <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
                     <div style={{ padding: '12px 16px', background: 'rgba(46,196,165,0.1)', borderRadius: 8, border: '1px solid rgba(46,196,165,0.2)', textAlign: 'center', minWidth: 100 }}>
                       <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--teal)' }}>{extractResult.entities_created}</div>
@@ -157,6 +276,18 @@ export default function AnalyzePage() {
                     <button onClick={() => void router.push(`/projects/${id}/documents`)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: 13 }}>
                       Upload documents first →
                     </button>
+                  </div>
+                )}
+
+                {completedDocs.length > 0 && !canExtract && !isAnalyzing && (
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8 }}>
+                    All processed documents are already extracted. Add new documents, or open Documents to run per-document <strong>Analyze now</strong>/<strong>Re-extract</strong>.
+                  </div>
+                )}
+
+                {!isAnalyzing && completedDocs.length > 0 && newDocs.length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 8 }}>
+                    Analysis completed for all processed documents.
                   </div>
                 )}
               </div>
@@ -193,8 +324,8 @@ export default function AnalyzePage() {
                   {/* Entities table */}
                   {activeView === 'entities' && (
                     <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 100px 60px', padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg3)' }}>
-                        {['Name', 'Type', 'Confidence', 'Links'].map(h => (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px 90px', padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg3)' }}>
+                        {['Name', 'Type', 'Confidence', 'Mentions'].map(h => (
                           <div key={h} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                         ))}
                       </div>
@@ -206,7 +337,7 @@ export default function AnalyzePage() {
                             key={ent.id}
                             onClick={() => void router.push(`/projects/${id}/entities/${ent.id}`)}
                             style={{
-                              display: 'grid', gridTemplateColumns: '1fr 120px 100px 60px',
+                              display: 'grid', gridTemplateColumns: '1fr 120px 120px 90px',
                               padding: '10px 16px', borderBottom: '1px solid var(--border)',
                               cursor: 'pointer', transition: 'background .1s',
                             }}
@@ -231,7 +362,7 @@ export default function AnalyzePage() {
                               <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', minWidth: 28 }}>{conf}%</span>
                             </div>
                             <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>
-                              {ent.degree || 0}
+                              {Array.isArray(ent.raw_mentions) ? ent.raw_mentions.length : 0}
                             </div>
                           </div>
                         );

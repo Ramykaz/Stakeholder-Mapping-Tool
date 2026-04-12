@@ -1,6 +1,7 @@
 import React from 'react';
 import { ContextualSummaryResponse, GlobalEntityProfile } from '@/lib/api';
 import { CytoscapeNode } from '@/types';
+import { normalizeLlmText } from '@/lib/llmText';
 
 interface EntitySidePanelProps {
   node: CytoscapeNode;
@@ -173,7 +174,7 @@ export default function EntitySidePanel({
             {!summaryEnabled ? (
               <p style={{ color: 'var(--text3)', fontSize: 12 }}>Summary available in project context.</p>
             ) : summary?.summary ? (
-              <p style={{ color: 'var(--text2)', fontSize: 12, lineHeight: 1.6 }}>{summary.summary}</p>
+              <p style={{ color: 'var(--text2)', fontSize: 12, lineHeight: 1.6 }}>{normalizeLlmText(summary.summary)}</p>
             ) : summary?.fallback_message ? (
               <p style={{ color: 'var(--amber)', fontSize: 12 }}>{summary.fallback_message}</p>
             ) : (

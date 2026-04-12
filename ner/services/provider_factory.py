@@ -12,7 +12,12 @@ from ner.services.gemini_client import extract_joint_from_chunk as extract_gemin
 from ner.services.groq_client import extract_entities_from_chunk as extract_groq_entities_from_chunk
 from ner.services.openai_client import extract_entities_from_chunk as extract_openai_entities_from_chunk
 from ner.services.provider_interface import JointExtractionRequest
-from ner.services.provider_runtime import ProviderConfigError, run_with_retry, validate_provider_runtime_config
+from ner.services.provider_runtime import (
+    ProviderConfigError,
+    run_with_retry,
+    validate_provider_runtime_config,
+    normalize_azure_endpoint,
+)
 
 
 @dataclass(frozen=True)
@@ -212,7 +217,7 @@ def get_provider(config: ProviderConfig, api_keys: dict[str, str]) -> LLMProvide
     if provider == 'openai':
         return OpenAIProvider(api_key=key, model=config.model)
     if provider == 'azure_openai':
-        endpoint = getattr(settings, 'AZURE_OPENAI_ENDPOINT', '').strip()
+        endpoint = normalize_azure_endpoint(getattr(settings, 'AZURE_OPENAI_ENDPOINT', '').strip())
         deployment = getattr(settings, 'AZURE_OPENAI_DEPLOYMENT', '').strip()
         if not endpoint or not deployment:
             raise ProviderConfigError(

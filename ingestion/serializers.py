@@ -98,6 +98,7 @@ class DocumentSerializer(serializers.ModelSerializer):
     # Annotated by views; fall back to 0 when not present
     entity_count = serializers.SerializerMethodField()
     relation_count = serializers.SerializerMethodField()
+    extraction_state = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -110,6 +111,8 @@ class DocumentSerializer(serializers.ModelSerializer):
             'processing_status',
             'chunk_count',
             'error_message',
+            'extracted_at',
+            'extraction_state',
             'entity_count',
             'relation_count',
         ]
@@ -120,6 +123,15 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     def get_relation_count(self, obj):
         return getattr(obj, 'relation_count', 0) or 0
+
+    def get_extraction_state(self, obj):
+        if getattr(obj, 'is_extracting', False):
+            return 'extracting'
+        if obj.processing_status == Document.STATUS_FAILED:
+            return 'failed'
+        if obj.extracted_at:
+            return 'extracted'
+        return 'not_extracted'
 
 
 class WebSourceSerializer(serializers.ModelSerializer):

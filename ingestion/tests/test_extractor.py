@@ -3,10 +3,46 @@ import io
 import pytest
 from unittest.mock import patch, MagicMock
 
-from ingestion.services.extractor import extract_text, ExtractionError
+from ingestion.services.extractor import extract_text, ExtractionError, clean_text, clean_web_text
 
 
 class TestExtractText:
+    def test_clean_text_removes_markdown_urls_and_nav_noise(self):
+        raw = (
+            "# Project Update\n"
+            "- **UNDP** launched [program](https://example.com/program) in Accra.\n"
+            "Home | About | Contact\n"
+            "Visit https://example.com for details\n"
+        )
+
+        cleaned = clean_text(raw)
+
+        assert "Project Update" in cleaned
+        assert "UNDP launched program in Accra." in cleaned
+        assert "Home | About | Contact" not in cleaned
+        assert "https://" not in cleaned
+
+    def test_clean_web_text_filters_script_and_navigation_fragments(self):
+        raw = (
+            "UNDP engages municipal authorities on flood planning.\n"
+            "window.location='/next'\n"
+            "home | projects | contact\n"
+            "const app = {state: 'x'};\n"
+            "<div class='menu'>Home</div>\n"
+            ".navbar { color: #333; }\n"
+            '{"menu":"home","section":"header"}\n'
+        )
+
+        cleaned = clean_web_text(raw)
+
+        assert "UNDP engages municipal authorities on flood planning." in cleaned
+        assert "window.location" not in cleaned
+        assert "home | projects | contact" not in cleaned
+        assert "const app" not in cleaned
+        assert "<div class='menu'>" not in cleaned
+        assert ".navbar { color: #333; }" not in cleaned
+        assert '{"menu":"home"' not in cleaned
+
     def test_extract_txt_returns_text(self):
         file_obj = io.BytesIO(b"Hello, world! This is plain text.")
         result = extract_text(file_obj, 'txt')

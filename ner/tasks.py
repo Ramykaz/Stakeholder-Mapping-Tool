@@ -50,6 +50,13 @@ def generate_personas_task(self, project_id: str) -> dict:
     _set_generation_status(cache_key, 'running', 'Persona generation is in progress.')
     try:
         count = generate_personas_for_project(project_id)
+        if count == 0:
+            _set_generation_status(
+                cache_key,
+                'error',
+                'No personas were generated from current evidence. Add/extract more entities or retry generation.',
+            )
+            return {'project_id': project_id, 'personas_created': 0, 'error': 'no_personas_generated'}
         _set_generation_status(cache_key, 'completed', f'Generated {count} persona(s).')
         return {'project_id': project_id, 'personas_created': count}
     except Exception as exc:

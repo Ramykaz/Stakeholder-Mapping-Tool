@@ -11,11 +11,14 @@ from typing import TYPE_CHECKING
 
 from ner.services.gemini_compat import generate_gemini_text
 from ner.services.provider_factory import resolve_provider_model
+from ner.services.provider_runtime import normalize_azure_endpoint
 
 if TYPE_CHECKING:
     from ingestion.models import Project
 
 logger = logging.getLogger(__name__)
+
+_REASONING_MODELS = frozenset({'gpt-5-mini', 'gpt-5-nano', 'o1', 'o3-mini'})
 
 _QUESTION_WORDS = frozenset({
     'who', 'what', 'when', 'where', 'why', 'how', 'which', 'whose', 'whom',
@@ -52,6 +55,32 @@ def _load_prompt_template() -> str:
         )
 
 
+def _normalize_message_content(content) -> str:
+    if content is None:
+        return ''
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        for key in ('text', 'output_text', 'content', 'value'):
+            value = content.get(key)
+            if value:
+                return _normalize_message_content(value)
+        return str(content)
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            normalized = _normalize_message_content(item)
+            if normalized:
+                parts.append(normalized)
+        return '\n'.join(parts)
+
+    for attr in ('text', 'output_text', 'content', 'value'):
+        value = getattr(content, attr, None)
+        if value:
+            return _normalize_message_content(value)
+    return str(content)
+
+
 def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512) -> str:
     """Make a plain-text LLM completion using the resolved provider."""
     provider = provider.strip().lower()
@@ -67,7 +96,6 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
                     model=model,
                     messages=[{'role': 'user', 'content': prompt}],
                     max_tokens=max_tokens,
-                    temperature=0.2,
                 )
                 return resp.choices[0].message.content.strip()
             except Exception as exc:
@@ -97,31 +125,51 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
 
     if provider == 'openai':
         from openai import OpenAI
-        client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.2,
-        )
-        return resp.choices[0].message.content.strip()
+        client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''), timeout=45.0)
+
+        request_kwargs: dict = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_completion_tokens': max_tokens,
+        }
+        if model in _REASONING_MODELS:
+            request_kwargs['reasoning_effort'] = 'low'
+
+        resp = client.chat.completions.create(**request_kwargs)
+        content = _normalize_message_content(resp.choices[0].message.content).strip()
+        if not content:
+            retry_kwargs = dict(request_kwargs)
+            retry_kwargs['max_completion_tokens'] = max(max_tokens * 4, 1024)
+            resp = client.chat.completions.create(**retry_kwargs)
+            content = _normalize_message_content(resp.choices[0].message.content).strip()
+        return content
 
     if provider == 'azure_openai':
         from openai import AzureOpenAI
         from django.conf import settings as django_settings
         client = AzureOpenAI(
             api_key=os.environ.get('AZURE_OPENAI_API_KEY', ''),
-            azure_endpoint=getattr(django_settings, 'AZURE_OPENAI_ENDPOINT', ''),
-            api_version='2024-02-01',
+            azure_endpoint=normalize_azure_endpoint(getattr(django_settings, 'AZURE_OPENAI_ENDPOINT', '')),
+            api_version=os.environ.get('AZURE_OPENAI_API_VERSION', '2024-12-01-preview'),
+            timeout=45.0,
         )
         deployment = getattr(django_settings, 'AZURE_OPENAI_DEPLOYMENT', model)
-        resp = client.chat.completions.create(
-            model=deployment,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.2,
-        )
-        return resp.choices[0].message.content.strip()
+        request_kwargs: dict = {
+            'model': deployment,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_completion_tokens': max_tokens,
+        }
+        if model in _REASONING_MODELS:
+            request_kwargs['reasoning_effort'] = 'low'
+
+        resp = client.chat.completions.create(**request_kwargs)
+        content = _normalize_message_content(resp.choices[0].message.content).strip()
+        if not content:
+            retry_kwargs = dict(request_kwargs)
+            retry_kwargs['max_completion_tokens'] = max(max_tokens * 4, 1024)
+            resp = client.chat.completions.create(**retry_kwargs)
+            content = _normalize_message_content(resp.choices[0].message.content).strip()
+        return content
 
     if provider == 'gemini':
         return generate_gemini_text(prompt, model)

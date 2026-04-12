@@ -4,6 +4,8 @@ import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import SMQSection from '@/components/SMQSection';
 import {
+  getProject,
+  getProjectIntake,
   getSMQTemplate,
   getProjectSMQ,
   getProjectDocuments,
@@ -20,6 +22,7 @@ export default function ProjectSMQPage() {
   const [answers, setAnswers] = useState<Record<string, ProjectSMQAnswer>>({});
   const [loading, setLoading] = useState(true);
   const [hasDocuments, setHasDocuments] = useState(false);
+  const [initiativeName, setInitiativeName] = useState('');
   const [error, setError] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -33,8 +36,10 @@ export default function ProjectSMQPage() {
       getSMQTemplate(),
       getProjectSMQ(projectId),
       getProjectDocuments(projectId),
+      getProject(projectId),
+      getProjectIntake(projectId),
     ])
-      .then(([template, response, docs]) => {
+      .then(([template, response, docs, project, intake]) => {
         setSections((template.sections || []).slice().sort((a, b) => a.order - b.order || a.section_number - b.section_number));
         const bySection: Record<string, ProjectSMQAnswer> = {};
         (response.answers || []).forEach((answer) => {
@@ -42,6 +47,7 @@ export default function ProjectSMQPage() {
         });
         setAnswers(bySection);
         setHasDocuments((docs || []).length > 0);
+        setInitiativeName((intake?.initiative_name || project?.name || '').trim());
       })
       .catch(() => setError('Failed to load SMQ.'))
       .finally(() => setLoading(false));
@@ -104,6 +110,7 @@ export default function ProjectSMQPage() {
               key={activeSection.id}
               projectId={projectId}
               section={activeSection}
+              initiativeName={initiativeName}
               existingAnswer={answers[activeSection.id]}
               aiEnabled={hasDocuments}
               onUpdated={onUpdated}

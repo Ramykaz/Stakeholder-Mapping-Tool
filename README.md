@@ -65,6 +65,7 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | Supabase PostgreSQL connection string |
+| `SECRET_KEY` | Yes (prod) | Django secret key (must not use dev default in production) |
 | `DEBUG` | Yes | `True` for development, `False` for production |
 | `ALLOWED_HOSTS` | Yes | Comma-separated list (e.g. `localhost,127.0.0.1`) |
 | `GROQ_API_KEY` | Recommended | Groq API key (default LLM provider for NER/reasoning) |
@@ -75,6 +76,17 @@ AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, ext
 | `GEMINI_API_KEY` | Optional | Required only when Gemini provider is selected for NER |
 | `ADMIN_EMAIL_DOMAIN` | Optional | Domain required for auto-admin eligibility (default: `undp.org`) |
 | `ADMIN_AUTO_ADMIN_EMAILS` | Optional | Comma-separated allowlist for auto-admin registration emails |
+| `SECURE_SSL_REDIRECT` | Recommended (prod) | Redirect HTTP to HTTPS |
+| `SECURE_HSTS_SECONDS` | Recommended (prod) | HSTS max-age (set `31536000` for production) |
+| `SECURE_HSTS_INCLUDE_SUBDOMAINS` | Recommended (prod) | Include subdomains in HSTS |
+| `SECURE_HSTS_PRELOAD` | Optional (prod) | Enable HSTS preload flag |
+| `SESSION_COOKIE_SECURE` | Recommended (prod) | Send session cookie over HTTPS only |
+| `CSRF_COOKIE_SECURE` | Recommended (prod) | Send CSRF cookie over HTTPS only |
+| `CSRF_TRUSTED_ORIGINS` | Optional | Comma-separated trusted origins for cross-site POSTs |
+| `NEXT_PUBLIC_SITE_URL` | Recommended | Public frontend URL used for sitemap/robots links |
+| `REDIS_URL` | Recommended | Redis URL used by cache/background jobs (default: `redis://redis:6379/0`) |
+| `CELERY_BROKER_URL` | Recommended | Celery broker URL (default: `redis://redis:6379/0`) |
+| `CELERY_RESULT_BACKEND` | Recommended | Celery result backend URL (default: `redis://redis:6379/0`) |
 
 ## Local Setup
 
@@ -96,28 +108,89 @@ In your Supabase SQL editor:
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-### 3. Download the embedding model (one-time)
+### 3. Build and start the stack
 
 ```bash
-docker compose run --rm app python -c \
-  "from sentence_transformers import SentenceTransformer; \
-   SentenceTransformer('all-MiniLM-L6-v2').save('/app/models/all-MiniLM-L6-v2')"
+docker compose up --build -d
 ```
 
-### 4. Start the stack
+Migrations run automatically on startup. The embedding model is baked into the Docker image, so no manual model download step is required.
 
-```bash
-docker compose up -d
-```
+Frontend: `http://localhost:3000`  
+API: `http://localhost:8000`
 
-Migrations run automatically on startup. The frontend is available at `http://localhost:3000` and the API at `http://localhost:8000`.
-
-### 5. Verify
+### 4. Verify
 
 ```bash
 curl http://localhost:8000/health
 # → {"status": "healthy", "database": "connected"}
+
+docker compose ps
+# app should become healthy
 ```
+
+## Deploy on a New Machine (Docker)
+
+1. Install Docker + Docker Compose v2 and Git.
+2. Clone repo and create env file:
+
+```bash
+git clone <repo-url>
+cd stakeholder-analysis-tool
+cp .env.example .env
+```
+
+3. Set production-safe values in `.env`:
+  - `DEBUG=False`
+  - `SECRET_KEY=<strong-random-secret>`
+  - `ALLOWED_HOSTS=<your-domain-or-ip>`
+  - `SECURE_SSL_REDIRECT=True`
+  - `SECURE_HSTS_SECONDS=31536000`
+  - `SECURE_HSTS_INCLUDE_SUBDOMAINS=True`
+  - `SESSION_COOKIE_SECURE=True`
+  - `CSRF_COOKIE_SECURE=True`
+  - `CSRF_TRUSTED_ORIGINS=https://<your-domain>`
+  - `NEXT_PUBLIC_SITE_URL=https://<your-domain>`
+
+4. Start services:
+
+```bash
+docker compose up --build -d
+```
+
+5. Validate runtime:
+
+```bash
+curl http://localhost:8000/health
+docker compose ps
+docker compose logs app --tail 100
+docker compose logs worker --tail 100
+docker compose logs redis --tail 100
+```
+
+If you deploy behind a reverse proxy (Nginx/Caddy/Cloud load balancer), terminate TLS there and forward traffic to ports `3000` (frontend) and `8000` (backend).
+
+## Background Jobs (Celery + Redis)
+
+This project uses Celery workers for asynchronous generation tasks and Redis as broker/result backend.
+
+- Compose services:
+  - `redis` (port `6379`)
+  - `worker` (Celery worker process)
+- Defaults in `docker-compose.yml`:
+  - `CELERY_BROKER_URL=redis://redis:6379/0`
+  - `CELERY_RESULT_BACKEND=redis://redis:6379/0`
+
+Useful checks:
+
+```bash
+docker compose ps
+docker compose logs worker --tail 100
+docker compose logs redis --tail 100
+docker compose exec worker celery -A stakeholder_analysis status
+```
+
+If you run Redis outside Compose, set `REDIS_URL`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` in `.env` to your external Redis endpoint.
 
 ## Frontend Routes
 
@@ -160,7 +233,7 @@ curl http://localhost:8000/health
 | `/api/v1/settings/llm/test/` | GET | Test selected provider/model connectivity (`provider`, `model` query params) |
 | `/api/v1/projects/{id}/documents/{doc_id}/status/` | GET | Poll processing status |
 | `/api/v1/projects/{id}/documents/{doc_id}/reextract/` | POST | Re-run extraction for one document |
-| `/api/v1/projects/{id}/extract-entities/` | POST | Run entity extraction for all project documents |
+| `/api/v1/projects/{id}/extract-entities/` | POST | Run entity extraction for new (unextracted) project documents |
 | `/api/v1/projects/{id}/documents/{doc_id}/entities/` | GET | Document review entities (confidence, mentions, excerpt) |
 | `/api/v1/projects/{id}/documents/{doc_id}/relationships/` | GET | Document review relationships (source, label, target, excerpt) |
 | `/api/v1/projects/{id}/documents/{doc_id}/entities/{entity_id}/` | DELETE | Remove document entity mention and cleanup orphans |
@@ -215,7 +288,11 @@ curl "http://localhost:8000/api/v1/projects/{id}/graph/" \
 ## Running Tests
 
 ```bash
-docker compose run --rm app pytest --tb=short
+# Backend
+docker compose run --rm --entrypoint pytest app -q
+
+# Frontend (runtime frontend image is production-only, so run tests in a Node container)
+docker run --rm -v "${PWD}/frontend:/app" -w /app node:20 sh -lc "npm ci; npm test -- --runInBand"
 ```
 
 Tests use mocked embeddings — no model weights or API keys required in CI.
@@ -282,3 +359,7 @@ This project uses [Spec-Kit](https://github.com/SDG-AI-Lab/speckit) (spec-driven
 | [009-complete-ui-rewiring](specs/009-complete-ui-rewiring/) | Full UI rewiring — sidebar, workspace flow, light/dark toggle |
 | [010-graph-visualization-fixes](specs/010-graph-visualization-fixes/) | Graph node sizing, theme-adaptive canvas, live filters, focus mode, project CRUD modals |
 | [011-intelligence-layer](specs/011-intelligence-layer/) | Semantic search (pgvector), LLM RAG summaries, entity flagging, dedup review queue, entity timeline, NL query, global entity view, per-project LLM provider selection |
+| [013-structured-intake-report](specs/013-structured-intake-report/) | Structured initiative intake and report context pipeline |
+| [014-personas-workplan-export](specs/014-personas-workplan-export/) | Persona/workplan generation and export workflows |
+| [015-ux-graph-llm-overhaul](specs/015-ux-graph-llm-overhaul/) | UX overhaul for graph and LLM-assisted project workflows |
+| [016-document-extraction-integrity](specs/016-document-extraction-integrity/) | Incremental extraction, document review integrity, cleaned evidence, and mini-graph enhancements |

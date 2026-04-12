@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ner.services.gemini_compat import generate_gemini_text
 from ner.services.provider_factory import resolve_provider_model_for_project
+from ner.services.provider_runtime import normalize_azure_endpoint
 
 if TYPE_CHECKING:
     from ingestion.models import Project
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path('prompts/workplan_generate.txt')
+_REASONING_MODELS = frozenset({'gpt-5-mini', 'gpt-5-nano', 'o1', 'o3-mini'})
 
 
 class WorkplanGenerationError(Exception):
@@ -37,6 +40,32 @@ def _load_prompt_template() -> str:
         )
 
 
+def _normalize_message_content(content) -> str:
+    if content is None:
+        return ''
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        for key in ('text', 'output_text', 'content', 'value'):
+            value = content.get(key)
+            if value:
+                return _normalize_message_content(value)
+        return str(content)
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            normalized = _normalize_message_content(item)
+            if normalized:
+                parts.append(normalized)
+        return '\n'.join(parts)
+
+    for attr in ('text', 'output_text', 'content', 'value'):
+        value = getattr(content, attr, None)
+        if value:
+            return _normalize_message_content(value)
+    return str(content)
+
+
 def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 2048) -> str:
     """Call the configured LLM provider and return the text response."""
     provider = provider.strip().lower()
@@ -48,37 +77,54 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 204
             model=model,
             messages=[{'role': 'user', 'content': prompt}],
             max_tokens=max_tokens,
-            temperature=0.3,
         )
         return resp.choices[0].message.content.strip()
 
     if provider == 'openai':
         from openai import OpenAI
-        client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.3,
-        )
-        return resp.choices[0].message.content.strip()
+        client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''), timeout=180.0, max_retries=1)
+        request_kwargs: dict = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_completion_tokens': max_tokens,
+            'response_format': {'type': 'json_object'},
+        }
+        if model in _REASONING_MODELS:
+            request_kwargs['reasoning_effort'] = 'low'
+        try:
+            resp = client.chat.completions.create(**request_kwargs)
+        except Exception:
+            fallback_kwargs = dict(request_kwargs)
+            fallback_kwargs.pop('response_format', None)
+            resp = client.chat.completions.create(**fallback_kwargs)
+        return _normalize_message_content(resp.choices[0].message.content).strip()
 
     if provider == 'azure_openai':
         from openai import AzureOpenAI
         from django.conf import settings as django_settings
         client = AzureOpenAI(
             api_key=os.environ.get('AZURE_OPENAI_API_KEY', ''),
-            azure_endpoint=getattr(django_settings, 'AZURE_OPENAI_ENDPOINT', ''),
-            api_version='2024-02-01',
+            azure_endpoint=normalize_azure_endpoint(getattr(django_settings, 'AZURE_OPENAI_ENDPOINT', '')),
+            api_version=os.environ.get('AZURE_OPENAI_API_VERSION', '2024-12-01-preview'),
+            timeout=180.0,
+            max_retries=1,
         )
         deployment = getattr(django_settings, 'AZURE_OPENAI_DEPLOYMENT', model)
-        resp = client.chat.completions.create(
-            model=deployment,
-            messages=[{'role': 'user', 'content': prompt}],
-            max_tokens=max_tokens,
-            temperature=0.3,
-        )
-        return resp.choices[0].message.content.strip()
+        request_kwargs: dict = {
+            'model': deployment,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_completion_tokens': max_tokens,
+            'response_format': {'type': 'json_object'},
+        }
+        if model in _REASONING_MODELS:
+            request_kwargs['reasoning_effort'] = 'low'
+        try:
+            resp = client.chat.completions.create(**request_kwargs)
+        except Exception:
+            fallback_kwargs = dict(request_kwargs)
+            fallback_kwargs.pop('response_format', None)
+            resp = client.chat.completions.create(**fallback_kwargs)
+        return _normalize_message_content(resp.choices[0].message.content).strip()
 
     if provider == 'gemini':
         return generate_gemini_text(prompt, model)
@@ -88,10 +134,19 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 204
 
 def _parse_json_response(text: str) -> dict | None:
     """Extract and parse JSON from LLM response text."""
-    text = text.strip()
+    text = (text or '').strip()
     if text.startswith('```'):
         lines = text.split('\n')
         text = '\n'.join(lines[1:-1]) if len(lines) > 2 else text
+
+    # Remove accidental leading prose before JSON block
+    if not text.startswith('{') and '{' in text:
+        text = text[text.find('{'):]
+
+    # Remove trailing non-JSON content after closing brace
+    if text.endswith('```'):
+        text = re.sub(r'```\s*$', '', text).strip()
+
     try:
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
@@ -102,6 +157,26 @@ def _parse_json_response(text: str) -> dict | None:
                 return json.loads(text[start:end + 1])
             except (json.JSONDecodeError, ValueError):
                 pass
+    return None
+
+
+def _generate_workplan_json(prompt: str, provider: str, model: str) -> dict | None:
+    prompt_variants = [
+        prompt,
+        (
+            prompt
+            + '\n\nReturn ONLY a valid JSON object with the top-level key "components".'
+            + ' Do not include markdown, code fences, comments, or explanatory text.'
+        ),
+    ]
+    token_budgets = [1800, 2600, 3400]
+
+    for variant in prompt_variants:
+        for budget in token_budgets:
+            raw = _call_provider(variant, provider=provider, model=model, max_tokens=budget)
+            parsed = _parse_json_response(raw)
+            if parsed and isinstance(parsed.get('components'), list):
+                return parsed
     return None
 
 
@@ -169,8 +244,7 @@ def generate_workplan_for_project(project_id: str) -> int:
     )
     prompt = prompt.replace('{stakeholder_names}', stakeholder_names)
 
-    raw = _call_provider(prompt, provider=provider, model=model)
-    data = _parse_json_response(raw)
+    data = _generate_workplan_json(prompt, provider=provider, model=model)
 
     if not data or 'components' not in data:
         raise WorkplanGenerationError("LLM returned invalid JSON for workplan generation.")

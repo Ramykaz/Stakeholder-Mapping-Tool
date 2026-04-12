@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { ReportSectionResponse } from '@/lib/api';
+import { replaceInitiativePlaceholders } from '@/lib/initiativeText';
+import { normalizeLlmText } from '@/lib/llmText';
 
 interface ReportSectionCardProps {
   section: ReportSectionResponse;
+  initiativeName?: string;
   onRegenerate: (sectionId: string, customInstruction?: string) => void;
   onSaveEdit: (sectionId: string, generatedText: string) => void;
   busy?: boolean;
@@ -21,10 +24,12 @@ function statusLabel(status: ReportSectionResponse['status']) {
   return 'Error';
 }
 
-export default function ReportSectionCard({ section, onRegenerate, onSaveEdit, busy = false }: ReportSectionCardProps) {
+export default function ReportSectionCard({ section, initiativeName = '', onRegenerate, onSaveEdit, busy = false }: ReportSectionCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftText, setDraftText] = useState(section.generated_text || '');
   const [customInstruction, setCustomInstruction] = useState('');
+  const normalizedText = normalizeLlmText(replaceInitiativePlaceholders(section.generated_text || '', initiativeName));
+  const hasRenderableText = Boolean((normalizedText || '').trim());
 
   useEffect(() => {
     setDraftText(section.generated_text || '');
@@ -46,8 +51,16 @@ export default function ReportSectionCard({ section, onRegenerate, onSaveEdit, b
           value={draftText}
           onChange={(event) => setDraftText(event.target.value)}
         />
-      ) : section.status === 'done' && section.generated_text ? (
-        <p className="text-sm text-[var(--text)] whitespace-pre-wrap">{section.generated_text}</p>
+      ) : section.status === 'done' && section.generated_text && hasRenderableText ? (
+        <div className="space-y-2">
+          {normalizedText.split('\n\n').map((paragraph, idx) => (
+            <p key={idx} className="text-sm text-[var(--text)] whitespace-pre-wrap">{paragraph}</p>
+          ))}
+        </div>
+      ) : section.status === 'done' ? (
+        <p className="text-sm text-[var(--amber)]">
+          Generated content is empty for this section. Click Regenerate to refresh it.
+        </p>
       ) : section.status === 'error' ? (
         <div style={{
           padding: '10px 14px',

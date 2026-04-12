@@ -118,6 +118,30 @@ class TestWorkplan(APITestCase):
         self.assertEqual(components.count(), 1)
         self.assertEqual(components.first().title, 'New Component')
 
+    @patch('ner.services.priority_table.compute_priority_scores', return_value=[])
+    @patch('ner.services.workplan_generator._call_provider')
+    def test_generate_workplan_retries_when_first_response_is_invalid_json(self, mock_call, _mock_scores):
+        ReportSection.objects.create(
+            project=self.project,
+            section=self.section_6,
+            status=ReportSection.STATUS_DONE,
+            generated_text='Completed section 6 narrative',
+        )
+
+        mock_call.side_effect = [
+            'this is not valid json',
+            '{"components":[{"title":"Recovered Component","tasks":[{"task_description":"Recovered task",'
+            '"suggested_owner":"Owner","timeline":"Q3","dependencies":"","kpis":"Done",'
+            '"related_stakeholder":""}]}]}',
+        ]
+
+        created = generate_workplan_for_project(str(self.project.id))
+
+        self.assertEqual(created, 1)
+        components = WorkplanComponent.objects.filter(project=self.project)
+        self.assertEqual(components.count(), 1)
+        self.assertEqual(components.first().title, 'Recovered Component')
+
     @patch('ner.views.generate_workplan_task.delay')
     def test_workplan_generate_view_starts_even_when_section_6_incomplete(self, mock_delay):
         ReportSection.objects.create(
@@ -132,3 +156,39 @@ class TestWorkplan(APITestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()['status'], 'generating')
         mock_delay.assert_called_once_with(str(self.project.id))
+
+    @patch('ner.services.report_export.generate_pdf_workplan', return_value=b'%PDF-1.4')
+    def test_workplan_export_pdf_returns_file(self, _mock_pdf):
+        component = WorkplanComponent.objects.create(project=self.project, order=0, title='Component')
+        component.tasks.create(order=0, task_description='Task')
+
+        response = self.client.get(f'/api/v1/projects/{self.project.id}/workplan/export/?format=pdf')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+
+    def test_workplan_export_requires_generated_workplan(self):
+        response = self.client.get(f'/api/v1/projects/{self.project.id}/workplan/export/?format=pdf')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'no_workplan')
+
+    def test_workplan_view_returns_components_without_prefetch_errors(self):
+        linked_entity = self._make_entity('UNDP')
+        component = WorkplanComponent.objects.create(project=self.project, order=0, title='Component A')
+        component.tasks.create(
+            order=0,
+            task_description='Task A',
+            suggested_owner='Owner A',
+            timeline='Q1',
+            dependencies='None',
+            kpis='KPI',
+            related_entity=linked_entity,
+        )
+
+        response = self.client.get(f'/api/v1/projects/{self.project.id}/workplan/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['generated'])
+        self.assertEqual(len(payload['components']), 1)

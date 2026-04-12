@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import dynamic from 'next/dynamic';
 import {
   getProject,
   getProjectEntityDetail,
@@ -24,6 +25,19 @@ interface ExternalRef {
 import Layout from '@/components/Layout';
 import ErrorMessage from '@/components/ErrorMessage';
 import EntityStakeholderAnalysis from '@/components/EntityStakeholderAnalysis';
+import { buildEntityNeighborhood } from '@/lib/entityNeighborhood';
+import { normalizeLlmText } from '@/lib/llmText';
+import { CytoscapeEdge, CytoscapeNode } from '@/types';
+
+const GraphVisualization = dynamic(
+  () => import('@/components/GraphVisualization'),
+  {
+    ssr: false,
+    loading: () => (
+      <div style={{ color: 'var(--text3)', fontSize: 13 }}>Loading mini-graph…</div>
+    ),
+  }
+);
 
 const TYPE_COLORS: Record<string, string> = {
   PERSON:       '#2ec4a5',
@@ -175,6 +189,48 @@ export default function EntityDetailPage() {
 
   const typeColor = profile ? (TYPE_COLORS[profile.entity_type] || '#7b8299') : '#7b8299';
   const confidencePercent = profile ? Math.round((profile.confidence || 0) * 100) : 0;
+  const neighborhood = useMemo(
+    () => (profile ? buildEntityNeighborhood(profile) : { nodes: [], edges: [] }),
+    [profile],
+  );
+
+  const miniGraphData = useMemo(() => {
+    const degreeMap = new Map<string, number>();
+    neighborhood.nodes.forEach((node) => degreeMap.set(node.id, 0));
+    neighborhood.edges.forEach((edge) => {
+      degreeMap.set(edge.sourceId, (degreeMap.get(edge.sourceId) ?? 0) + 1);
+      degreeMap.set(edge.targetId, (degreeMap.get(edge.targetId) ?? 0) + 1);
+    });
+
+    const nodes: CytoscapeNode[] = neighborhood.nodes.map((node) => ({
+      id: node.id,
+      label: node.label,
+      entity_type: (node.entityType || 'ROLE') as any,
+      data: {
+        entity_id: node.id,
+        entity_type: (node.entityType || 'ROLE') as any,
+        confidence: node.isCenter ? (profile?.confidence || 0.9) : 0.8,
+        document_id: '',
+        chunk_id: null,
+        raw_mentions_count: 0,
+        degree: degreeMap.get(node.id) ?? 0,
+        node_size: node.isCenter ? 64 : 46,
+      },
+      degree: degreeMap.get(node.id) ?? 0,
+    }));
+
+    const edges: CytoscapeEdge[] = neighborhood.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.sourceId,
+      target: edge.targetId,
+      label: edge.label,
+      relation_type: edge.label,
+      confidence: 0.8,
+      edge_width: 2,
+    }));
+
+    return { nodes, edges };
+  }, [neighborhood, profile?.confidence]);
 
   return (
     <>
@@ -304,7 +360,19 @@ export default function EntityDetailPage() {
                     </div>
                     {summary?.summary ? (
                       <>
-                        <p style={{ color: 'var(--text2)', fontSize: 13, lineHeight: 1.7, marginBottom: summary.source_chunks?.length ? 12 : 0 }}>{summary.summary}</p>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                          {summary.source && (
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>
+                              Source: {summary.source}
+                            </span>
+                          )}
+                          {summary.source_chunks?.length ? (
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)' }}>
+                              Evidence snippets: {summary.source_chunks.length}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p style={{ color: 'var(--text2)', fontSize: 13, lineHeight: 1.7, marginBottom: summary.source_chunks?.length ? 12 : 0 }}>{normalizeLlmText(summary.summary)}</p>
                         {summary.source_chunks && summary.source_chunks.length > 0 && (
                           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                             <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Sources</div>
@@ -325,6 +393,30 @@ export default function EntityDetailPage() {
                   </div>
 
                   {/* Relationships */}
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+                      Mini-Graph (1 hop)
+                    </div>
+                    {miniGraphData.nodes.length <= 1 ? (
+                      <div style={{ color: 'var(--text3)', fontSize: 13 }}>No connections extracted from documents yet.</div>
+                    ) : (
+                      <GraphVisualization
+                        nodes={miniGraphData.nodes}
+                        edges={miniGraphData.edges}
+                        onNodeClick={(node) => {
+                          if (node.id !== String(entityId)) {
+                            void router.push(`/projects/${id}/entities/${node.id}`);
+                          }
+                        }}
+                        height={320}
+                        showControls={false}
+                        showFilterPanel={false}
+                        showLegend={false}
+                        centerNodeId={String(entityId)}
+                      />
+                    )}
+                  </div>
+
                   <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 16 }}>
                     <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
                       Relationships ({(profile.relationships || []).length})

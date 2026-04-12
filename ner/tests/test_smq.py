@@ -61,6 +61,18 @@ class TestSMQ(APITestCase):
         self.assertEqual(result['chunk_ids_used'], [str(self.chunk.id)])
         self.assertEqual(result['citations'][0]['doc_name'], 'smq.txt')
 
+    @patch('ner.services.smq_generator._call_provider')
+    @patch('ner.services.smq_generator.search_chunks')
+    @patch('ner.services.smq_generator.embed_query')
+    def test_generate_smq_section_normalizes_markdown_artifacts(self, mock_embed, mock_search, mock_call):
+        mock_embed.return_value = [0.0] * 384
+        mock_search.return_value = [self.chunk]
+        mock_call.return_value = "- **UNDP** supports ministries."
+
+        result = generate_smq_section(self.project, self.section)
+
+        self.assertEqual(result['answer_text'], 'UNDP supports ministries.')
+
     def test_smq_get_and_put_endpoints_roundtrip(self):
         template_response = self.client.get('/api/v1/smq/template/')
         self.assertEqual(template_response.status_code, 200)

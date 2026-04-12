@@ -1,8 +1,9 @@
 """API views for the ingestion app."""
+import re
 import logging
 from django.db import transaction
 from django.db import connection, OperationalError
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
@@ -125,7 +126,16 @@ class ProjectConceptNoteView(AuthenticatedAPIView):
         project = resolve_project_for_user_or_404(id, request.user)
         note = getattr(project, 'concept_note', None)
         if not note:
-            return Response({'error': 'concept_note_not_found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {
+                    'project_id': str(project.id),
+                    'content': '',
+                    'attachment': None,
+                    'attachment_url': None,
+                    'updated_at': None,
+                },
+                status=status.HTTP_200_OK,
+            )
         serializer = ConceptNoteSerializer(note, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -353,21 +363,39 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
     parser_classes = [MultiPartParser]
 
     def get(self, request, id):
-        from django.db.models import Avg, Case, When, IntegerField, Value, Sum
-        from ner.models import Entity, NERRun
+        from django.db.models import Avg, Case, When, IntegerField, Value, Sum, Exists, OuterRef
+        from ner.models import Entity, EntityMention, NERRun, Relation
 
         project = resolve_project_for_user_or_404(id, request.user)
         include_stats = request.query_params.get('include_stats', '').lower() in ('true', '1')
+        pending_run_qs = NERRun.objects.filter(document_id=OuterRef('pk'), status=NERRun.STATUS_PENDING)
         docs = (
             Document.objects.filter(project=project)
-            .annotate(entity_count=Count('entities', distinct=True))
-            .annotate(relation_count=Count('relations', distinct=True))
+            .annotate(is_extracting=Exists(pending_run_qs))
             .order_by('-upload_timestamp')
         )
         data = DocumentSerializer(docs, many=True).data
         for item, doc in zip(data, docs):
-            item['entity_count'] = doc.entity_count
-            item['relation_count'] = doc.relation_count
+            mention_backed_entity_count = (
+                EntityMention.objects
+                .filter(document=doc, entity__project=project, entity__is_flagged=False)
+                .values('entity_id')
+                .distinct()
+                .count()
+            )
+            if mention_backed_entity_count == 0:
+                mention_backed_entity_count = Entity.objects.filter(
+                    project=project,
+                    document_id=doc,
+                    is_flagged=False,
+                ).count()
+
+            scoped_relation_count = Relation.objects.filter(project=project).filter(
+                Q(source_document=doc) | Q(document_id=doc)
+            ).distinct().count()
+
+            item['entity_count'] = mention_backed_entity_count
+            item['relation_count'] = scoped_relation_count
             if include_stats and doc.processing_status == Document.STATUS_COMPLETED:
                 entities = Entity.objects.filter(document_id=doc, is_flagged=False)
                 high = entities.filter(confidence__gte=0.8).count()
@@ -380,11 +408,9 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
                     e['id'] = str(e['id'])
                     e['name'] = e.pop('canonical_name')
                     e['type'] = e.pop('entity_type')
-                runs = NERRun.objects.filter(document_id=doc, status=NERRun.STATUS_COMPLETED)
-                total_relations = runs.aggregate(total=Sum('relations_created'))['total'] or 0
                 item['stats'] = {
-                    'entity_count': doc.entity_count,
-                    'relation_count': total_relations,
+                    'entity_count': mention_backed_entity_count,
+                    'relation_count': scoped_relation_count,
                     'confidence_distribution': {'high': high, 'medium': medium, 'low': low},
                     'top_entities': top_entities,
                 }
@@ -548,26 +574,156 @@ class ProjectDocumentDetailView(AuthenticatedAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProjectDocumentContextView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/documents/{doc_id}/context/"""
+
+    @staticmethod
+    def _resolve_document_text(doc: Document) -> tuple[str, str]:
+        cleaned_text = (doc.cleaned_text or '').strip()
+        if cleaned_text:
+            return cleaned_text, 'cleaned_text'
+
+        raw_text = (doc.raw_text or '').strip()
+        if raw_text:
+            return raw_text, 'raw_text'
+
+        chunk_rows = list(
+            doc.chunks
+            .order_by('chunk_index')
+            .values_list('text', flat=True)
+        )
+        chunk_text = '\n\n'.join((item or '').strip() for item in chunk_rows if (item or '').strip())
+        if chunk_text:
+            return chunk_text, 'chunks'
+
+        return '', 'none'
+
+    @staticmethod
+    def _collect_snippets(text: str, focus_terms: list[str], radius: int = 220, limit: int = 6) -> list[dict]:
+        if not text:
+            return []
+
+        lowered = text.lower()
+        snippets: list[dict] = []
+        seen: set[tuple[int, int]] = set()
+
+        for term in focus_terms:
+            query = (term or '').strip().lower()
+            if len(query) < 2:
+                continue
+
+            for match in re.finditer(re.escape(query), lowered):
+                start = max(0, match.start() - radius)
+                end = min(len(text), match.end() + radius)
+                key = (start, end)
+                if key in seen:
+                    continue
+                seen.add(key)
+                snippets.append({'start': start, 'end': end, 'text': text[start:end].strip()})
+                if len(snippets) >= limit:
+                    return snippets
+
+        return snippets
+
+    def get(self, request, id, doc_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        doc = Document.objects.filter(id=doc_id, project=project).first()
+        if not doc:
+            return Response({'error': 'document_not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+        focus_terms = request.query_params.getlist('focus')
+        document_text, text_source = self._resolve_document_text(doc)
+        snippets = self._collect_snippets(document_text, focus_terms)
+
+        return Response(
+            {
+                'document_id': str(doc.id),
+                'filename': doc.filename,
+                'focus_terms': [term for term in focus_terms if (term or '').strip()],
+                'snippets': snippets,
+                'cleaned_text': document_text,
+                'text_source': text_source,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ProjectDocumentStatusView(AuthenticatedAPIView):
     """GET /api/v1/projects/{id}/documents/{doc_id}/status/"""
 
     def get(self, request, id, doc_id):
         project = resolve_project_for_user_or_404(id, request.user)
+        from django.db.models import Exists, OuterRef
+        from ner.models import NERRun
+
+        pending_run_qs = NERRun.objects.filter(document_id=OuterRef('pk'), status=NERRun.STATUS_PENDING)
         doc = (
             Document.objects
             .filter(id=doc_id, project=project)
             .annotate(entity_count=Count('entities', distinct=True))
+            .annotate(is_extracting=Exists(pending_run_qs))
             .first()
         )
         if not doc:
             return Response({'error': 'document_not_found'}, status=status.HTTP_404_NOT_FOUND)
+        extraction_state = 'extracting' if getattr(doc, 'is_extracting', False) else ('extracted' if doc.extracted_at else 'not_extracted')
+        if doc.processing_status == Document.STATUS_FAILED:
+            extraction_state = 'failed'
         return Response({
             'id': str(doc.id),
             'processing_status': doc.processing_status,
             'chunk_count': doc.chunk_count,
             'entity_count': doc.entity_count,
+            'extracted_at': doc.extracted_at,
+            'extraction_state': extraction_state,
             'error_message': doc.error_message,
         }, status=status.HTTP_200_OK)
+
+
+class ProjectDocumentReextractView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/documents/{doc_id}/reextract/"""
+
+    def post(self, request, id, doc_id):
+        project = resolve_project_for_user_or_404(id, request.user)
+        document = Document.objects.filter(id=doc_id, project=project).first()
+        if not document:
+            return Response({'error': 'document_not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+        from ner.services.pipeline import extract_relations_for_document, extract_relations_only_for_document
+
+        document.extracted_at = None
+        document.save(update_fields=['extracted_at'])
+
+        provider = str((request.data or {}).get('provider', '')).strip() if isinstance(request.data, dict) else ''
+        model = str((request.data or {}).get('model', '')).strip() if isinstance(request.data, dict) else ''
+
+        result = extract_relations_for_document(
+            str(document.id),
+            provider=provider or None,
+            model=model or None,
+        )
+        if result.get('relations_created', 0) == 0 and result.get('entities_created', 0) >= 2:
+            fallback = extract_relations_only_for_document(
+                str(document.id),
+                provider=provider or None,
+                model=model or None,
+            )
+            result['relations_created'] = fallback.get('relations_created', 0)
+
+        from django.utils import timezone
+        document.extracted_at = timezone.now()
+        document.save(update_fields=['extracted_at'])
+
+        return Response(
+            {
+                'status': 'completed',
+                'project_id': str(project.id),
+                'document_id': str(document.id),
+                'entities_created': int(result.get('entities_created', 0) or 0),
+                'relations_created': int(result.get('relations_created', 0) or 0),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class HealthView(APIView):

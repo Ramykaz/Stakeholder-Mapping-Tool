@@ -99,7 +99,7 @@ export default function ProjectSettingsPage() {
 
   const providerEnvHint = (() => {
     if (selectedProvider === 'azure_openai') {
-      return 'Requires: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT';
+      return 'Requires: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT, AZURE_OPENAI_API_VERSION';
     }
     if (selectedProvider === 'openai') return 'Requires: OPENAI_API_KEY';
     if (selectedProvider === 'gemini') return 'Requires: GEMINI_API_KEY';
@@ -154,8 +154,10 @@ export default function ProjectSettingsPage() {
           </p>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div>
-              <label style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>PROVIDER</label>
+              <label htmlFor="provider-select" style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>PROVIDER</label>
               <select
+                id="provider-select"
+                title="Provider"
                 value={selectedProvider}
                 onChange={e => {
                   setSelectedProvider(e.target.value);
@@ -172,8 +174,10 @@ export default function ProjectSettingsPage() {
               </select>
             </div>
             <div>
-              <label style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>MODEL</label>
+              <label htmlFor="model-select" style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text3)', display: 'block', marginBottom: 4 }}>MODEL</label>
               <select
+                id="model-select"
+                title="Model"
                 value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
                 style={{ height: 36, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text)', padding: '0 10px', fontSize: 13 }}

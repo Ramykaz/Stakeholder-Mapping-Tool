@@ -6,21 +6,31 @@ Do not include unsupported statements.
 Section Title:
 {section_title}
 
-SMQ Answer (if available):
+Program Objective Brief:
 {smq_answer}
 
-Project Context:
+Initiative Operating Context:
 {project_context}
+
+Knowledge Graph Signals:
+{entity_context}
 
 Evidence Excerpts:
 {chunk_excerpts}
 
+Custom Instruction:
+{custom_instruction}
+
 Output requirements:
 - Write a coherent narrative section in professional tone.
 - Keep it focused and evidence-backed.
-- Include inline citations in the form [Doc: filename, p.chunk_index].
+- Include inline citations using numeric markers that reference the evidence IDs (for example: [1], [2], [3]).
 - If evidence is weak, clearly state limitations.
 - Use plain text only; do NOT use markdown, asterisks, hash headings, or decorative symbols.
+- Avoid generic statements; prioritize specific stakeholder names, actions, constraints, and relationship patterns from excerpts.
+- Do not copy or restate the SMQ answer verbatim; synthesize it with evidence.
+- Do not cite SMQ answer or project context as sources.
+- Produce at least 5 analytical paragraphs.
 - Use this structure exactly:
 	Title line
 	blank line

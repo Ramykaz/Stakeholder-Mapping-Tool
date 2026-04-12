@@ -48,7 +48,7 @@ def extract_joint_from_chunk(
     client = AzureOpenAI(
         api_key=api_key,
         azure_endpoint=endpoint,
-        api_version=os.environ.get('AZURE_OPENAI_API_VERSION', '2024-08-01-preview'),
+        api_version=os.environ.get('AZURE_OPENAI_API_VERSION', '2024-12-01-preview'),
     )
 
     response = client.chat.completions.create(

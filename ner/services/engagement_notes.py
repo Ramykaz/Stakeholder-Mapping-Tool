@@ -18,10 +18,15 @@ _MAX_ENTITIES = 20
 _INTER_CALL_DELAY = 2.0
 _BATCH_SIZE = 5
 _STATE_TTL_SECONDS = 60 * 30
+_MAX_RUN_SECONDS = 90
 
 
 def _state_key(project_id: str) -> str:
     return f"stakeholder_notes_state:{project_id}"
+
+
+def _cancel_key(project_id: str) -> str:
+    return f"stakeholder_notes_cancel:{project_id}"
 
 
 def generate_notes_for_project(
@@ -46,7 +51,25 @@ def generate_notes_for_project(
     total_target = len(top_rows)
 
     state_cache_key = _state_key(str(project_id))
+    cancel_cache_key = _cancel_key(str(project_id))
     cached_state = cache.get(state_cache_key) or {}
+    action = str(action or 'start').strip().lower()
+
+    if action == 'stop':
+        cache.set(cancel_cache_key, True, timeout=_STATE_TTL_SECONDS)
+        payload = {
+            'status': 'cancelled',
+            'total_target': total_target,
+            'completed_count': int(cached_state.get('completed_count', 0) or 0),
+            'current_index': int(cached_state.get('current_index', 0) or 0),
+            'message': 'Generation stopped. Existing notes are preserved.',
+        }
+        cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+        close_old_connections()
+        return payload
+
+    if action == 'start':
+        cache.delete(cancel_cache_key)
     if action == 'resume' and cached_state:
         current_index = int(cached_state.get('current_index', 0) or 0)
         completed_count = int(cached_state.get('completed_count', 0) or 0)
@@ -77,9 +100,34 @@ def generate_notes_for_project(
     provider_config = resolve_provider_model_for_project(project)
     provider = provider_config.provider
     model = provider_config.model
+    started_at = time.monotonic()
 
     processed_in_batch = 0
     for row in top_rows[current_index:]:
+        if cache.get(cancel_cache_key):
+            payload = {
+                'status': 'cancelled',
+                'total_target': total_target,
+                'completed_count': completed_count,
+                'current_index': max(0, current_index - 1),
+                'message': 'Generation stopped. Existing notes are preserved.',
+            }
+            cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+            close_old_connections()
+            return payload
+
+        if (time.monotonic() - started_at) >= _MAX_RUN_SECONDS:
+            payload = {
+                'status': 'running',
+                'total_target': total_target,
+                'completed_count': completed_count,
+                'current_index': max(0, current_index - 1),
+                'message': 'Partial progress saved. Continue generation to process remaining stakeholders.',
+            }
+            cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+            close_old_connections()
+            return payload
+
         if processed_in_batch >= _BATCH_SIZE:
             break
 
@@ -143,12 +191,23 @@ def generate_notes_for_project(
         if provider == 'groq' and completed_count > 0:
             time.sleep(_INTER_CALL_DELAY)
 
-        if note_text:
-            EngagementNote.objects.update_or_create(
-                project=project,
-                entity=entity,
-                defaults={'note_text': note_text},
-            )
+        if not note_text:
+            payload = {
+                'status': 'error',
+                'total_target': total_target,
+                'completed_count': completed_count,
+                'current_index': max(0, current_index - 1),
+                'message': 'Provider returned an empty response. Existing notes are preserved; retry to continue.',
+            }
+            cache.set(state_cache_key, payload, timeout=_STATE_TTL_SECONDS)
+            close_old_connections()
+            return payload
+
+        EngagementNote.objects.update_or_create(
+            project=project,
+            entity=entity,
+            defaults={'note_text': note_text},
+        )
         completed_count += 1
 
     if current_index >= total_target:

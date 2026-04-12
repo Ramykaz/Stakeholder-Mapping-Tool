@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from ingestion.models import WebSource
 from ingestion.services.pipeline import ingest_text_document
+from ingestion.services.extractor import clean_web_text
 
 MAX_CRAWL_PAGES = 20
 REQUEST_TIMEOUT = 20.0
@@ -155,13 +156,14 @@ def process_web_source_record(web_source_id: str) -> WebSource:
         else:
             raise ValueError('Unsupported web source type')
 
-        cleaned_text = (raw_text or '').strip()
+        raw_text = (raw_text or '').strip()
+        cleaned_text = clean_web_text(raw_text)
         if not cleaned_text:
             raise ValueError('No extractable text found for this web source')
 
-        document = ingest_text_document(cleaned_text, f"{title}.txt", project=web_source.project)
+        document = ingest_text_document(raw_text, f"{title}.txt", project=web_source.project, is_web_source=True)
 
-        web_source.raw_text = cleaned_text
+        web_source.raw_text = raw_text
         web_source.title = title[:255]
         web_source.page_count = page_count
         web_source.character_count = len(cleaned_text)

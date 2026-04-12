@@ -9,6 +9,9 @@ services:
     build: .
     ports:
       - "8000:8000"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - .env
     environment:
@@ -28,6 +31,9 @@ services:
 
   worker:
     build: .
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - .env
     environment:

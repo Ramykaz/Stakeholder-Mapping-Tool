@@ -161,6 +161,7 @@ class RelationSerializer(serializers.ModelSerializer):
     target_entity_id = serializers.UUIDField(source='target_entity.id', read_only=True)
     target_entity_name = serializers.CharField(source='target_entity.canonical_name', read_only=True)
     run_id = serializers.UUIDField(source='run.id', read_only=True)
+    source_document_id = serializers.UUIDField(source='source_document.id', read_only=True, allow_null=True)
 
     class Meta:
         model = Relation
@@ -168,15 +169,40 @@ class RelationSerializer(serializers.ModelSerializer):
             'id',
             'document_id',
             'run_id',
+            'source_document_id',
             'source_entity_id',
             'source_entity_name',
             'target_entity_id',
             'target_entity_name',
             'label',
+            'excerpt',
             'confidence',
             'created_at',
         ]
         read_only_fields = fields
+
+
+class DocumentReviewEntitySerializer(serializers.Serializer):
+    entity_id = serializers.UUIDField(read_only=True)
+    canonical_name = serializers.CharField(read_only=True)
+    entity_type = serializers.CharField(read_only=True)
+    confidence_score = serializers.FloatField(read_only=True)
+    mention_count_in_doc = serializers.IntegerField(read_only=True)
+    excerpt = serializers.CharField(read_only=True)
+
+
+class DocumentReviewRelationshipSerializer(serializers.Serializer):
+    rel_id = serializers.UUIDField(read_only=True)
+    source_entity_name = serializers.CharField(read_only=True)
+    relationship_type = serializers.CharField(read_only=True)
+    target_entity_name = serializers.CharField(read_only=True)
+    direction = serializers.CharField(read_only=True)
+    is_bidirectional = serializers.BooleanField(read_only=True)
+    confidence = serializers.FloatField(read_only=True)
+    excerpt = serializers.CharField(read_only=True)
+    evidence_snippets = serializers.ListField(child=serializers.CharField(), read_only=True)
+    source_document_id = serializers.UUIDField(read_only=True, allow_null=True)
+    source_document_name = serializers.CharField(read_only=True)
 
 
 class EntityLabelSerializer(serializers.ModelSerializer):
@@ -289,8 +315,10 @@ class GlobalEntityProfileSerializer(serializers.ModelSerializer):
                 'project_id': str(rel.project_id) if rel.project_id else None,
                 'source_entity_id': str(rel.source_entity_id),
                 'source_entity_name': rel.source_entity.canonical_name if rel.source_entity else '',
+                'source_entity_type': rel.source_entity.entity_type if rel.source_entity else '',
                 'target_entity_id': str(rel.target_entity_id),
                 'target_entity_name': rel.target_entity.canonical_name if rel.target_entity else '',
+                'target_entity_type': rel.target_entity.entity_type if rel.target_entity else '',
                 'relation_type': rel.label,
                 'confidence': rel.confidence,
                 'supporting_excerpts': [],
@@ -408,6 +436,7 @@ class StakeholderPrioritySerializer(serializers.Serializer):
     degree = serializers.IntegerField()
     priority_score = serializers.FloatField()
     engagement_note = serializers.CharField(allow_null=True, required=False)
+    priority_reason = serializers.CharField(required=False, allow_blank=True)
 
 
 class StakeholderPersonaSerializer(serializers.ModelSerializer):
@@ -442,7 +471,7 @@ class WorkplanTaskSerializer(serializers.ModelSerializer):
             return {
                 'id': str(obj.related_entity.id),
                 'name': obj.related_entity.canonical_name,
-                'entity_type': obj.related_entity.entity_type.label if obj.related_entity.entity_type else None,
+                'entity_type': obj.related_entity.entity_type or None,
             }
         return None
 

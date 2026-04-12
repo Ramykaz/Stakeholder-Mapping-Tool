@@ -140,6 +140,13 @@ class Relation(models.Model):
         on_delete=models.CASCADE,
         related_name='relations',
     )
+    source_document = models.ForeignKey(
+        Document,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sourced_relations',
+    )
     run = models.ForeignKey(
         NERRun,
         on_delete=models.CASCADE,
@@ -163,6 +170,7 @@ class Relation(models.Model):
         related_name='incoming_relations',
     )
     label = models.CharField(max_length=100)
+    excerpt = models.TextField(blank=True, default='')
     confidence = models.FloatField(
         validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
     )
@@ -192,6 +200,45 @@ class Relation(models.Model):
 
     def __str__(self):
         return f"{self.source_entity} → {self.label} → {self.target_entity}"
+
+
+class EntityMention(models.Model):
+    """Document-scoped mention evidence for a canonical entity."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name='mentions',
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name='entity_mentions',
+    )
+    chunk = models.ForeignKey(
+        Chunk,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='entity_mentions',
+    )
+    excerpt = models.TextField(blank=True, default='')
+    confidence_score = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_entity_mention'
+        indexes = [
+            models.Index(fields=['document', 'entity'], name='ner_mention_doc_entity_idx'),
+        ]
+
+    def __str__(self):
+        return f"Mention<{self.entity_id}:{self.document_id}>"
 
 
 class ContextualEntitySummary(models.Model):

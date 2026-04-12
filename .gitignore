@@ -140,6 +140,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env*
+!.env.example
 .env.local
 .env*.local
 .envrc
@@ -218,6 +220,33 @@ models/
 # Local Django env
 local_settings.py
 # Editor
+
+# Node / frontend artifacts
+node_modules/
+frontend/node_modules/
+frontend/.next/
+
+# Universal/editor artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.idea/
+.vscode/
+
+# Node / Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Universal temp artifacts
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
 .vscode/
 .idea/
 

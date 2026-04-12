@@ -1,8 +1,18 @@
+from .services.pipeline import (
+    extract_entities_for_document,
+    extract_relations_for_document,
+    extract_relations_only_for_document,
+    ExtractionCancelledError,
+    _extraction_progress,
+    get_active_entity_style_map,
+    cleanup_orphan_entities,
+)
 """REST API views for NER pipeline."""
 
 import csv
 import io
 import logging
+import re
 import time
 from datetime import timedelta
 from django.conf import settings
@@ -19,8 +29,10 @@ from ingestion.models import Document, Project, get_or_create_default_project
 from ingestion.services.context import get_project_context
 from .models import (
     Entity,
+    EntityMention,
     NERRun,
     Relation,
+    ContextualEntitySummary,
     EntityLabel,
     RelationshipType,
     EntityReviewCandidate,
@@ -48,8 +60,9 @@ from .serializers import (
     StakeholderPrioritySerializer,
     LLMConnectionTestSerializer,
     ReportExportStatusSerializer,
+    DocumentReviewEntitySerializer,
+    DocumentReviewRelationshipSerializer,
 )
-from .services.pipeline import extract_entities_for_document, extract_relations_for_document, extract_relations_only_for_document, _extraction_progress, get_active_entity_style_map
 from .services.report_staleness import flag_stale_report_sections
 from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
@@ -164,6 +177,29 @@ def _report_cancel_cache_key(project_id: str) -> str:
     return f"report_generation_cancel:{project_id}"
 
 
+def _project_extraction_status_cache_key(project_id: str) -> str:
+    return f"project_extraction_status:{project_id}"
+
+
+def _project_extraction_cancel_cache_key(project_id: str) -> str:
+    return f"project_extraction_cancel:{project_id}"
+
+
+def _set_project_extraction_status(project_id: str, payload: dict) -> None:
+    cache.set(_project_extraction_status_cache_key(project_id), payload, timeout=60 * 60)
+
+
+def _get_project_extraction_status(project_id: str) -> dict:
+    cached = cache.get(_project_extraction_status_cache_key(project_id))
+    if not isinstance(cached, dict):
+        return {'status': 'idle'}
+    return cached
+
+
+def _is_project_extraction_cancelled(project_id: str) -> bool:
+    return bool(cache.get(_project_extraction_cancel_cache_key(project_id)))
+
+
 def _persona_generation_cache_key(project_id: str) -> str:
     return f"persona_generation_status:{project_id}"
 
@@ -185,6 +221,53 @@ def _get_generation_status(cache_key: str, fallback_status: str) -> dict:
     return {'status': status_value, 'message': message}
 
 
+def _invalidate_project_summaries(project: Project, entity_ids: list[str] | None = None) -> None:
+    qs = ContextualEntitySummary.objects.filter(project=project)
+    if entity_ids:
+        qs = qs.filter(entity_id__in=entity_ids)
+    qs.delete()
+
+
+def _relationship_evidence_snippets(document: Document, relation: Relation, max_items: int = 3) -> list[str]:
+    snippets: list[str] = []
+    excerpt = (relation.excerpt or '').strip()
+    if excerpt:
+        snippets.append(excerpt)
+
+    evidence_document = relation.source_document if relation.source_document_id else document
+    cleaned_text = (evidence_document.cleaned_text or '').strip()
+    if not cleaned_text:
+        return snippets
+
+    search_terms = [
+        relation.source_entity.canonical_name,
+        relation.target_entity.canonical_name,
+        str(relation.label or '').replace('_', ' '),
+    ]
+    lowered = cleaned_text.lower()
+    seen: set[str] = set(item.lower() for item in snippets)
+
+    for term in search_terms:
+        query = (term or '').strip().lower()
+        if len(query) < 2:
+            continue
+        for match in re.finditer(re.escape(query), lowered):
+            start = max(0, match.start() - 220)
+            end = min(len(cleaned_text), match.end() + 220)
+            candidate = cleaned_text[start:end].strip()
+            if not candidate:
+                continue
+            candidate_key = candidate.lower()
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            snippets.append(candidate)
+            if len(snippets) >= max_items:
+                return snippets
+
+    return snippets[:max_items]
+
+
 def _mark_stuck_report_sections(project: Project, timeout_minutes: int = 10) -> int:
     cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
     stuck_qs = ReportSection.objects.filter(
@@ -195,6 +278,42 @@ def _mark_stuck_report_sections(project: Project, timeout_minutes: int = 10) -> 
     return stuck_qs.update(
         status=ReportSection.STATUS_ERROR,
         error_message='Generation timed out. Please retry or use Stop generation and restart.',
+    )
+
+
+def _is_transient_report_error(message: str) -> bool:
+    normalized = (message or '').strip().lower()
+    if not normalized:
+        return False
+    transient_markers = (
+        'generation timed out',
+        'generation stopped by user',
+        'rate limit reached',
+        'api quota exhausted',
+    )
+    return any(marker in normalized for marker in transient_markers)
+
+
+def _clear_stale_transient_report_errors(project: Project, grace_seconds: int = 90) -> int:
+    cutoff = timezone.now() - timedelta(seconds=grace_seconds)
+    stale_error_sections = list(
+        ReportSection.objects.filter(
+            project=project,
+            status=ReportSection.STATUS_ERROR,
+            updated_at__lt=cutoff,
+        )
+    )
+    reset_ids: list[str] = []
+    for item in stale_error_sections:
+        if _is_transient_report_error(item.error_message):
+            reset_ids.append(str(item.id))
+
+    if not reset_ids:
+        return 0
+
+    return ReportSection.objects.filter(id__in=reset_ids).update(
+        status=ReportSection.STATUS_PENDING,
+        error_message='',
     )
 
 
@@ -1057,6 +1176,7 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
     def post(self, request, id):
         try:
             project = _get_project_for_user_or_404(id, request.user)
+            project_id = str(project.id)
             document_id = request.data.get('document_id') if isinstance(request.data, dict) else None
             documents = []
             if document_id:
@@ -1068,11 +1188,23 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
                     )
                 documents = [document]
             else:
-                documents = list(Document.objects.filter(project=project).order_by('upload_timestamp'))
+                documents = list(
+                    Document.objects
+                    .filter(project=project, extracted_at__isnull=True)
+                    .order_by('upload_timestamp')
+                )
                 if not documents:
                     return Response(
-                        {'error': 'no_project_documents', 'detail': 'Project has no uploaded documents.'},
-                        status=status.HTTP_400_BAD_REQUEST,
+                        {
+                            'status': 'completed',
+                            'project_id': str(project.id),
+                            'documents_targeted': 0,
+                            'documents_skipped_existing': Document.objects.filter(project=project, extracted_at__isnull=False).count(),
+                            'entities_created': 0,
+                            'relations_created': 0,
+                            'results': [],
+                        },
+                        status=status.HTTP_200_OK,
                     )
 
             provider, model = _resolve_provider_and_model(request, project=project)
@@ -1081,40 +1213,119 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
             total_relations_created = 0
             per_document_results = []
 
-            for document in documents:
-                result = extract_relations_for_document(
-                    str(document.id),
-                    provider=provider,
-                    model=model,
-                    concept_note=concept_note,
-                )
+            cache.delete(_project_extraction_cancel_cache_key(project_id))
+            _set_project_extraction_status(
+                project_id,
+                {
+                    'status': 'running',
+                    'project_id': project_id,
+                    'documents_total': len(documents),
+                    'documents_processed': 0,
+                    'documents_remaining': len(documents),
+                    'started_at': timezone.now().isoformat(),
+                    'cancel_requested': False,
+                },
+            )
 
-                fallback_used = False
-                if result.get('relations_created', 0) == 0 and result.get('entities_created', 0) >= 2:
-                    fallback = extract_relations_only_for_document(str(document.id), provider=provider, model=model)
-                    result = {
-                        **result,
-                        'relations_created': fallback.get('relations_created', 0),
-                        'run_id': fallback.get('run_id') or result.get('run_id'),
-                    }
-                    fallback_used = True
+            try:
+                for index, document in enumerate(documents, start=1):
+                    if _is_project_extraction_cancelled(project_id):
+                        raise ExtractionCancelledError(f'Extraction cancelled for project {project_id}')
 
-                doc_entities = int(result.get('entities_created', 0) or 0)
-                doc_relations = int(result.get('relations_created', 0) or 0)
-                total_entities_created += doc_entities
-                total_relations_created += doc_relations
-                per_document_results.append(
+                    result = extract_relations_for_document(
+                        str(document.id),
+                        provider=provider,
+                        model=model,
+                        concept_note=concept_note,
+                        cancel_check=lambda: _is_project_extraction_cancelled(project_id),
+                    )
+
+                    fallback_used = False
+                    if result.get('relations_created', 0) == 0 and result.get('entities_created', 0) >= 2:
+                        fallback = extract_relations_only_for_document(
+                            str(document.id),
+                            provider=provider,
+                            model=model,
+                            cancel_check=lambda: _is_project_extraction_cancelled(project_id),
+                        )
+                        result = {
+                            **result,
+                            'relations_created': fallback.get('relations_created', 0),
+                            'run_id': fallback.get('run_id') or result.get('run_id'),
+                        }
+                        fallback_used = True
+
+                    doc_entities = int(result.get('entities_created', 0) or 0)
+                    doc_relations = int(result.get('relations_created', 0) or 0)
+                    document.extracted_at = timezone.now()
+                    document.save(update_fields=['extracted_at'])
+                    total_entities_created += doc_entities
+                    total_relations_created += doc_relations
+                    per_document_results.append(
+                        {
+                            'document_id': str(document.id),
+                            'entities_created': doc_entities,
+                            'relations_created': doc_relations,
+                            'run_id': result.get('run_id'),
+                            'fallback_relations_run': fallback_used,
+                        }
+                    )
+
+                    _set_project_extraction_status(
+                        project_id,
+                        {
+                            'status': 'running',
+                            'project_id': project_id,
+                            'documents_total': len(documents),
+                            'documents_processed': index,
+                            'documents_remaining': max(len(documents) - index, 0),
+                            'cancel_requested': _is_project_extraction_cancelled(project_id),
+                        },
+                    )
+            except ExtractionCancelledError:
+                _set_project_extraction_status(
+                    project_id,
                     {
-                        'document_id': str(document.id),
-                        'entities_created': doc_entities,
-                        'relations_created': doc_relations,
-                        'run_id': result.get('run_id'),
-                        'fallback_relations_run': fallback_used,
-                    }
+                        'status': 'cancelled',
+                        'project_id': project_id,
+                        'documents_total': len(documents),
+                        'documents_processed': len(per_document_results),
+                        'documents_remaining': max(len(documents) - len(per_document_results), 0),
+                        'entities_created': total_entities_created,
+                        'relations_created': total_relations_created,
+                        'cancel_requested': True,
+                        'last_completed_at': timezone.now().isoformat(),
+                    },
+                )
+                return Response(
+                    {
+                        'status': 'cancelled',
+                        'project_id': project_id,
+                        'documents_targeted': len(documents),
+                        'documents_processed': len(per_document_results),
+                        'entities_created': total_entities_created,
+                        'relations_created': total_relations_created,
+                        'results': per_document_results,
+                    },
+                    status=status.HTTP_200_OK,
                 )
 
             if len(documents) == 1:
                 only = per_document_results[0]
+                _set_project_extraction_status(
+                    project_id,
+                    {
+                        'status': 'completed',
+                        'project_id': project_id,
+                        'documents_total': 1,
+                        'documents_processed': 1,
+                        'documents_remaining': 0,
+                        'entities_created': only['entities_created'],
+                        'relations_created': only['relations_created'],
+                        'cancel_requested': False,
+                        'last_completed_at': timezone.now().isoformat(),
+                    },
+                )
                 return Response(
                     {
                         'status': 'completed',
@@ -1134,10 +1345,27 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
             if total_entities_created > 0:
                 flag_stale_report_sections(str(project.id))
 
+            _set_project_extraction_status(
+                project_id,
+                {
+                    'status': 'completed',
+                    'project_id': project_id,
+                    'documents_total': len(documents),
+                    'documents_processed': len(documents),
+                    'documents_remaining': 0,
+                    'entities_created': total_entities_created,
+                    'relations_created': total_relations_created,
+                    'cancel_requested': False,
+                    'last_completed_at': timezone.now().isoformat(),
+                },
+            )
+
             return Response(
                 {
                     'status': 'completed',
                     'project_id': str(project.id),
+                    'documents_targeted': len(documents),
+                    'documents_skipped_existing': Document.objects.filter(project=project, extracted_at__isnull=False).exclude(id__in=[d.id for d in documents]).count(),
                     'documents_processed': len(documents),
                     'entities_created': total_entities_created,
                     'relations_created': total_relations_created,
@@ -1151,6 +1379,17 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
             error_msg = str(e).lower()
             if 'rate limit' in error_msg or '429' in error_msg:
                 return handle_groq_error(e)
+            project_id = str(id)
+            _set_project_extraction_status(
+                project_id,
+                {
+                    'status': 'failed',
+                    'project_id': project_id,
+                    'error': str(e),
+                    'cancel_requested': _is_project_extraction_cancelled(project_id),
+                    'last_completed_at': timezone.now().isoformat(),
+                },
+            )
             return Response(
                 {
                     'error': 'invalid_parameter',
@@ -1160,7 +1399,52 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
             )
         except Exception as e:
             logger.error(f"Project extraction error: {e}", exc_info=True)
+            project_id = str(id)
+            _set_project_extraction_status(
+                project_id,
+                {
+                    'status': 'failed',
+                    'project_id': project_id,
+                    'error': str(e),
+                    'cancel_requested': _is_project_extraction_cancelled(project_id),
+                    'last_completed_at': timezone.now().isoformat(),
+                },
+            )
             return handle_groq_error(e)
+
+
+class ProjectExtractStatusView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/extract-entities/status/."""
+
+    def get(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        project_id = str(project.id)
+        payload = {'status': 'idle', **_get_project_extraction_status(project_id)}
+        payload['project_id'] = project_id
+        payload['cancel_requested'] = _is_project_extraction_cancelled(project_id)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ProjectExtractStopView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/extract-entities/stop/."""
+
+    def post(self, request, id):
+        project = _get_project_for_user_or_404(id, request.user)
+        project_id = str(project.id)
+        cache.set(_project_extraction_cancel_cache_key(project_id), True, timeout=60 * 60)
+        status_payload = _get_project_extraction_status(project_id)
+        if status_payload.get('status') == 'running':
+            status_payload['cancel_requested'] = True
+            _set_project_extraction_status(project_id, status_payload)
+
+        return Response(
+            {
+                'status': 'stopping',
+                'project_id': project_id,
+                'cancel_requested': True,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProjectEntitiesView(AuthenticatedAPIView):
@@ -1187,7 +1471,11 @@ class ProjectGraphView(AuthenticatedAPIView):
 
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
-        entities = Entity.objects.filter(project=project, is_flagged=False).order_by('entity_type', 'canonical_name')
+        mention_rows_exist = EntityMention.objects.filter(document__project=project).exists()
+        entities_qs = Entity.objects.filter(project=project, is_flagged=False)
+        if mention_rows_exist:
+            entities_qs = entities_qs.annotate(mention_count=models.Count('mentions')).filter(mention_count__gt=0)
+        entities = entities_qs.order_by('entity_type', 'canonical_name')
         style_map = _active_entity_style_map()
         default_style = {'shape': 'ellipse', 'color': '#9ca3af'}
         entity_ids = {str(entity.id) for entity in entities}
@@ -1249,6 +1537,180 @@ class ProjectGraphView(AuthenticatedAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class ProjectDocumentEntitiesView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/documents/{doc_id}/entities/"""
+
+    def get(self, request, id, doc_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        document = get_object_or_404(Document, id=doc_id, project=project)
+        mention_rows_exist = EntityMention.objects.filter(document=document).exists()
+        if mention_rows_exist:
+            entities = (
+                Entity.objects
+                .filter(project=project, mentions__document=document, is_flagged=False)
+                .select_related('chunk_id')
+                .distinct()
+            )
+        else:
+            entities = (
+                Entity.objects
+                .filter(project=project, document_id=document, is_flagged=False)
+                .select_related('chunk_id')
+                .distinct()
+            )
+        mention_map = {}
+        if mention_rows_exist:
+            mention_map = {
+                str(item['entity_id']): item
+                for item in (
+                    EntityMention.objects
+                    .filter(document=document, entity__project=project, entity__is_flagged=False)
+                    .values('entity_id')
+                    .annotate(
+                        mention_count_in_doc=models.Count('id'),
+                        confidence_score=models.Max('confidence_score'),
+                        excerpt=models.Max('excerpt'),
+                    )
+                )
+            }
+
+        payload = []
+        for entity in entities:
+            mention_row = mention_map.get(str(entity.id), {})
+            excerpt = (mention_row.get('excerpt') or '').strip()
+            if not excerpt and entity.chunk_id and entity.chunk_id.text:
+                excerpt = entity.chunk_id.text[:220]
+            if entity.canonical_name and entity.canonical_name.lower() not in (excerpt or '').lower():
+                document_text = (document.cleaned_text or '').strip()
+                if document_text:
+                    match = re.search(re.escape(entity.canonical_name), document_text, flags=re.IGNORECASE)
+                    if match:
+                        start = max(0, match.start() - 180)
+                        end = min(len(document_text), match.end() + 180)
+                        excerpt = document_text[start:end].strip()
+            payload.append(
+                {
+                    'entity_id': str(entity.id),
+                    'canonical_name': entity.canonical_name,
+                    'entity_type': entity.entity_type,
+                    'confidence_score': float(mention_row.get('confidence_score') or entity.confidence or 0.0),
+                    'mention_count_in_doc': int(mention_row.get('mention_count_in_doc') or 1),
+                    'excerpt': excerpt,
+                }
+            )
+        serializer = DocumentReviewEntitySerializer(payload, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ProjectDocumentRelationshipsView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/documents/{doc_id}/relationships/"""
+
+    def get(self, request, id, doc_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        document = get_object_or_404(Document, id=doc_id, project=project)
+        relationships = (
+            Relation.objects
+            .filter(project=project)
+            .filter(models.Q(source_document=document) | models.Q(document_id=document))
+            .select_related('source_entity', 'target_entity', 'source_document')
+            .order_by('-created_at')
+        )
+        scoped_relations = list(relationships)
+        direction_pairs = {
+            (str(rel.source_entity_id), str(rel.target_entity_id))
+            for rel in scoped_relations
+        }
+
+        payload = []
+        for rel in scoped_relations:
+            source_id = str(rel.source_entity_id)
+            target_id = str(rel.target_entity_id)
+            reverse_exists = (target_id, source_id) in direction_pairs
+            snippets = _relationship_evidence_snippets(document, rel)
+            payload.append(
+                {
+                    'rel_id': str(rel.id),
+                    'source_entity_name': rel.source_entity.canonical_name,
+                    'relationship_type': rel.label,
+                    'target_entity_name': rel.target_entity.canonical_name,
+                    'direction': f"{rel.source_entity.canonical_name} → {rel.target_entity.canonical_name}",
+                    'is_bidirectional': reverse_exists,
+                    'confidence': float(rel.confidence or 0.0),
+                    'excerpt': snippets[0] if snippets else '',
+                    'evidence_snippets': snippets,
+                    'source_document_id': str((rel.source_document_id or document.id)),
+                    'source_document_name': (rel.source_document.filename if rel.source_document_id else document.filename),
+                }
+            )
+        serializer = DocumentReviewRelationshipSerializer(payload, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ProjectDocumentEntityDetailView(AuthenticatedAPIView):
+    """DELETE /api/v1/projects/{id}/documents/{doc_id}/entities/{entity_id}/"""
+
+    def delete(self, request, id, doc_id, entity_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        document = get_object_or_404(Document, id=doc_id, project=project)
+        entity = get_object_or_404(Entity, id=entity_id, project=project)
+
+        if not EntityMention.objects.filter(entity=entity, document=document).exists():
+            return Response({'error': 'entity_not_in_document'}, status=status.HTTP_400_BAD_REQUEST)
+
+        EntityMention.objects.filter(entity=entity, document=document).delete()
+        affected_entity_ids = [str(entity.id)]
+        if not EntityMention.objects.filter(entity=entity).exists():
+            entity.delete()
+
+        cleanup_result = cleanup_orphan_entities(project_id=str(project.id), return_ids=True)
+        orphan_ids = cleanup_result.get('entity_ids', [])
+        if orphan_ids:
+            affected_entity_ids.extend(orphan_ids)
+
+        _invalidate_project_summaries(project, affected_entity_ids)
+        return Response({'status': 'deleted'}, status=status.HTTP_200_OK)
+
+
+class ProjectDocumentRelationshipDetailView(AuthenticatedAPIView):
+    """PATCH/DELETE /api/v1/projects/{id}/documents/{doc_id}/relationships/{rel_id}/"""
+
+    def delete(self, request, id, doc_id, rel_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        document = get_object_or_404(Document, id=doc_id, project=project)
+        relation = get_object_or_404(
+            Relation,
+            id=rel_id,
+            project=project,
+        )
+        if relation.document_id_id != document.id and relation.source_document_id != document.id:
+            return Response({'error': 'relationship_not_in_document'}, status=status.HTTP_400_BAD_REQUEST)
+
+        affected_ids = [str(relation.source_entity_id), str(relation.target_entity_id)]
+        relation.delete()
+        _invalidate_project_summaries(project, affected_ids)
+        return Response({'status': 'deleted'}, status=status.HTTP_200_OK)
+
+    def patch(self, request, id, doc_id, rel_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        document = get_object_or_404(Document, id=doc_id, project=project)
+        relation = get_object_or_404(
+            Relation,
+            id=rel_id,
+            project=project,
+        )
+        if relation.document_id_id != document.id and relation.source_document_id != document.id:
+            return Response({'error': 'relationship_not_in_document'}, status=status.HTTP_400_BAD_REQUEST)
+
+        relationship_type = str((request.data or {}).get('relationship_type', '')).strip()
+        if not relationship_type:
+            return Response({'error': 'relationship_type_required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        relation.label = relationship_type
+        relation.save(update_fields=['label'])
+        _invalidate_project_summaries(project, [str(relation.source_entity_id), str(relation.target_entity_id)])
+        return Response({'status': 'updated'}, status=status.HTTP_200_OK)
 
 
 class ProjectQueryView(AuthenticatedAPIView):
@@ -1511,6 +1973,7 @@ class ProjectReportView(AuthenticatedAPIView):
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
         _mark_stuck_report_sections(project)
+        _clear_stale_transient_report_errors(project)
         template = _get_preferred_smq_template()
         if not template:
             return Response({'project': str(project.id), 'sections': []}, status=status.HTTP_200_OK)
@@ -1518,6 +1981,16 @@ class ProjectReportView(AuthenticatedAPIView):
         sections = list(SMQSection.objects.filter(template=template, is_active=True).order_by('order', 'section_number'))
         for section in sections:
             ReportSection.objects.get_or_create(project=project, section=section)
+
+        queryset = ReportSection.objects.filter(project=project, section__in=sections).select_related('section').order_by('section__order', 'section__section_number')
+        for report_section in queryset:
+            if report_section.status == ReportSection.STATUS_DONE and not (report_section.generated_text or '').strip():
+                report_section.status = ReportSection.STATUS_ERROR
+                if not (report_section.error_message or '').strip():
+                    report_section.error_message = (
+                        'Generated content was empty. Please click Regenerate for this section.'
+                    )
+                report_section.save(update_fields=['status', 'error_message', 'updated_at'])
 
         queryset = ReportSection.objects.filter(project=project, section__in=sections).select_related('section').order_by('section__order', 'section__section_number')
         payload = ReportSectionSerializer(queryset, many=True).data
@@ -1770,9 +2243,9 @@ class ProjectPriorityGenerateNotesView(AuthenticatedAPIView):
         project = _get_project_for_user_or_404(id, request.user)
         payload = request.data if isinstance(request.data, dict) else {}
         action = str(payload.get('action') or 'start').strip().lower()
-        if action not in {'start', 'resume'}:
+        if action not in {'start', 'resume', 'stop'}:
             return Response(
-                {'error': 'validation_error', 'detail': 'action must be "start" or "resume"'},
+                {'error': 'validation_error', 'detail': 'action must be "start", "resume", or "stop"'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1829,6 +2302,12 @@ class ProjectPriorityExportCSVView(AuthenticatedAPIView):
         project = _get_project_for_user_or_404(id, request.user)
         entity_type = (request.query_params.get('entity_type') or '').strip() or None
         rows = compute_priority_scores(project, entity_type=entity_type)
+        try:
+            limit = int(request.query_params.get('limit', 20) or 20)
+        except (TypeError, ValueError):
+            limit = 20
+        if limit > 0:
+            rows = rows[:limit]
 
         output = io.StringIO()
         writer = csv.writer(output)
@@ -1860,6 +2339,266 @@ class ProjectPriorityExportCSVView(AuthenticatedAPIView):
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="stakeholder-priority-{project.name}.csv"'
+        return response
+
+
+class ProjectPriorityExportPDFView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/stakeholders/priority/export/pdf/."""
+
+    def get(self, request, id):
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import cm
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+        project = _get_project_for_user_or_404(id, request.user)
+        entity_type = (request.query_params.get('entity_type') or '').strip() or None
+        try:
+            limit = int(request.query_params.get('limit', 20) or 20)
+        except (TypeError, ValueError):
+            limit = 20
+
+        rows = compute_priority_scores(project, entity_type=entity_type)
+        if limit > 0:
+            rows = rows[:limit]
+
+        def _why(row: dict) -> str:
+            reason = str(row.get('priority_reason') or '').strip()
+            if reason:
+                return reason
+            mentions = int(row.get('mention_count') or 0)
+            degree = int(row.get('degree') or 0)
+            confidence = int(round(float(row.get('avg_confidence') or 0.0) * 100))
+            return f"{degree} graph link(s), {mentions} mention(s), confidence {confidence}%"
+
+        def _ask(row: dict) -> str:
+            return str((row.get('recommended_ask') or row.get('engagement_note') or '')).strip()
+
+        grouped_rows = {
+            'high': [row for row in rows if str(row.get('priority_level') or '').lower() == 'high'],
+            'medium': [row for row in rows if str(row.get('priority_level') or '').lower() == 'medium'],
+            'low': [row for row in rows if str(row.get('priority_level') or '').lower() == 'low'],
+        }
+
+        FONT_REGULAR, FONT_BOLD, use_unicode = resolve_pdf_fonts()
+
+        def _s(value: str) -> str:
+            return str(value) if use_unicode else pdf_safe(value)
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'PriorityTitle',
+            parent=styles['Title'],
+            fontName=FONT_BOLD,
+            fontSize=22,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#0D1B3E'),
+            spaceAfter=12,
+            leading=26,
+        )
+        subtitle_style = ParagraphStyle(
+            'PrioritySubTitle',
+            parent=styles['Normal'],
+            fontName=FONT_REGULAR,
+            fontSize=10,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#6B7280'),
+            spaceAfter=8,
+        )
+        header_style = ParagraphStyle(
+            'PriorityHeader',
+            parent=styles['Normal'],
+            fontName=FONT_BOLD,
+            fontSize=8,
+            textColor=colors.white,
+        )
+        cell_style = ParagraphStyle(
+            'PriorityCell',
+            parent=styles['Normal'],
+            fontName=FONT_REGULAR,
+            fontSize=8,
+            leading=11,
+        )
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=1.4 * cm,
+            rightMargin=1.4 * cm,
+            topMargin=1.8 * cm,
+            bottomMargin=1.8 * cm,
+        )
+        story = []
+
+        story.append(Paragraph(_s('Stakeholder Analysis and Recommendations'), title_style))
+        story.append(Paragraph(_s(project.name), subtitle_style))
+        story.append(
+            Paragraph(
+                _s(f'Exported top {len(rows)} stakeholder(s) · Generated {timezone.now().strftime("%d %B %Y") }'),
+                subtitle_style,
+            )
+        )
+        story.append(Spacer(1, 0.35 * cm))
+
+        for priority_label, title in (
+            ('high', 'Stakeholders with High Priority:'),
+            ('medium', 'Stakeholders with Medium Priority:'),
+            ('low', 'Stakeholders with Low Priority:'),
+        ):
+            bucket = grouped_rows.get(priority_label) or []
+            if not bucket:
+                continue
+
+            story.append(Paragraph(_s(title), subtitle_style))
+            story.append(Spacer(1, 0.15 * cm))
+
+            table_rows = [[
+                Paragraph('No', header_style),
+                Paragraph('Name', header_style),
+                Paragraph('Priority', header_style),
+                Paragraph('Reason', header_style),
+                Paragraph('Category', header_style),
+                Paragraph('Ask/Request', header_style),
+            ]]
+
+            for row in bucket:
+                table_rows.append([
+                    Paragraph(str(row.get('rank', '')), cell_style),
+                    Paragraph(_s(row.get('name') or ''), cell_style),
+                    Paragraph(_s(str(row.get('priority_level') or '').title()), cell_style),
+                    Paragraph(_s(_why(row)[:320]), cell_style),
+                    Paragraph(_s(row.get('category') or row.get('entity_type') or ''), cell_style),
+                    Paragraph(_s(_ask(row)[:320]), cell_style),
+                ])
+
+            table = Table(
+                table_rows,
+                colWidths=[0.8 * cm, 2.8 * cm, 1.6 * cm, 5.5 * cm, 2.7 * cm, 4.8 * cm],
+                repeatRows=1,
+            )
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#007A87')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F9FA')]),
+                ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#D1D5DB')),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 0.3 * cm))
+
+        doc.build(story)
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="stakeholder-priority-{project.name}.pdf"'
+        return response
+
+
+class ProjectPriorityExportDOCXView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/stakeholders/priority/export/docx/."""
+
+    def get(self, request, id):
+        from docx import Document as DocxDocument
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Pt, RGBColor
+
+        project = _get_project_for_user_or_404(id, request.user)
+        entity_type = (request.query_params.get('entity_type') or '').strip() or None
+        try:
+            limit = int(request.query_params.get('limit', 20) or 20)
+        except (TypeError, ValueError):
+            limit = 20
+
+        rows = compute_priority_scores(project, entity_type=entity_type)
+        if limit > 0:
+            rows = rows[:limit]
+
+        def _why(row: dict) -> str:
+            reason = str(row.get('priority_reason') or '').strip()
+            if reason:
+                return reason
+            mentions = int(row.get('mention_count') or 0)
+            degree = int(row.get('degree') or 0)
+            confidence = int(round(float(row.get('avg_confidence') or 0.0) * 100))
+            return f"{degree} graph link(s), {mentions} mention(s), confidence {confidence}%"
+
+        def _ask(row: dict) -> str:
+            return str((row.get('recommended_ask') or row.get('engagement_note') or '')).strip()
+
+        grouped_rows = {
+            'high': [row for row in rows if str(row.get('priority_level') or '').lower() == 'high'],
+            'medium': [row for row in rows if str(row.get('priority_level') or '').lower() == 'medium'],
+            'low': [row for row in rows if str(row.get('priority_level') or '').lower() == 'low'],
+        }
+
+        doc = DocxDocument()
+        title = doc.add_paragraph()
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = title.add_run('Stakeholder Analysis and Recommendations')
+        run.bold = True
+        run.font.size = Pt(22)
+        run.font.color.rgb = RGBColor(0x0D, 0x1B, 0x3E)
+
+        subtitle = doc.add_paragraph()
+        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        subtitle_run = subtitle.add_run(project.name)
+        subtitle_run.font.size = Pt(11)
+        subtitle_run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+        stamp = doc.add_paragraph()
+        stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        stamp.add_run(f'Exported top {len(rows)} stakeholder(s) · Generated {timezone.now().strftime("%d %B %Y")}').font.size = Pt(10)
+
+        for priority_label, heading in (
+            ('high', 'Stakeholders with High Priority:'),
+            ('medium', 'Stakeholders with Medium Priority:'),
+            ('low', 'Stakeholders with Low Priority:'),
+        ):
+            bucket = grouped_rows.get(priority_label) or []
+            if not bucket:
+                continue
+
+            section_heading = doc.add_paragraph()
+            section_heading_run = section_heading.add_run(heading)
+            section_heading_run.bold = True
+            section_heading_run.font.color.rgb = RGBColor(0x00, 0x7A, 0x87)
+
+            table = doc.add_table(rows=1, cols=6)
+            table.style = 'Table Grid'
+            headers = ['No', 'Name', 'Priority', 'Reason', 'Category', 'Ask/Request']
+            for cell, text in zip(table.rows[0].cells, headers):
+                cell_run = cell.paragraphs[0].add_run(text)
+                cell_run.bold = True
+                cell_run.font.color.rgb = RGBColor(0x00, 0x7A, 0x87)
+
+            for row in bucket:
+                cells = table.add_row().cells
+                cells[0].text = str(row.get('rank') or '')
+                cells[1].text = str(row.get('name') or '')
+                cells[2].text = str(row.get('priority_level') or '').title()
+                cells[3].text = _why(row)[:340]
+                cells[4].text = str(row.get('category') or row.get('entity_type') or '')
+                cells[5].text = _ask(row)[:340]
+
+            doc.add_paragraph()
+
+        output = io.BytesIO()
+        doc.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        response['Content-Disposition'] = f'attachment; filename="stakeholder-priority-{project.name}.docx"'
         return response
 
 
@@ -1914,7 +2653,6 @@ class EntitySummaryView(AuthenticatedAPIView):
             entity=entity,
             project=project,
             refresh=refresh,
-            timeout_seconds=30,
             provider=project_provider,
             model=project_model,
         )
@@ -2238,8 +2976,8 @@ class GlobalEntityListView(AuthenticatedAPIView):
 # ---------------------------------------------------------------------------
 _PROVIDER_MODELS: dict[str, list[str]] = {
     'groq': ['llama-3.1-8b-instant', 'llama-3.1-70b-versatile', 'mixtral-8x7b-32768'],
-    'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
-    'azure_openai': ['gpt-4o', 'gpt-35-turbo'],
+    'openai': ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'],
+    'azure_openai': ['gpt-5-mini'],
     'gemini': ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 }
 
@@ -2893,9 +3631,9 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
         GRID_C = colors.HexColor('#d0d5e8')
 
         title_style  = ParagraphStyle('RTitle', parent=styles['Title'],
-                            fontName=FONT_BOLD, fontSize=22, spaceAfter=4, textColor=DARK)
+                            fontName=FONT_BOLD, fontSize=22, spaceAfter=10, leading=28, textColor=DARK)
         h1_style     = ParagraphStyle('RH1',    parent=styles['Normal'],
-                            fontName=FONT_BOLD, fontSize=16, spaceAfter=4, textColor=ACCENT)
+                            fontName=FONT_BOLD, fontSize=16, spaceBefore=2, spaceAfter=8, leading=22, textColor=ACCENT)
         h2_style     = ParagraphStyle('RH2',    parent=styles['Normal'],
                             fontName=FONT_BOLD, fontSize=13, spaceBefore=16, spaceAfter=5, textColor=DARK)
         h3_style     = ParagraphStyle('RH3',    parent=styles['Normal'],
@@ -2936,7 +3674,7 @@ class ProjectExportReportPDFView(AuthenticatedAPIView):
 
         # ── Cover ─────────────────────────────────────────────────────────────
         story.append(Paragraph('Stakeholder Analysis Report', title_style))
-        story.append(Spacer(1, 4))
+        story.append(Spacer(1, 8))
         story.append(Paragraph(_s(project.name), h1_style))
         story.append(Paragraph(f'Generated: {timezone.now().strftime("%d %B %Y")}', meta_style))
         if project.description:
@@ -3133,7 +3871,7 @@ class WorkplanView(AuthenticatedAPIView):
         from .serializers import WorkplanComponentSerializer
         project = _get_project_for_user_or_404(id, request.user)
         components = WorkplanComponent.objects.filter(project=project).prefetch_related(
-            'tasks', 'tasks__related_entity', 'tasks__related_entity__entity_type'
+            'tasks', 'tasks__related_entity'
         )
         generated = components.exists()
         serializer = WorkplanComponentSerializer(components, many=True)
@@ -3384,6 +4122,57 @@ class ReportExportView(AuthenticatedAPIView):
             )
 
 
+class WorkplanExportView(AuthenticatedAPIView):
+    """GET /api/v1/projects/{id}/workplan/export/?format=pdf|docx"""
+
+    def get(self, request, id):
+        import re
+        from ner.models import WorkplanComponent
+        from .services.report_export import generate_pdf_workplan, generate_docx_workplan
+
+        project = _get_project_for_user_or_404(id, request.user)
+        export_format = (request.query_params.get('format') or '').strip().lower()
+        if export_format not in ('pdf', 'docx'):
+            return Response(
+                {'error': 'invalid_format', 'detail': 'format must be pdf or docx'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not WorkplanComponent.objects.filter(project=project).exists():
+            return Response(
+                {'error': 'no_workplan', 'detail': 'Generate a workplan before exporting.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            initiative_name = ''
+            try:
+                initiative_name = project.initiative_profile.initiative_name or project.name
+            except Exception:
+                initiative_name = project.name
+            safe_name = re.sub(r'[^\w\-_]', '_', initiative_name).strip('_') or 'workplan'
+
+            if export_format == 'pdf':
+                content = generate_pdf_workplan(project)
+                response = HttpResponse(content, content_type='application/pdf')
+                response['Content-Disposition'] = f'attachment; filename="{safe_name}_workplan.pdf"'
+            else:
+                content = generate_docx_workplan(project)
+                response = HttpResponse(
+                    content,
+                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                )
+                response['Content-Disposition'] = f'attachment; filename="{safe_name}_workplan.docx"'
+
+            return response
+        except Exception as exc:
+            logger.error("Workplan export error for project %s: %s", id, exc)
+            return Response(
+                {'error': 'export_failed', 'detail': str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 # ─── US-014-04: Enriched Entity Detail ───────────────────────────────────────
 
 class ProjectEntityDetailView(AuthenticatedAPIView):
@@ -3473,3 +4262,29 @@ class ProjectEntityDetailView(AuthenticatedAPIView):
         data['has_stakeholder_table'] = has_stakeholder_table
 
         return Response(data, status=status.HTTP_200_OK)
+
+    def patch(self, request, id, entity_id):
+        project = _get_project_for_user_or_404(id, request.user)
+        entity = get_object_or_404(Entity, id=entity_id, project=project)
+
+        canonical_name = request.data.get('canonical_name') if isinstance(request.data, dict) else None
+        entity_type = request.data.get('entity_type') if isinstance(request.data, dict) else None
+
+        update_fields = []
+        if canonical_name is not None:
+            canonical_name = str(canonical_name).strip()
+            if not canonical_name:
+                return Response({'error': 'canonical_name_required'}, status=status.HTTP_400_BAD_REQUEST)
+            entity.canonical_name = canonical_name
+            entity.normalized_name = canonical_name.lower()
+            update_fields.extend(['canonical_name', 'normalized_name'])
+        if entity_type is not None:
+            entity.entity_type = str(entity_type).strip().upper()
+            update_fields.append('entity_type')
+
+        if not update_fields:
+            return Response({'error': 'no_updates'}, status=status.HTTP_400_BAD_REQUEST)
+
+        entity.save(update_fields=update_fields)
+        _invalidate_project_summaries(project, [str(entity.id)])
+        return Response({'status': 'updated'}, status=status.HTTP_200_OK)

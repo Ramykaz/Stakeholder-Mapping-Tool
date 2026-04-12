@@ -163,6 +163,26 @@ class TestPriorityTable(APITestCase):
         self.assertEqual(response.data['status'], 'paused_rate_limited')
         mock_generate.assert_called_once_with(str(self.project.id), action='resume', max_items=10)
 
+    @patch('ner.services.engagement_notes.generate_notes_for_project')
+    def test_generate_notes_stop_contract(self, mock_generate):
+        mock_generate.return_value = {
+            'status': 'cancelled',
+            'total_target': 5,
+            'completed_count': 2,
+            'current_index': 2,
+            'message': 'Generation stopped. Existing notes are preserved.',
+        }
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/stakeholders/priority/generate-notes/',
+            {'action': 'stop', 'max_items': 20},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], 'cancelled')
+        mock_generate.assert_called_once_with(str(self.project.id), action='stop', max_items=20)
+
     def test_generate_notes_rejects_invalid_action(self):
         response = self.client.post(
             f'/api/v1/projects/{self.project.id}/stakeholders/priority/generate-notes/',
@@ -172,6 +192,7 @@ class TestPriorityTable(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data['error'], 'validation_error')
+        self.assertIn('action must be "start", "resume", or "stop"', response.data['detail'])
 
     def test_flag_orphans_endpoint_flags_zero_degree_only(self):
         response = self.client.post(

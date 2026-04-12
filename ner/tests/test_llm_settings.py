@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
@@ -61,3 +62,19 @@ class TestLLMSettingsEndpoint(APITestCase):
         assert data['status'] == 'error'
         assert 'rate_limit' in data['error_message']
         assert data['latency_ms'] >= 0
+
+    @override_settings(
+        AZURE_OPENAI_API_KEY='test-key',
+        AZURE_OPENAI_DEPLOYMENT='gpt-5-mini',
+        AZURE_OPENAI_ENDPOINT='not-a-url',
+    )
+    def test_llm_connection_test_rejects_malformed_azure_endpoint(self):
+        response = self.client.get(
+            reverse('settings-llm-test'),
+            {'provider': 'azure_openai', 'model': 'gpt-5-mini'},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data['status'] == 'error'
+        assert 'invalid azure_openai_endpoint format'.lower() in data['error_message'].lower()

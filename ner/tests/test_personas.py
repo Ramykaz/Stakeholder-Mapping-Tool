@@ -63,11 +63,30 @@ class TestPersonas(APITestCase):
         )
 
     @patch('ner.services.persona_generator._call_provider')
-    def test_generate_personas_for_project_creates_for_types_with_ge_3_only(self, mock_call):
+    def test_generate_personas_for_project_creates_for_types_with_available_entities(self, mock_call):
         for idx in range(3):
             self._make_entity('PERSON', f'Person {idx}')
         for idx in range(2):
             self._make_entity('ORGANIZATION', f'Org {idx}')
+
+        mock_call.return_value = (
+            '{"persona_name":"Policy Architect","archetype_label":"Institutional Champion",'
+            '"demographics":"Profile text","motivations":["m1","m2","m3"],'
+            '"frustrations":["f1","f2","f3"]}'
+        )
+
+        created = generate_personas_for_project(str(self.project.id))
+
+        self.assertEqual(created, 2)
+        personas = StakeholderPersona.objects.filter(project=self.project)
+        self.assertEqual(personas.count(), 2)
+        labels = {str(name).upper() for name in personas.values_list('entity_type__name', flat=True)}
+        self.assertIn('PERSON', labels)
+        self.assertIn('ORGANIZATION', labels)
+
+    @patch('ner.services.persona_generator._call_provider')
+    def test_generate_personas_for_project_creates_from_single_entity_type(self, mock_call):
+        self._make_entity('PERSON', 'Alice')
 
         mock_call.return_value = (
             '{"persona_name":"Policy Architect","archetype_label":"Institutional Champion",'
@@ -121,6 +140,22 @@ class TestPersonas(APITestCase):
             model='llama-3.3-70b-versatile',
         )
         self.assertIsNone(result)
+
+    @patch('ner.services.persona_generator._call_provider')
+    def test_generate_single_persona_parses_json_when_response_content_is_wrapped(self, mock_call):
+        mock_call.return_value = '```json\n{"persona_name":"A","archetype_label":"B","demographics":"C","motivations":["1","2","3"],"frustrations":["4","5","6"]}\n```'
+
+        result = _generate_single_persona(
+            entity_type_name='Person',
+            entity_names=['Alice'],
+            descriptions=[],
+            project_context='Context',
+            provider='azure_openai',
+            model='gpt-5-mini',
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['persona_name'], 'A')
 
     def test_persona_list_view_returns_expected_schema(self):
         persona = StakeholderPersona.objects.create(

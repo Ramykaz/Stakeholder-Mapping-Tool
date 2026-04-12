@@ -14,6 +14,9 @@ PROJECT CONTEXT (concept note):
 DOCUMENT EXCERPTS MENTIONING THIS ENTITY:
 {chunks}
 
+RELATIONSHIP EVIDENCE:
+{relations}
+
 ---
 
 Write a detailed analytical summary of {entity_name}'s role and significance in {project_name}. Your response should:
@@ -24,5 +27,10 @@ Write a detailed analytical summary of {entity_name}'s role and significance in 
 4. Note their significance or influence in the overall stakeholder landscape (1-2 sentences)
 
 If the excerpts provide limited information about certain aspects, acknowledge this honestly. Do not speculate beyond what the documents support. Write in clear, professional analytical language.
+
+Output constraints:
+- Plain text only (no markdown headings, bullets, or asterisks)
+- Do not use generic filler like "plays a key role" without evidence details
+- Prefer concrete actors, actions, and relationships explicitly present in evidence
 
 Summary:

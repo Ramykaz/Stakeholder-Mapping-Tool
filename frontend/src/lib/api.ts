@@ -421,6 +421,8 @@ export interface DocumentSummary {
   chunk_count: number | null;
   entity_count: number;
   relation_count?: number;
+  extracted_at?: string | null;
+  extraction_state?: 'not_extracted' | 'extracting' | 'extracted' | 'failed';
   error_message?: string;
   last_run: {
     provider: string;
@@ -429,6 +431,38 @@ export interface DocumentSummary {
     run_at: string;
     relations_created?: number;
   } | null;
+}
+
+export interface ProjectExtractionStatus {
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled' | string;
+  project_id: string;
+  documents_total?: number;
+  documents_processed?: number;
+  documents_remaining?: number;
+  entities_created?: number;
+  relations_created?: number;
+  cancel_requested?: boolean;
+  started_at?: string;
+  last_completed_at?: string;
+  error?: string;
+}
+
+export async function reextractProjectDocument(
+  projectId: string,
+  docId: string,
+  options?: { provider?: ProviderName; model?: string }
+): Promise<{
+  status: string;
+  project_id: string;
+  document_id: string;
+  entities_created: number;
+  relations_created: number;
+}> {
+  const payload: Record<string, string> = {};
+  if (options?.provider) payload.provider = options.provider;
+  if (options?.model) payload.model = options.model;
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/documents/${docId}/reextract/`, payload);
+  return response.data;
 }
 
 export interface WebSourceSummary {
@@ -459,6 +493,38 @@ export interface NERRunSummary {
   tokens_cached: number;
   cost_usd: string;
   created_at: string;
+}
+
+export interface DocumentReviewEntity {
+  entity_id: string;
+  canonical_name: string;
+  entity_type: string;
+  confidence_score: number;
+  mention_count_in_doc: number;
+  excerpt: string;
+}
+
+export interface DocumentReviewRelationship {
+  rel_id: string;
+  source_entity_name: string;
+  relationship_type: string;
+  target_entity_name: string;
+  direction?: string;
+  is_bidirectional?: boolean;
+  confidence: number;
+  excerpt: string;
+  evidence_snippets?: string[];
+  source_document_id?: string | null;
+  source_document_name?: string;
+}
+
+export interface ProjectDocumentContext {
+  document_id: string;
+  filename: string;
+  focus_terms: string[];
+  snippets: Array<{ start: number; end: number; text: string }>;
+  cleaned_text: string;
+  text_source?: 'cleaned_text' | 'raw_text' | 'chunks' | 'none';
 }
 
 export interface ProjectSummary {
@@ -572,7 +638,8 @@ export interface StakeholderPriorityRow {
   degree: number;
   priority_score: number;
   priority_level: 'high' | 'medium' | 'low';
-  reasoning: string;
+  reasoning?: string;
+  priority_reason?: string;
   recommended_ask: string | null;
   engagement_note: string | null;
 }
@@ -595,8 +662,10 @@ export interface GlobalEntityProfile {
     project_id: string | null;
     source_entity_id: string;
     source_entity_name: string;
+    source_entity_type?: string;
     target_entity_id: string;
     target_entity_name: string;
+    target_entity_type?: string;
     relation_type: string;
     confidence: number;
     supporting_excerpts: string[];
@@ -840,7 +909,7 @@ export async function saveProjectReportSection(
 }
 
 export async function exportProjectReportPdf(projectId: string): Promise<Blob> {
-  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/export/pdf/`, {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/report/export/?format=pdf`, {
     responseType: 'blob',
   });
   return response.data as Blob;
@@ -857,7 +926,7 @@ export async function getProjectStakeholderPriority(
 }
 
 export interface StakeholderNotesGenerationResponse {
-  status: 'running' | 'paused_rate_limited' | 'completed' | 'error';
+  status: 'running' | 'paused_rate_limited' | 'completed' | 'error' | 'cancelled';
   total_target: number;
   completed_count: number;
   current_index: number;
@@ -866,7 +935,7 @@ export interface StakeholderNotesGenerationResponse {
 
 export async function generateProjectStakeholderNotes(
   projectId: string,
-  payload?: { action?: 'start' | 'resume'; max_items?: number }
+  payload?: { action?: 'start' | 'resume' | 'stop'; max_items?: number }
 ): Promise<StakeholderNotesGenerationResponse> {
   const response = await apiClient.post(`/api/v1/projects/${projectId}/stakeholders/priority/generate-notes/`, {
     action: payload?.action || 'start',
@@ -877,10 +946,44 @@ export async function generateProjectStakeholderNotes(
 
 export async function exportProjectStakeholderPriorityCsv(
   projectId: string,
-  entityType?: string
+  entityType?: string,
+  limit: number = 20,
 ): Promise<Blob> {
   const response = await apiClient.get(`/api/v1/projects/${projectId}/stakeholders/priority/export/csv/`, {
-    params: entityType ? { entity_type: entityType } : undefined,
+    params: {
+      ...(entityType ? { entity_type: entityType } : {}),
+      limit,
+    },
+    responseType: 'blob',
+  });
+  return response.data as Blob;
+}
+
+export async function exportProjectStakeholderPriorityPdf(
+  projectId: string,
+  entityType?: string,
+  limit: number = 20,
+): Promise<Blob> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/stakeholders/priority/export/pdf/`, {
+    params: {
+      ...(entityType ? { entity_type: entityType } : {}),
+      limit,
+    },
+    responseType: 'blob',
+  });
+  return response.data as Blob;
+}
+
+export async function exportProjectStakeholderPriorityDocx(
+  projectId: string,
+  entityType?: string,
+  limit: number = 20,
+): Promise<Blob> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/stakeholders/priority/export/docx/`, {
+    params: {
+      ...(entityType ? { entity_type: entityType } : {}),
+      limit,
+    },
     responseType: 'blob',
   });
   return response.data as Blob;
@@ -938,6 +1041,67 @@ export async function getProjectDocumentStatus(
   return response.data;
 }
 
+export async function getProjectDocumentEntities(projectId: string, docId: string): Promise<DocumentReviewEntity[]> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/${docId}/entities/`);
+  return response.data || [];
+}
+
+export async function getProjectDocumentRelationships(projectId: string, docId: string): Promise<DocumentReviewRelationship[]> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/${docId}/relationships/`);
+  return response.data || [];
+}
+
+export async function getProjectDocumentContext(
+  projectId: string,
+  docId: string,
+  focusTerms: string[] = [],
+): Promise<ProjectDocumentContext> {
+  const params = new URLSearchParams();
+  focusTerms
+    .map((term) => term.trim())
+    .filter(Boolean)
+    .forEach((term) => params.append('focus', term));
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/documents/${docId}/context/${suffix}`);
+  return response.data;
+}
+
+export async function updateProjectEntity(
+  projectId: string,
+  entityId: string,
+  payload: { canonical_name?: string; entity_type?: string }
+): Promise<{ status: string }> {
+  const response = await apiClient.patch(`/api/v1/projects/${projectId}/entities/${entityId}/`, payload);
+  return response.data;
+}
+
+export async function deleteProjectDocumentEntity(projectId: string, docId: string, entityId: string): Promise<{ status: string }> {
+  const response = await apiClient.delete(`/api/v1/projects/${projectId}/documents/${docId}/entities/${entityId}/`);
+  return response.data;
+}
+
+export async function updateProjectDocumentRelationship(
+  projectId: string,
+  docId: string,
+  relationshipId: string,
+  relationshipType: string,
+): Promise<{ status: string }> {
+  const response = await apiClient.patch(
+    `/api/v1/projects/${projectId}/documents/${docId}/relationships/${relationshipId}/`,
+    { relationship_type: relationshipType },
+  );
+  return response.data;
+}
+
+export async function deleteProjectDocumentRelationship(
+  projectId: string,
+  docId: string,
+  relationshipId: string,
+): Promise<{ status: string }> {
+  const response = await apiClient.delete(`/api/v1/projects/${projectId}/documents/${docId}/relationships/${relationshipId}/`);
+  return response.data;
+}
+
 export async function extractEntitiesForProject(
   projectId: string,
   documentId?: string,
@@ -966,6 +1130,16 @@ export async function extractEntitiesForProject(
   if (options?.provider) payload.provider = options.provider;
   if (options?.model) payload.model = options.model;
   const response = await apiClient.post(`/api/v1/projects/${projectId}/extract-entities/`, payload);
+  return response.data;
+}
+
+export async function getProjectExtractionStatus(projectId: string): Promise<ProjectExtractionStatus> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/extract-entities/status/`);
+  return response.data;
+}
+
+export async function stopProjectExtraction(projectId: string): Promise<{ status: string; project_id: string; cancel_requested: boolean }> {
+  const response = await apiClient.post(`/api/v1/projects/${projectId}/extract-entities/stop/`);
   return response.data;
 }
 
@@ -1737,6 +1911,42 @@ export async function downloadReportDocx(projectId: string): Promise<void> {
   const disposition = (response.headers['content-disposition'] as string) || '';
   const match = disposition.match(/filename="?([^"]+)"?/);
   const filename = match ? match[1] : 'stakeholder_analysis.docx';
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+export async function downloadWorkplanPdf(projectId: string): Promise<void> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/workplan/export/?format=pdf`, {
+    responseType: 'blob',
+  });
+  const blob = new Blob([response.data as BlobPart], { type: 'application/pdf' });
+  const disposition = (response.headers['content-disposition'] as string) || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : 'workplan.pdf';
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+export async function downloadWorkplanDocx(projectId: string): Promise<void> {
+  const response = await apiClient.get(`/api/v1/projects/${projectId}/workplan/export/?format=docx`, {
+    responseType: 'blob',
+  });
+  const blob = new Blob([response.data as BlobPart], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+  const disposition = (response.headers['content-disposition'] as string) || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : 'workplan.docx';
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;

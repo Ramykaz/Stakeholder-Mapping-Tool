@@ -9,9 +9,13 @@ import StalenessNotice from '@/components/StalenessNotice';
 import ExportTab from '@/components/ExportTab';
 import { getEntityColor } from '@/lib/entityTypes';
 import {
+  getProject,
+  getProjectIntake,
   generateProjectReport,
   generateProjectPersonas,
   generateProjectWorkplan,
+  downloadWorkplanPdf,
+  downloadWorkplanDocx,
   getProjectPersonaGenerationStatus,
   getProjectPersonas,
   getProjectReport,
@@ -54,6 +58,7 @@ export default function ProjectReportPage() {
   const [personaGenerationStatus, setPersonaGenerationStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
   const [personaGenerationMessage, setPersonaGenerationMessage] = useState('');
   const [workplan, setWorkplan] = useState<WorkplanResponse | null>(null);
+  const [initiativeName, setInitiativeName] = useState('');
   const [workplanLoading, setWorkplanLoading] = useState(false);
   const [workplanGenerating, setWorkplanGenerating] = useState(false);
   const [workplanGenerationStatus, setWorkplanGenerationStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
@@ -87,7 +92,7 @@ export default function ProjectReportPage() {
     const statusData = await getProjectPersonaGenerationStatus(projectId);
     setPersonaGenerationStatus(statusData.generation_status);
     setPersonaGenerationMessage(statusData.generation_message || '');
-    if (statusData.generation_status !== 'running') {
+    if (statusData.generation_status === 'completed' || statusData.generation_status === 'error') {
       setGeneratingPersonas(false);
     }
   }, [projectId]);
@@ -103,7 +108,7 @@ export default function ProjectReportPage() {
       setSection6Complete(statusData.section_6_complete);
       setWorkplanGenerationStatus(statusData.generation_status);
       setWorkplanGenerationMessage(statusData.generation_message || '');
-      if (statusData.generation_status !== 'running') {
+      if (statusData.generation_status === 'completed' || statusData.generation_status === 'error') {
         setWorkplanGenerating(false);
       }
       setWorkplan(planData);
@@ -118,6 +123,12 @@ export default function ProjectReportPage() {
     Promise.all([loadReport(), loadStaleness()])
       .catch(() => setMessage('Failed to load report sections.'))
       .finally(() => setLoading(false));
+
+    Promise.all([getProject(projectId), getProjectIntake(projectId)])
+      .then(([project, intake]) => {
+        setInitiativeName((intake?.initiative_name || project?.name || '').trim());
+      })
+      .catch(() => {});
   }, [projectId, loadReport, loadStaleness]);
 
   useEffect(() => {
@@ -269,6 +280,24 @@ export default function ProjectReportPage() {
     }
   };
 
+  const onDownloadWorkplanPdf = async () => {
+    if (!projectId) return;
+    try {
+      await downloadWorkplanPdf(projectId);
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Workplan PDF export'));
+    }
+  };
+
+  const onDownloadWorkplanDocx = async () => {
+    if (!projectId) return;
+    try {
+      await downloadWorkplanDocx(projectId);
+    } catch (error) {
+      setMessage(renderLLMErrorMessage(error, 'Workplan DOCX export'));
+    }
+  };
+
   const onRegenerateAllStale = async () => {
     if (!projectId || staleness.stale_sections.length === 0) return;
     setBusy(true);
@@ -314,6 +343,7 @@ export default function ProjectReportPage() {
 
   const section6Stale = sections.some((section) => section.section_number === 6 && section.status === 'stale');
   const messageIsError = /failed|error|timed out|rate-limited|configuration/i.test(message);
+  const hasGeneratedWorkplan = Boolean(workplan?.generated && (workplan?.components?.length || 0) > 0);
 
   return (
     <>
@@ -395,6 +425,7 @@ export default function ProjectReportPage() {
                   )}
                   <ReportSectionCard
                     section={section}
+                    initiativeName={initiativeName}
                     busy={busy}
                     onRegenerate={onRegenerate}
                     onSaveEdit={onSaveEdit}
@@ -432,7 +463,7 @@ export default function ProjectReportPage() {
               </div>
             ) : (
               <p className="text-sm text-[var(--text3)]">
-                Not enough data to generate a persona for this stakeholder type.
+                No personas generated yet. Click Generate personas to create them from extracted stakeholder evidence.
               </p>
             )}
           </>
@@ -464,6 +495,20 @@ export default function ProjectReportPage() {
                 onClick={() => void onGenerateWorkplan()}
               >
                 {workplanIsGenerating ? 'Generating…' : 'Generate workplan'}
+              </button>
+              <button
+                className="btn-ghost"
+                disabled={!hasGeneratedWorkplan}
+                onClick={() => void onDownloadWorkplanPdf()}
+              >
+                Download workplan PDF
+              </button>
+              <button
+                className="btn-ghost"
+                disabled={!hasGeneratedWorkplan}
+                onClick={() => void onDownloadWorkplanDocx()}
+              >
+                Download workplan DOCX
               </button>
             </div>
 

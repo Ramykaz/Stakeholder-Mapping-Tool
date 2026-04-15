@@ -25,7 +25,7 @@ export default function Home() {
         <TopNavigation />
 
         {/* Hero */}
-        <section style={{
+        <section className="hero-section" style={{
           minHeight: '100vh', display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', textAlign: 'center',
           padding: '120px 48px 80px', position: 'relative', overflow: 'hidden',
@@ -75,9 +75,8 @@ export default function Home() {
             lineHeight: 1.7, margin: '0 auto 40px',
             opacity: 0, animation: 'fadeUp .6s .5s forwards',
           }}>
-            Upload policy documents and let AI extract an interactive network of
-            stakeholders — guided by your project context. Built for UNDP analysts
-            and program teams.
+            Follow the full UNDP workflow: initiative profile, source upload, analyze,
+            graph review, SMQ/report generation, stakeholder table, and export.
           </p>
 
           {/* CTAs */}
@@ -97,14 +96,12 @@ export default function Home() {
           </div>
 
           {/* Capability pillars */}
-          <div style={{
-            display: 'flex', gap: 40, justifyContent: 'center', flexWrap: 'wrap',
-            marginTop: 72, opacity: 0, animation: 'fadeUp .6s .8s forwards',
-          }}>
+          <div className="pillars-grid" style={{ marginTop: 72, opacity: 0, animation: 'fadeUp .6s .8s forwards' }}>
             {[
-              { icon: '🗂️', l: 'Multi-document ingestion' },
-              { icon: '🔗', l: 'Relation extraction' },
-              { icon: '🔍', l: 'Natural-language queries' },
+              { icon: '🧭', l: 'Initiative-profile first' },
+              { icon: '📥', l: 'Analyze + graph review' },
+              { icon: '🧠', l: 'SMQ + report workflow' },
+              { icon: '📄', l: 'Stakeholder table + export' },
             ].map(s => (
               <div key={s.l} style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                 <div style={{ fontSize: 26 }}>{s.icon}</div>
@@ -120,20 +117,20 @@ export default function Home() {
         <section style={{ padding: '80px 48px', maxWidth: 1100, margin: '0 auto', width: '100%' }}>
           <div className="section-label">Capabilities</div>
           <h2 style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(24px,3vw,38px)', color: '#fff', maxWidth: 500, marginBottom: 48 }}>
-            Purpose-built for stakeholder mapping
+            Aligned to the latest UNDP workflow
           </h2>
 
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3,1fr)',
+          <div className="feature-grid" style={{
+            display: 'grid',
             gap: 1, background: 'var(--border)', borderRadius: 16, overflow: 'hidden',
           }}>
             {[
-              { bg: 'rgba(61,111,255,0.08)',  border: 'rgba(61,111,255,0.2)',  title: 'Concept-guided extraction',  body: 'Write a concept note and the LLM extracts only contextually relevant entities — not every name in the document.' },
-              { bg: 'rgba(46,196,165,0.08)',  border: 'rgba(46,196,165,0.2)',  title: 'Interactive knowledge graph', body: 'Explore a live network of nodes and edges. Filter by entity type, focus on clusters, trace relationship paths.' },
-              { bg: 'rgba(155,110,243,0.08)', border: 'rgba(155,110,243,0.2)', title: 'Entity detail profiles',      body: 'Click any node for a full profile: description, all relationships, source documents, and an AI-generated role summary.' },
-              { bg: 'rgba(245,166,35,0.08)',  border: 'rgba(245,166,35,0.2)',  title: 'Natural language queries',    body: "Ask questions in plain English: 'Who funds this ecosystem?' or 'What connects these two organizations?'" },
-              { bg: 'rgba(240,97,74,0.08)',   border: 'rgba(240,97,74,0.2)',   title: 'Global entity registry',      body: 'The same entity across projects exists once globally. Relationships are scoped per project — no duplication.' },
-              { bg: 'rgba(255,255,255,0.04)', border: 'var(--border2)',         title: 'Multi-document processing',  body: 'Upload PDFs, DOCX, TXT, and Markdown files. The graph grows incrementally as each document is processed.' },
+              { bg: 'var(--accent-soft)', border: 'var(--border2)', title: 'Initiative-profile setup', body: 'Start each project with structured initiative context so downstream extraction and generation stay focused.' },
+              { bg: 'var(--teal-soft)', border: 'var(--border2)', title: 'Document and web ingestion', body: 'Upload PDFs, DOCX, TXT, Markdown, or add web sources through one ingestion pipeline.' },
+              { bg: 'var(--purple-soft)', border: 'var(--border2)', title: 'Analyze pipeline', body: 'Run extraction with provider controls, process incrementally, and monitor runs in real time.' },
+              { bg: 'var(--amber-soft)', border: 'var(--border2)', title: 'Graph review and correction', body: 'Review entities and relationships with evidence excerpts, then relabel, merge, or remove inline.' },
+              { bg: 'var(--coral-soft)', border: 'var(--border2)', title: 'SMQ + report generation', body: 'Generate section-focused SMQ outputs and report content with project evidence grounding.' },
+              { bg: 'rgba(255,255,255,0.04)', border: 'var(--border2)', title: 'Stakeholder table and export', body: 'Produce priority tables, personas/workplans, then export deliverables for operations.' },
             ].map(card => (
               <div
                 key={card.title}
@@ -167,27 +164,26 @@ export default function Home() {
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <div className="section-label">Process</div>
             <h2 style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(24px,3vw,38px)', color: '#fff', marginBottom: 64 }}>
-              From documents to insight in four steps
+              How it works today
             </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', position: 'relative' }}>
-              <div style={{
-                position: 'absolute', top: 24, left: '12.5%', right: '12.5%',
-                height: 1, background: 'var(--border2)', zIndex: 0,
-              }}/>
+            <div className="process-grid" style={{ display: 'grid', gap: 14 }}>
               {[
-                { n: '01', title: 'Create a project',    body: 'Name it and write a concept note describing the stakeholder context you care about.' },
-                { n: '02', title: 'Write a concept note', body: 'Tell the AI what this project is about and which stakeholder types matter. This guides every extraction.' },
-                { n: '03', title: 'Upload documents',     body: 'Drop in PDFs, Word files, plain text, or Markdown files. Any combination of project-relevant files.' },
-                { n: '04', title: 'Explore the map',      body: 'Navigate the graph, click nodes for detail, filter by type, and query in natural language.' },
-              ].map((step, i) => (
-                <div key={step.n} style={{ padding: '0 20px', position: 'relative', zIndex: 1 }}>
+                { n: '01', title: 'Initiative profile', body: 'Define project scope, geography, and objectives to seed the workflow context.' },
+                { n: '02', title: 'Upload and process sources', body: 'Add files and web inputs; chunking and embeddings run through ingestion.' },
+                { n: '03', title: 'Analyze', body: 'Run entity and relation extraction with provider/model controls and run tracking.' },
+                { n: '04', title: 'Graph review', body: 'Inspect evidence-backed entities/relationships and correct issues before generation.' },
+                { n: '05', title: 'SMQ + report generation', body: 'Generate section-focused SMQ outputs and narrative report sections.' },
+                { n: '06', title: 'Stakeholder table', body: 'Build priority scoring and action-ready stakeholder table outputs.' },
+                { n: '07', title: 'Export', body: 'Export report deliverables and stakeholder artifacts for downstream use.' },
+              ].map((step) => (
+                <div key={step.n} style={{ padding: '18px 18px 16px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg)' }}>
                   <div style={{
                     width: 48, height: 48, borderRadius: '50%',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontFamily: 'var(--mono)', fontSize: 13,
-                    background: i === 0 ? 'var(--accent)' : 'var(--bg2)',
-                    color:       i === 0 ? '#fff' : 'var(--text2)',
-                    border:      i === 0 ? 'none' : '1px solid var(--border2)',
+                    background: 'var(--accent-soft)',
+                    color: 'var(--accent)',
+                    border: '1px solid var(--border2)',
                   }}>
                     {step.n}
                   </div>
@@ -202,10 +198,10 @@ export default function Home() {
         {/* CTA band */}
         <section style={{ padding: '100px 48px', textAlign: 'center' }}>
           <h2 style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(26px,4vw,44px)', color: '#fff', maxWidth: 560, margin: '0 auto 16px' }}>
-            Ready to map your stakeholder network?
+            Ready to run the new stakeholder workflow?
           </h2>
           <p style={{ color: 'var(--text2)', marginBottom: 32 }}>
-            Used by UNDP policy analysts and program teams worldwide.
+            From source ingestion to validated insights, all in one workspace.
           </p>
           <Link href="/login?tab=register" className="btn-primary btn-primary-lg">
             Create a free account
@@ -230,6 +226,53 @@ export default function Home() {
           </div>
         </footer>
       </div>
+
+      <style jsx>{`
+        .pillars-grid {
+          display: grid;
+          gap: 28px;
+          width: 100%;
+          max-width: 980px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .feature-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .process-grid {
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+
+        @media (max-width: 1200px) {
+          .process-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 1000px) {
+          .feature-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .pillars-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 700px) {
+          .hero-section {
+            padding-left: 20px !important;
+            padding-right: 20px !important;
+          }
+
+          .feature-grid,
+          .process-grid,
+          .pillars-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
     </>
   );
 }

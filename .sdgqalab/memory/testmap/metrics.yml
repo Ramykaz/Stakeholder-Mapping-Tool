@@ -1,0 +1,21 @@
+snapshots:
+  - date: "2026-04-15T00:00"
+    layers:
+      frontend:
+        total_source_files: 64
+        unit_file_coverage_pct: 4.7
+        integration_file_coverage_pct: 26.6
+        line_coverage_pct: 42.6
+        e2e_gaps: 8
+        security_gaps: 4
+        accessibility_gaps: 14
+        test_count: 63
+      backend:
+        total_source_files: 47
+        unit_file_coverage_pct: 31.9
+        integration_file_coverage_pct: 34.0
+        line_coverage_pct: 69.0
+        e2e_gaps: 8
+        security_gaps: 3
+        accessibility_gaps: 0
+        test_count: 259

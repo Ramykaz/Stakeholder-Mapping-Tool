@@ -1,6 +1,6 @@
 """Integration tests for NER API views."""
 
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -756,6 +756,42 @@ class TestProjectExtractEntitiesView(TestCase):
         assert second['relations_created'] == 2
         assert second['fallback_relations_run'] is True
 
+    @patch('ner.views.extract_relations_only_for_document')
+    @patch('ner.views.extract_relations_for_document')
+    def test_explicit_provider_without_model_uses_provider_default_model(self, mock_joint_extract, mock_rel_only):
+        """Explicit provider should not inherit incompatible project model when model is omitted."""
+        self.project.provider = 'openai'
+        self.project.model = 'gpt-5-mini'
+        self.project.save(update_fields=['provider', 'model'])
+
+        mock_joint_extract.return_value = {
+            'entities_created': 1,
+            'relations_created': 1,
+            'run_id': 'run-1',
+        }
+        mock_rel_only.return_value = {
+            'relations_created': 0,
+            'run_id': None,
+        }
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/',
+            {'provider': 'groq'},
+            content_type='application/json',
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data['provider'] == 'groq'
+        assert data['model'] == 'llama-3.1-8b-instant'
+        mock_joint_extract.assert_any_call(
+            str(self.document1.id),
+            provider='groq',
+            model='llama-3.1-8b-instant',
+            concept_note=ANY,
+            cancel_check=ANY,
+        )
+
     def test_project_extract_status_idle_by_default(self):
         response = self.client.get(f'/api/v1/projects/{self.project.id}/extract-entities/status/')
         assert response.status_code == 200
@@ -812,6 +848,56 @@ class TestProjectExtractEntitiesView(TestCase):
         status_data = status_response.json()
         assert status_data['status'] == 'cancelled'
         assert status_data['documents_processed'] == 1
+
+    @patch('ner.views.extract_relations_for_document')
+    def test_rate_limit_returns_customized_provider_payload(self, mock_joint_extract):
+        mock_joint_extract.side_effect = ValueError('API rate limit exceeded')
+
+        response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/',
+            {},
+            content_type='application/json',
+        )
+
+        assert response.status_code == 429
+        data = response.json()
+        assert data['code'] == 'provider_rate_limited'
+        assert data['error_kind'] == 'rate_limit'
+        assert 'rate limited' in data['detail'].lower()
+        assert data['provider_error']['code'] == 'PROVIDER_RATE_LIMITED'
+        assert isinstance(data['provider_error'].get('remediation'), list)
+
+        status_response = self.client.get(f'/api/v1/projects/{self.project.id}/extract-entities/status/')
+        assert status_response.status_code == 200
+        status_data = status_response.json()
+        assert status_data['status'] == 'failed'
+        assert 'rate limit' in str(status_data.get('error', '')).lower()
+
+    def test_project_extract_stop_sets_cancelling_status_when_running(self):
+        cache.set(
+            f'project_extraction_status:{self.project.id}',
+            {
+                'status': 'running',
+                'project_id': str(self.project.id),
+                'documents_total': 2,
+                'documents_processed': 0,
+                'documents_remaining': 2,
+            },
+            timeout=60,
+        )
+
+        stop_response = self.client.post(
+            f'/api/v1/projects/{self.project.id}/extract-entities/stop/',
+            {},
+            content_type='application/json',
+        )
+
+        assert stop_response.status_code == 200
+        status_response = self.client.get(f'/api/v1/projects/{self.project.id}/extract-entities/status/')
+        assert status_response.status_code == 200
+        status_data = status_response.json()
+        assert status_data['status'] == 'cancelling'
+        assert status_data['cancel_requested'] is True
 
 
 class TestCrossProjectLeakageRegression(TestCase):

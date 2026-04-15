@@ -1,6 +1,7 @@
 """DRF serializers for the ingestion app."""
 import unicodedata
 
+from django.conf import settings
 from rest_framework import serializers
 from ingestion.models import Document, Project, ConceptNote, InitiativeProfile, ExtractionGuidance, WebSource
 
@@ -38,6 +39,46 @@ class ProjectWriteSerializer(serializers.ModelSerializer):
         if value.strip().lower() not in allowed:
             raise serializers.ValidationError(f"provider must be one of: {', '.join(sorted(allowed))}")
         return value.strip().lower()
+
+    def validate(self, attrs):
+        provider_specified = 'provider' in attrs
+        model_specified = 'model' in attrs
+        if not provider_specified and not model_specified:
+            return attrs
+
+        allowlist = getattr(settings, 'NER_PROVIDER_MODEL_ALLOWLIST', {}) or {}
+        default_provider = getattr(settings, 'NER_DEFAULT_PROVIDER', 'groq')
+
+        current_provider = ''
+        current_model = ''
+        if self.instance is not None:
+            current_provider = (getattr(self.instance, 'provider', '') or '').strip().lower()
+            current_model = (getattr(self.instance, 'model', '') or '').strip()
+
+        effective_provider = (attrs.get('provider') if provider_specified else current_provider or default_provider) or ''
+        effective_provider = str(effective_provider).strip().lower()
+
+        if effective_provider and effective_provider not in allowlist:
+            raise serializers.ValidationError({'provider': f'Unsupported provider: {effective_provider}'})
+
+        effective_model = (attrs.get('model') if model_specified else current_model) or ''
+        effective_model = str(effective_model).strip()
+
+        if provider_specified and not model_specified and effective_provider in allowlist:
+            attrs['model'] = allowlist[effective_provider][0]
+            effective_model = attrs['model']
+
+        if effective_model:
+            allowed_models = allowlist.get(effective_provider, [])
+            if effective_model not in allowed_models:
+                raise serializers.ValidationError(
+                    {'model': f"Unsupported model '{effective_model}' for provider '{effective_provider}'"}
+                )
+
+        if provider_specified:
+            attrs['provider'] = effective_provider
+
+        return attrs
 
 
 class ConceptNoteSerializer(serializers.ModelSerializer):

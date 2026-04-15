@@ -125,7 +125,25 @@ function normalizeErrorMessage(data: any): string {
   }
 
   if (typeof data.detail === 'string') {
+    if (data.retry_after_seconds) {
+      const seconds = Number(data.retry_after_seconds);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return `${data.detail} Try again in about ${Math.round(seconds)} seconds.`;
+      }
+    }
     return data.detail;
+  }
+
+  if (data.provider_error && typeof data.provider_error === 'object') {
+    if (typeof data.provider_error.message === 'string') {
+      const remediation = Array.isArray(data.provider_error.remediation) && data.provider_error.remediation.length > 0
+        ? ` ${String(data.provider_error.remediation[0])}`
+        : '';
+      return `${data.provider_error.message}${remediation}`.trim();
+    }
+    if (typeof data.provider_error.detail === 'string') {
+      return data.provider_error.detail;
+    }
   }
 
   if (data.error && typeof data.error === 'object') {
@@ -176,8 +194,16 @@ export function mapLLMErrorMessage(error: unknown): { kind: LLMErrorKind; messag
     return fallback;
   }
 
-  const message = (error.message || '').toLowerCase();
+  const rawMessage = (error.message || '').trim();
+  const message = rawMessage.toLowerCase();
   if (message.includes('rate limit') || message.includes('429') || message.includes('provider is rate limited')) {
+    const retryMatch = rawMessage.match(/try again in about \d+ seconds?/i);
+    if (retryMatch) {
+      return {
+        kind: 'rate_limit',
+        message: `Provider is rate-limited. ${retryMatch[0]}`,
+      };
+    }
     return {
       kind: 'rate_limit',
       message: 'Provider is rate-limited. Please wait a moment, switch provider, then retry.',
@@ -220,7 +246,8 @@ apiClient.interceptors.response.use(
 
       // Return user-friendly error message
       const errorDetail = normalizeErrorMessage(data);
-      const errorCode = String(data?.code || data?.error?.code || '').toLowerCase();
+      const errorCode = String(data?.code || data?.provider_error?.code || data?.error?.code || '').toLowerCase();
+      const errorKind = String(data?.error_kind || '').toLowerCase();
 
       if (errorCode === 'incorrect_password') {
         return Promise.reject(new Error('Incorrect password.'));
@@ -230,7 +257,7 @@ apiClient.interceptors.response.use(
         return Promise.reject(new Error('Invalid credentials.'));
       }
 
-      if (errorCode === 'provider_rate_limited') {
+      if (errorCode === 'provider_rate_limited' || errorKind === 'rate_limit') {
         const mapped = mapLLMErrorMessage(new Error(errorDetail || 'Provider is rate limited. Switch provider and retry.'));
         return Promise.reject(new Error(mapped.message));
       }

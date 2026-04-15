@@ -424,8 +424,21 @@ class RelationshipTypeAdminDetailView(APIView):
 def _resolve_provider_and_model(request, project=None) -> tuple[str, str]:
     """Resolve provider/model using request payload with project-aware fallback defaults."""
     payload = request.data if isinstance(request.data, dict) else {}
-    provider = str(payload.get('provider') or '').strip().lower() or (getattr(project, 'provider', '') or '').strip().lower() or None
-    model = str(payload.get('model') or '').strip() or (getattr(project, 'model', '') or '').strip() or None
+    payload_provider = str(payload.get('provider') or '').strip().lower()
+    payload_model = str(payload.get('model') or '').strip()
+    project_provider = (getattr(project, 'provider', '') or '').strip().lower()
+    project_model = (getattr(project, 'model', '') or '').strip()
+
+    if payload_provider:
+        provider = payload_provider
+        model = payload_model or None
+    elif payload_model:
+        provider = project_provider or None
+        model = payload_model
+    else:
+        provider = project_provider or None
+        model = project_model or None
+
     resolved = resolve_provider_model(provider, model)
     return resolved.provider, resolved.model
 
@@ -458,17 +471,27 @@ def handle_groq_error(exception):
         provider_name = str(provider or 'selected provider')
         provider_lower = provider_name.lower()
         guidance = 'Switch to OpenAI provider in the extraction controls and retry.' if provider_lower == 'groq' else 'Switch to another configured provider and retry.'
+        retry_seconds = None
+        retry_match = re.search(r'in\s+(\d+(?:\.\d+)?)\s+seconds', str(exception), re.IGNORECASE)
+        if retry_match:
+            try:
+                retry_seconds = int(round(float(retry_match.group(1))))
+            except (TypeError, ValueError):
+                retry_seconds = None
+        detail_message = f'{provider_name} is currently rate limited. Please wait and retry.'
         return Response(
             {
                 'error': 'llm_error',
+                'code': 'provider_rate_limited',
                 'error_kind': 'rate_limit',
-                'detail': f'{provider_name} API rate limit exceeded.',
+                'detail': detail_message,
                 'provider_error': {
                     'code': 'PROVIDER_RATE_LIMITED',
                     'message': f'{provider_name} is currently rate limited.',
-                    'detail': f'{provider_name} API rate limit exceeded.',
+                    'detail': detail_message,
                     'remediation': [guidance],
                 },
+                'retry_after_seconds': retry_seconds,
             },
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
@@ -1378,6 +1401,22 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
         except ValueError as e:
             error_msg = str(e).lower()
             if 'rate limit' in error_msg or '429' in error_msg:
+                project_id = str(id)
+                _set_project_extraction_status(
+                    project_id,
+                    {
+                        'status': 'failed',
+                        'project_id': project_id,
+                        'documents_total': len(documents) if isinstance(documents, list) else 0,
+                        'documents_processed': len(per_document_results) if isinstance(per_document_results, list) else 0,
+                        'documents_remaining': max((len(documents) if isinstance(documents, list) else 0) - (len(per_document_results) if isinstance(per_document_results, list) else 0), 0),
+                        'entities_created': total_entities_created,
+                        'relations_created': total_relations_created,
+                        'error': str(e),
+                        'cancel_requested': _is_project_extraction_cancelled(project_id),
+                        'last_completed_at': timezone.now().isoformat(),
+                    },
+                )
                 return handle_groq_error(e)
             project_id = str(id)
             _set_project_extraction_status(
@@ -1434,7 +1473,9 @@ class ProjectExtractStopView(AuthenticatedAPIView):
         cache.set(_project_extraction_cancel_cache_key(project_id), True, timeout=60 * 60)
         status_payload = _get_project_extraction_status(project_id)
         if status_payload.get('status') == 'running':
+            status_payload['status'] = 'cancelling'
             status_payload['cancel_requested'] = True
+            status_payload['last_updated_at'] = timezone.now().isoformat()
             _set_project_extraction_status(project_id, status_payload)
 
         return Response(

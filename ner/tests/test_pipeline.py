@@ -1,12 +1,13 @@
 """Test suite for entity extraction pipeline."""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 from django.test import TestCase
 from ingestion.models import Document, Chunk
 from ner.models import Entity, NERRun
-from ner.services.pipeline import extract_entities_for_document
+from ner.services.pipeline import _resolve_provider_config, extract_entities_for_document
 
 
 class TestExtractEntitiesForDocument(TestCase):
@@ -40,6 +41,15 @@ class TestExtractEntitiesForDocument(TestCase):
 
         with pytest.raises(Document.DoesNotExist):
             extract_entities_for_document(str(non_existent_id))
+
+    def test_resolve_provider_config_explicit_provider_ignores_project_model(self):
+        """Explicit provider without model should resolve to that provider's default model."""
+        project = SimpleNamespace(provider='openai', model='gpt-5-mini')
+
+        config = _resolve_provider_config('groq', None, project=project)
+
+        assert config.provider == 'groq'
+        assert config.model == 'llama-3.1-8b-instant'
 
     @patch.dict('os.environ', {'GROQ_API_KEY': 'test-key'})
     @patch('ner.services.pipeline._extract_chunk_entities')

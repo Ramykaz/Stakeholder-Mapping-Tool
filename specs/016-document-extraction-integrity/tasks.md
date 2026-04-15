@@ -294,3 +294,6 @@ Task: "T050 [US6] Add no-connections fallback message for empty neighborhoods in
 - [X] F001 Add project-level extraction status and stop endpoints with cooperative cancellation in `ner/views.py`, `ner/services/pipeline.py`, and `ner/urls.py`
 - [X] F002 Integrate extraction status polling + stop action in `frontend/pages/projects/[id]/analyze.tsx` and API client methods in `frontend/src/lib/api.ts`
 - [X] F003 Refresh documents extraction state during/after active runs in `frontend/pages/projects/[id]/documents.tsx` and add backend regression tests in `ner/tests/test_views.py`
+- [X] F004 Fix provider/model resolution fallback so explicit request provider uses provider-default model when model is omitted in `ner/views.py`, with regression coverage in `ner/tests/test_views.py`
+- [X] F005 Return user-friendly provider rate-limit payloads and map them in the Analyze client flow via `ner/views.py` and `frontend/src/lib/api.ts`, with regression tests in `ner/tests/test_views.py` and `frontend/src/__tests__/lib/api.test.ts`
+- [X] F006 Prevent Analyze from getting stuck on 429 by persisting failed extraction status and improve stop-flow status transitions (`running` → `cancelling`) in `ner/views.py` and `frontend/pages/projects/[id]/analyze.tsx`, with backend regressions in `ner/tests/test_views.py`

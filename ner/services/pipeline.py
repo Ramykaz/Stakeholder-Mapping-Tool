@@ -105,7 +105,17 @@ def _deduplicate_entities_for_save(
 def _resolve_provider_config(provider: str | None, model: str | None, project=None) -> ProviderConfig:
     project_provider = (getattr(project, 'provider', '') or '').strip() or None
     project_model = (getattr(project, 'model', '') or '').strip() or None
-    return resolve_provider_model(provider or project_provider, model or project_model)
+
+    resolved_provider = (provider or '').strip().lower() or None
+    resolved_model = (model or '').strip() or None
+
+    if resolved_provider:
+        return resolve_provider_model(resolved_provider, resolved_model)
+
+    if resolved_model:
+        return resolve_provider_model(project_provider, resolved_model)
+
+    return resolve_provider_model(project_provider, project_model)
 
 
 def _extract_chunk_entities(chunk_text: str, provider_config: ProviderConfig) -> dict:

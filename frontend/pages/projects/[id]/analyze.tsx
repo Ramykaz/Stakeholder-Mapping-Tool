@@ -70,13 +70,13 @@ export default function AnalyzePage() {
         if (!isMounted) return;
         setProjectExtractionStatus(status);
 
-        if (status.status === 'running' || status.cancel_requested) {
+        if (status.status === 'running' || status.status === 'cancelling' || status.cancel_requested) {
           const latestDocs = await getProjectDocuments(id);
           if (!isMounted) return;
           setDocuments(latestDocs);
         }
 
-        if (status.status === 'completed' || status.status === 'cancelled') {
+        if (status.status === 'completed' || status.status === 'cancelled' || status.status === 'failed') {
           const [latestDocs, ents, graph] = await Promise.all([
             getProjectDocuments(id),
             getProjectEntities(id),
@@ -88,6 +88,9 @@ export default function AnalyzePage() {
           setEdges(graph.edges);
           setExtracted(ents.length > 0);
           setExtracting(false);
+          if (status.status === 'failed' && status.error) {
+            setError(String(status.error));
+          }
         }
       } catch {
         // non-blocking
@@ -133,6 +136,14 @@ export default function AnalyzePage() {
     setStoppingExtraction(true);
     setError('');
     try {
+      setProjectExtractionStatus((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'cancelling',
+          cancel_requested: true,
+        };
+      });
       await stopProjectExtraction(id);
       const status = await getProjectExtractionStatus(id);
       setProjectExtractionStatus(status);
@@ -147,7 +158,7 @@ export default function AnalyzePage() {
   const newDocs = completedDocs.filter((doc) => !doc.extracted_at);
   const extractingDocs = documents.filter((doc) => doc.extraction_state === 'extracting');
   const hasBackgroundExtraction = extractingDocs.length > 0;
-  const isProjectRunning = projectExtractionStatus?.status === 'running';
+  const isProjectRunning = projectExtractionStatus?.status === 'running' || projectExtractionStatus?.status === 'cancelling';
   const isAnalyzing = extracting || hasBackgroundExtraction || isProjectRunning;
   const canExtract = newDocs.length > 0 && !extracting;
 
@@ -234,7 +245,9 @@ export default function AnalyzePage() {
                   <div style={{ padding: '12px 16px', background: 'var(--accent-soft)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s infinite' }}/>
                     <span style={{ fontSize: 13, color: 'var(--accent)', fontFamily: 'var(--mono)' }}>
-                      {isProjectRunning && projectExtractionStatus?.documents_total
+                      {(projectExtractionStatus?.status === 'cancelling' || projectExtractionStatus?.cancel_requested)
+                        ? 'Stopping analysis… finishing the current provider call.'
+                        : isProjectRunning && projectExtractionStatus?.documents_total
                         ? `Analyzing ${projectExtractionStatus.documents_processed ?? 0}/${projectExtractionStatus.documents_total} documents...`
                         : hasBackgroundExtraction
                         ? `Analyzing in progress for ${extractingDocs.length} document${extractingDocs.length === 1 ? '' : 's'}…`

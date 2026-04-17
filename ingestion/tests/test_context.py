@@ -1,7 +1,5 @@
 """Unit tests for ingestion.services.context.get_project_context."""
 
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -17,7 +15,7 @@ class TestGetProjectContext(TestCase):
 
     def test_returns_initiative_profile_context_string_when_present(self):
         from ingestion.services.context import get_project_context
-        profile = InitiativeProfile.objects.create(
+        InitiativeProfile.objects.create(
             project=self.project,
             initiative_name='Education Reform',
             host_organization='UNDP',

@@ -1,7 +1,6 @@
 """Unit tests for ner/services/pdf_utils.py — pdf_safe and resolve_pdf_fonts."""
 
 from unittest.mock import MagicMock, patch
-import pytest
 
 
 class TestPdfSafe:
@@ -76,7 +75,7 @@ class TestResolvePdfFonts:
 
         with (
             patch('os.path.exists', side_effect=fake_exists),
-            patch('ner.services.pdf_utils.pdfmetrics') as mock_metrics,
+            patch('ner.services.pdf_utils.pdfmetrics'),
             patch('ner.services.pdf_utils.TTFont', return_value=MagicMock()),
         ):
             regular, bold, use_unicode = resolve_pdf_fonts()
@@ -98,7 +97,7 @@ class TestResolvePdfFonts:
 
         with (
             patch('os.path.exists', return_value=True),
-            patch('ner.services.pdf_utils.pdfmetrics') as mock_pm,
+            patch('ner.services.pdf_utils.pdfmetrics'),
             patch('ner.services.pdf_utils.TTFont', side_effect=raise_on_register),
         ):
             regular, bold, use_unicode = resolve_pdf_fonts()

@@ -1,7 +1,6 @@
 """Unit tests for ingestion.services.web_source helper functions."""
 
-import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -51,7 +50,7 @@ class TestExtractTextFromHtml:
         from ingestion.services.web_source import _extract_text_from_html
         html = '<html><body><p>Line one</p><p>   </p><p>Line two</p></body></html>'
         result = _extract_text_from_html(html)
-        lines = [l for l in result.splitlines() if l.strip()]
+        lines = [line for line in result.splitlines() if line.strip()]
         assert len(lines) == 2
 
     def test_extracts_text_from_heading_and_paragraph(self):
@@ -77,7 +76,7 @@ class TestBlockedAccessMessage:
 
 class TestProcessWebSourceRecord(TestCase):
     def setUp(self):
-        from ingestion.models import WebSource, Project
+        from ingestion.models import Project
         self.user = User.objects.create_user('ws_user', 'ws@example.com', 'Pass123')
         self.project = Project.objects.create(name='Web Source Project', owner=self.user)
 

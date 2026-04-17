@@ -74,7 +74,7 @@ jobs:
         run: python manage.py migrate --no-input
 
       - name: Run tests
-        run: pytest tests/ --tb=short -q
+        run: pytest ner/ ingestion/ --tb=short -q
 
   # ── Frontend ─────────────────────────────────────────────────────────────────
   frontend-lint:

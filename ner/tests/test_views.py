@@ -578,7 +578,7 @@ class TestExtractEntitiesRelationsView(TestCase):
         assert response.status_code == 201
         
         # Old relations should be deleted
-        final_relation_count = Relation.objects.filter(document_id=self.document).count()
+        _final_relation_count = Relation.objects.filter(document_id=self.document).count()
         # The endpoint deletes old relations, then creates new ones via mock
         # Actual deletion happens in the view before calling pipeline
 

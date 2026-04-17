@@ -1,12 +1,3 @@
-from .services.pipeline import (
-    extract_entities_for_document,
-    extract_relations_for_document,
-    extract_relations_only_for_document,
-    ExtractionCancelledError,
-    _extraction_progress,
-    get_active_entity_style_map,
-    cleanup_orphan_entities,
-)
 """REST API views for NER pipeline."""
 
 import csv
@@ -15,20 +6,21 @@ import logging
 import re
 import time
 from datetime import timedelta
+
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django_ratelimit.decorators import ratelimit
-from django_ratelimit.exceptions import Ratelimited
 from rest_framework import status
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from ingestion.models import Document, Project, get_or_create_default_project
 from ingestion.services.context import get_project_context
+
 from .models import (
     Entity,
     EntityMention,
@@ -43,11 +35,9 @@ from .models import (
     ProjectSMQResponse,
     ProjectSMQAnswer,
     ReportSection,
-    EngagementNote,
 )
 from .serializers import (
     EntitySerializer,
-    CytoscapeNodeSerializer,
     NERRunSerializer,
     RelationSerializer,
     EntityLabelSerializer,
@@ -65,19 +55,31 @@ from .serializers import (
     DocumentReviewEntitySerializer,
     DocumentReviewRelationshipSerializer,
 )
-from .services.report_staleness import flag_stale_report_sections
 from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
 from .services.pdf_utils import pdf_safe, resolve_pdf_fonts
-from .services.provider_runtime import ProviderConfigError, classify_provider_error, validate_provider_runtime_config
-from .services.provider_factory import resolve_provider_model
-from .services.smq_generator import generate_smq_section
+from .services.pipeline import (
+    ExtractionCancelledError,
+    _extraction_progress,
+    cleanup_orphan_entities,
+    extract_entities_for_document,
+    extract_relations_for_document,
+    extract_relations_only_for_document,
+    get_active_entity_style_map,
+)
 from .services.priority_table import compute_priority_scores
+from .services.provider_factory import resolve_provider_model
+from .services.provider_runtime import (
+    ProviderConfigError,
+    classify_provider_error,
+    validate_provider_runtime_config,
+)
+from .services.report_staleness import flag_stale_report_sections
+from .services.smq_generator import generate_smq_section
 from .tasks import (
     generate_report_sections_task,
-    regenerate_report_section_task,
-    generate_priority_notes_task,
     generate_workplan_task,
+    regenerate_report_section_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -2939,7 +2941,6 @@ class DeduplicationReviewListView(AuthenticatedAPIView):
         for c in candidates:
             left_chunk = None
             if c.left_entity.chunk_id_id:
-                from ingestion.models import Chunk
                 chunk = getattr(c.left_entity, 'chunk_id', None)
                 if chunk:
                     left_chunk = (chunk.text or '')[:280]
@@ -3359,7 +3360,6 @@ def _gather_report_data(project):
     )
 
     # Most influential entities: ranked by number of relations (degree centrality)
-    from django.db.models import OuterRef, Subquery
     entity_ids = list(entities.values_list('id', flat=True).distinct())
     rel_counts = {}
     for eid in entity_ids:
@@ -3616,7 +3616,6 @@ def _clean_narrative(text: str) -> str:
 def _build_project_report_docx(project):
     """Build an LLM-narrated DOCX stakeholder analysis report."""
     from docx import Document as DocxDocument
-    from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     data = _gather_report_data(project)
@@ -3639,7 +3638,9 @@ def _build_project_report_docx(project):
     summary_table = doc.add_table(rows=1, cols=3)
     summary_table.style = 'Light List Accent 1'
     hdr = summary_table.rows[0].cells
-    hdr[0].text = 'Documents'; hdr[1].text = 'Stakeholders'; hdr[2].text = 'Relationships'
+    hdr[0].text = 'Documents'
+    hdr[1].text = 'Stakeholders'
+    hdr[2].text = 'Relationships'
     row = summary_table.add_row().cells
     row[0].text = str(data['doc_count'])
     row[1].text = str(data['entity_count'])
@@ -3662,10 +3663,12 @@ def _build_project_report_docx(project):
         type_table = doc.add_table(rows=1, cols=2)
         type_table.style = 'Light List Accent 1'
         hdr = type_table.rows[0].cells
-        hdr[0].text = 'Type'; hdr[1].text = 'Count'
+        hdr[0].text = 'Type'
+        hdr[1].text = 'Count'
         for row_data in data['type_counts']:
             row = type_table.add_row().cells
-            row[0].text = row_data['entity_type']; row[1].text = str(row_data['count'])
+            row[0].text = row_data['entity_type']
+            row[1].text = str(row_data['count'])
         doc.add_paragraph('')
 
     # Most influential stakeholders
@@ -3674,7 +3677,10 @@ def _build_project_report_docx(project):
         inf_table = doc.add_table(rows=1, cols=4)
         inf_table.style = 'Light List Accent 1'
         hdr = inf_table.rows[0].cells
-        hdr[0].text = 'Stakeholder'; hdr[1].text = 'Type'; hdr[2].text = 'Connections'; hdr[3].text = 'Confidence'
+        hdr[0].text = 'Stakeholder'
+        hdr[1].text = 'Type'
+        hdr[2].text = 'Connections'
+        hdr[3].text = 'Confidence'
         for e in data['influential_entities'][:12]:
             row = inf_table.add_row().cells
             row[0].text = e['name']
@@ -3693,7 +3699,9 @@ def _build_project_report_docx(project):
         rel_table = doc.add_table(rows=1, cols=3)
         rel_table.style = 'Light List Accent 1'
         hdr = rel_table.rows[0].cells
-        hdr[0].text = 'Source'; hdr[1].text = 'Relationship'; hdr[2].text = 'Target'
+        hdr[0].text = 'Source'
+        hdr[1].text = 'Relationship'
+        hdr[2].text = 'Target'
         for r in data['top_relations'][:30]:
             row = rel_table.add_row().cells
             row[0].text = r.source_entity.canonical_name if r.source_entity else ''

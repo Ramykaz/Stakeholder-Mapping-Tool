@@ -46,8 +46,7 @@ describe('pages/auth/login re-export', () => {
   });
 
   test('renders the login page component from re-export', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const AuthLoginPage = require('../../../pages/auth/login').default;
+    const AuthLoginPage = require('../../../pages/auth/login').default; // eslint-disable-line
     render(<AuthLoginPage />);
     // Login page always renders an email / username input or login-related text
     const inputs = document.querySelectorAll('input');

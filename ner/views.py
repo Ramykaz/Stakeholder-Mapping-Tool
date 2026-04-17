@@ -103,7 +103,10 @@ class AIRateLimitedView(AuthenticatedAPIView):
     def dispatch(self, request, *args, **kwargs):
         # django-ratelimit uses REMOTE_ADDR by default for anonymous users;
         # we key on the authenticated user's ID for accurate per-user limits.
-        user_key = str(request.user.pk) if request.user and request.user.is_authenticated else None
+        # Use getattr because dispatch runs before DRF wraps the raw WSGIRequest,
+        # so request.user may not yet be set (no AuthenticationMiddleware in stack).
+        _user = getattr(request, 'user', None)
+        user_key = str(_user.pk) if _user and getattr(_user, 'is_authenticated', False) else None
         if user_key:
             from django_ratelimit.core import is_ratelimited
             limited = is_ratelimited(

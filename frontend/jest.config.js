@@ -8,6 +8,7 @@ const customConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@sentry/nextjs$': '<rootDir>/src/__tests__/fixtures/__mocks__/@sentry/nextjs.ts',
   },
   testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/.next/', '<rootDir>/src/__tests__/fixtures/'],
   collectCoverageFrom: [

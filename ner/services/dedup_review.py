@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.utils import timezone
+from ner.models import EntityAlias, Relation
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
@@ -27,8 +28,6 @@ def resolve_review_candidate(
 
     Returns the updated candidate.
     """
-    from ner.models import EntityAlias, Relation
-
     if action == 'merge':
         winner = candidate.left_entity
         loser = candidate.right_entity

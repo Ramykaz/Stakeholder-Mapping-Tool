@@ -227,11 +227,14 @@ class TestIngestTextDocument:
         with (
             patch('ingestion.services.pipeline.Document') as MockDoc,
             patch('ingestion.services.pipeline.Chunk') as MockChunk,
+            patch('ingestion.services.pipeline.transaction') as mock_txn,
             patch('ingestion.services.pipeline.clean_text', return_value='cleaned'),
             patch('ingestion.services.pipeline.chunk_text', return_value=chunks),
             patch('ingestion.services.pipeline.embed_chunks', return_value=embeddings),
             patch('ingestion.services.pipeline.count_tokens', return_value=8),
         ):
+            mock_txn.atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
             MockDoc.objects.create.return_value = doc
             MockDoc.STATUS_PENDING = 'pending'
             MockDoc.STATUS_COMPLETED = 'completed'
@@ -255,12 +258,15 @@ class TestIngestTextDocument:
         with (
             patch('ingestion.services.pipeline.Document') as MockDoc,
             patch('ingestion.services.pipeline.Chunk') as MockChunk,
+            patch('ingestion.services.pipeline.transaction') as mock_txn,
             patch('ingestion.services.pipeline.clean_web_text', return_value='cleaned web') as mock_web_clean,
             patch('ingestion.services.pipeline.clean_text') as mock_clean,
             patch('ingestion.services.pipeline.chunk_text', return_value=['chunk']),
             patch('ingestion.services.pipeline.embed_chunks', return_value=_fake_embeddings(['chunk'])),
             patch('ingestion.services.pipeline.count_tokens', return_value=5),
         ):
+            mock_txn.atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
             MockDoc.objects.create.return_value = doc
             MockDoc.STATUS_PENDING = 'pending'
             MockDoc.STATUS_COMPLETED = 'completed'
@@ -305,11 +311,14 @@ class TestIngestTextDocument:
         with (
             patch('ingestion.services.pipeline.Document') as MockDoc,
             patch('ingestion.services.pipeline.Chunk') as MockChunk,
+            patch('ingestion.services.pipeline.transaction') as mock_txn,
             patch('ingestion.services.pipeline.clean_text', return_value='text'),
             patch('ingestion.services.pipeline.chunk_text', return_value=['c']),
             patch('ingestion.services.pipeline.embed_chunks', return_value=_fake_embeddings(['c'])),
             patch('ingestion.services.pipeline.count_tokens', return_value=1),
         ):
+            mock_txn.atomic.return_value.__enter__ = MagicMock(return_value=None)
+            mock_txn.atomic.return_value.__exit__ = MagicMock(return_value=False)
             MockDoc.objects.create.return_value = doc
             MockDoc.STATUS_PENDING = 'pending'
             MockDoc.STATUS_COMPLETED = 'completed'

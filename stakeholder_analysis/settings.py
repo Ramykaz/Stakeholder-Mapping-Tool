@@ -16,10 +16,13 @@ import sys
 def _require_env(name: str, default=None, required=True) -> str:
     value = os.environ.get(name, default)
     if required and (value is None or str(value).strip() == ''):
-        raise ImproperlyConfigured(
+        msg = (
             f"Missing required environment variable: {name}. "
             f"Copy .env.example to .env and set this value."
         )
+        sys.stderr.write(f"ERROR: {msg}\n")
+        sys.stderr.flush()
+        raise ImproperlyConfigured(msg)
     return str(value).strip() if value is not None else value
 
 

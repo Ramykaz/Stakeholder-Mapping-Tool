@@ -1,5 +1,27 @@
 const { withSentryConfig } = require('@sentry/nextjs');
 
+function safeOrigin(url) {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+const apiOrigin = safeOrigin(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000');
+const connectSrc = [
+  "'self'",
+  'https://*.sentry.io',
+  'https://*.ingest.sentry.io',
+  'http://127.0.0.1:8000',
+  'http://localhost:8000',
+];
+
+if (apiOrigin && !connectSrc.includes(apiOrigin)) {
+  connectSrc.push(apiOrigin);
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -40,7 +62,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob:",
-              "connect-src 'self' https://*.sentry.io https://o*.ingest.sentry.io",
+              `connect-src ${connectSrc.join(' ')}`,
               "worker-src 'self' blob:",
               "frame-ancestors 'none'",
             ].join('; '),

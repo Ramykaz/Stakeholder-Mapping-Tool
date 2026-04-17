@@ -223,22 +223,22 @@ class TestAdminEndpointAccessControl:
 
     def test_regular_user_cannot_list_admin_users(self):
         _, client = _make_user_and_client('sec_regadm', 'regadm@example.com')
-        resp = client.get('/api/auth/admin/users/')
+        resp = client.get('/api/v1/auth/admin/users/')
         assert resp.status_code == 403
 
     def test_regular_user_cannot_view_admin_stats(self):
         _, client = _make_user_and_client('sec_regstat', 'regstat@example.com')
-        resp = client.get('/api/auth/admin/stats/')
+        resp = client.get('/api/v1/auth/admin/stats/')
         assert resp.status_code == 403
 
     def test_regular_user_cannot_list_admin_projects(self):
         _, client = _make_user_and_client('sec_regproj', 'regproj@example.com')
-        resp = client.get('/api/auth/admin/projects/')
+        resp = client.get('/api/v1/auth/admin/projects/')
         assert resp.status_code == 403
 
     def test_staff_user_can_access_admin_stats(self):
         _, client = _make_user_and_client('sec_staffstat', 'staffstat@example.com', is_staff=True)
-        resp = client.get('/api/auth/admin/stats/')
+        resp = client.get('/api/v1/auth/admin/stats/')
         assert resp.status_code == 200
 
 
@@ -251,16 +251,16 @@ class TestAuthEndpointSecurity:
     """Core auth security properties."""
 
     def test_logout_without_token_returns_401(self):
-        resp = APIClient().post('/api/auth/logout/')
+        resp = APIClient().post('/api/v1/auth/logout/')
         assert resp.status_code == 401
 
     def test_me_without_token_returns_401(self):
-        resp = APIClient().get('/api/auth/me/')
+        resp = APIClient().get('/api/v1/auth/me/')
         assert resp.status_code == 401
 
     def test_login_with_nonexistent_user_returns_400_not_500(self):
         resp = APIClient().post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             {'username': 'nobody_at_all', 'password': 'SomePass1!'},
             format='json',
         )
@@ -270,7 +270,7 @@ class TestAuthEndpointSecurity:
     def test_login_with_wrong_password_returns_400(self):
         User.objects.create_user(username='sec_loginwrong', email='loginwrong@example.com', password='CorrectPass1!')
         resp = APIClient().post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             {'username': 'sec_loginwrong', 'password': 'WrongPass!'},
             format='json',
         )
@@ -283,7 +283,7 @@ class TestAuthEndpointSecurity:
             password='Pass1!', is_active=False,
         )
         resp = APIClient().post(
-            '/api/auth/login/',
+            '/api/v1/auth/login/',
             {'username': 'sec_disabled', 'password': 'Pass1!'},
             format='json',
         )
@@ -292,7 +292,7 @@ class TestAuthEndpointSecurity:
     def test_register_duplicate_username_returns_400(self):
         User.objects.create_user(username='sec_dup', email='dup1@example.com', password='Pass1!')
         resp = APIClient().post(
-            '/api/auth/register/',
+            '/api/v1/auth/register/',
             {'username': 'sec_dup', 'email': 'dup2@example.com', 'password': 'Pass1!'},
             format='json',
         )
@@ -301,7 +301,7 @@ class TestAuthEndpointSecurity:
     def test_register_duplicate_email_returns_400(self):
         User.objects.create_user(username='sec_dupeml1', email='dupeml@example.com', password='Pass1!')
         resp = APIClient().post(
-            '/api/auth/register/',
+            '/api/v1/auth/register/',
             {'username': 'sec_dupeml2', 'email': 'dupeml@example.com', 'password': 'Pass1!'},
             format='json',
         )
@@ -360,22 +360,25 @@ class TestDocumentUploadSecurity:
         We verify that the server does not crash (< 500).
         """
         from django.core.files.uploadedfile import SimpleUploadedFile
+        from unittest.mock import patch as _patch
         from ingestion.models import Document
-        from unittest.mock import patch as _patch, MagicMock as _MM
 
         url, client = self._upload_url()
+        # Re-use the project that _upload_url created so we can create a doc under it.
+        user, _ = _make_user_and_client('sec_traversal', 'traversal@example.com')
+        project = _make_project(user)
+        url = f'/api/v1/projects/{project.id}/documents/'
+        client2 = _
         evil_file = SimpleUploadedFile('../../etc/passwd.pdf', b'%PDF-1.4 fake', content_type='application/pdf')
 
-        fake_doc = _MM(spec=Document)
-        fake_doc.id = 'doc-path-traversal'
-        fake_doc.filename = '../../etc/passwd.pdf'
-        fake_doc.file_format = 'pdf'
-        fake_doc.processing_status = 'completed'
-        fake_doc.chunk_count = 1
-        fake_doc.upload_timestamp = None
-        fake_doc.raw_text = ''
-        fake_doc.cleaned_text = ''
+        # Use a real Document so DRF can serialise it without recursion.
+        real_doc = Document.objects.create(
+            filename='passwd.pdf',  # view sanitises the name
+            file_format='pdf',
+            processing_status=Document.STATUS_COMPLETED,
+            project=project,
+        )
 
-        with _patch('ingestion.views.ingest_document', return_value=fake_doc):
-            resp = client.post(url, {'file': evil_file}, format='multipart')
+        with _patch('ingestion.views.ingest_document', return_value=real_doc):
+            resp = client2.post(url, {'file': evil_file}, format='multipart')
         assert resp.status_code < 500

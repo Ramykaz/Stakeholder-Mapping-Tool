@@ -142,6 +142,12 @@ class TestNormalizeProviderErrorKind:
 
 
 class TestRunWithRetry:
+    def setup_method(self):
+        # Reset all circuit breakers between tests so tripped breakers in
+        # earlier tests don't block later tests from calling the func at all.
+        from ner.services.provider_runtime import _CIRCUIT_BREAKERS
+        _CIRCUIT_BREAKERS.clear()
+
     def test_success_on_first_attempt(self):
         func = MagicMock(return_value='result')
         assert run_with_retry('groq', func, retries=3) == 'result'

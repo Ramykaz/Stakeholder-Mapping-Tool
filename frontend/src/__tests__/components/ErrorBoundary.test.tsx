@@ -70,7 +70,7 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('Recovered')).toBeInTheDocument();
   });
 
-  test('shows "Unknown error" when thrown error has no message', () => {
+  test('shows default message when thrown error has no message', () => {
     function NoMessageBomb() {
       const err = new Error();
       err.message = '';
@@ -81,6 +81,6 @@ describe('ErrorBoundary', () => {
         <NoMessageBomb />
       </ErrorBoundary>,
     );
-    expect(screen.getByText('Unknown error')).toBeInTheDocument();
+    expect(screen.getByText('An unexpected error occurred.')).toBeInTheDocument();
   });
 });

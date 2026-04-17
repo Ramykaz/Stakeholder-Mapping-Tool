@@ -68,6 +68,8 @@ jest.mock('@/lib/api', () => ({
   exportStakeholderPriorityCsv: jest.fn(),
   getProjectStakeholderPriority: jest.fn(() => Promise.resolve({ rows: [] })),
   generateProjectStakeholderNotes: jest.fn(),
+  getProjectReviewCandidates: jest.fn(() => Promise.resolve({ results: [], pending_count: 0, count: 0 })),
+  getProject: jest.fn(() => Promise.resolve(null)),
 }));
 
 // ── D3 mock — prevents canvas/SVG mutation side-effects in jsdom ──────────────
@@ -84,13 +86,30 @@ jest.mock('d3', () => {
     forceLink: chain,
     forceCenter: chain,
     forceCollide: chain,
+    forceX: chain,
+    forceY: chain,
     select: chain,
     zoom: chain,
     drag: chain,
     scaleLinear: () => ({ domain: () => ({ range: () => () => 1 }) }),
     schemeTableau10: [],
+    zoomIdentity: {
+      k: 1, x: 0, y: 0,
+      translate: jest.fn().mockReturnThis(),
+      scale: jest.fn().mockReturnThis(),
+      rescaleX: jest.fn(),
+      rescaleY: jest.fn(),
+    },
   };
 });
+
+// ── jsdom polyfills ───────────────────────────────────────────────────────────
+// ResizeObserver is not implemented in jsdom; stub it so GraphVisualization mounts.
+(global as any).ResizeObserver = jest.fn(() => ({
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+  disconnect: jest.fn(),
+}));
 
 // ── Component imports ─────────────────────────────────────────────────────────
 import Sidebar from '@/components/layout/Sidebar';

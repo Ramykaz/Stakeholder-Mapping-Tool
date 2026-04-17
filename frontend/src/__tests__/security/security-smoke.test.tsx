@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import axios from 'axios';
 import ErrorMessage from '@/components/ErrorMessage';
-import apiClient, { loginUser, logoutUser, getStoredAuthToken, getStoredAuthUser } from '@/lib/api';
+import { apiClient, loginUser, logoutUser, getStoredAuthToken, getStoredAuthUser } from '@/lib/api';
 
 jest.mock('axios', () => {
   const interceptors = {

@@ -97,7 +97,7 @@ describe('EntityMiniGraph', () => {
         onNodeClick={jest.fn()}
       />,
     );
-    expect(screen.getByText('United Nations Developm…')).toBeInTheDocument();
+    expect(screen.getByText('United Nations Develop…')).toBeInTheDocument();
   });
 
   test('calls onNodeClick with node id when non-center node is clicked', () => {

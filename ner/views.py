@@ -21,6 +21,8 @@ from django.db import models
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django_ratelimit.decorators import ratelimit
+from django_ratelimit.exceptions import Ratelimited
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
@@ -84,6 +86,41 @@ _entity_dedup_service = EntityDedupService()
 
 class AuthenticatedAPIView(APIView):
     permission_classes = [IsAuthenticated]
+
+
+class AIRateLimitedView(AuthenticatedAPIView):
+    """Base view that applies per-user rate limiting to AI-heavy endpoints.
+
+    Subclasses may override `_rate` and `_rate_group` to customise limits.
+    Defaults: 10 requests/minute per authenticated user.
+    """
+
+    _rate: str = '10/m'
+    _rate_group: str = 'ai_default'
+
+    def dispatch(self, request, *args, **kwargs):
+        # django-ratelimit uses REMOTE_ADDR by default for anonymous users;
+        # we key on the authenticated user's ID for accurate per-user limits.
+        user_key = str(request.user.pk) if request.user and request.user.is_authenticated else None
+        if user_key:
+            from django_ratelimit.core import is_ratelimited
+            limited = is_ratelimited(
+                request,
+                group=self._rate_group,
+                key='user',
+                rate=self._rate,
+                increment=True,
+            )
+            if limited:
+                return Response(
+                    {
+                        'error': 'rate_limit_exceeded',
+                        'detail': f'Too many requests. Limit: {self._rate}. Please wait before retrying.',
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={'Retry-After': '60'},
+                )
+        return super().dispatch(request, *args, **kwargs)
 
 
 def _get_document_for_user_or_404(document_id, user):
@@ -526,7 +563,7 @@ def handle_groq_error(exception):
     )
 
 
-class ExtractEntitiesView(AuthenticatedAPIView):
+class ExtractEntitiesView(AIRateLimitedView):
     """Extract entities from a document using Groq Llama 3.
     
     POST /api/v1/documents/{id}/extract-entities/
@@ -613,7 +650,7 @@ class ExtractEntitiesView(AuthenticatedAPIView):
             return handle_groq_error(e)
 
 
-class ExtractEntitiesRelationsView(AuthenticatedAPIView):
+class ExtractEntitiesRelationsView(AIRateLimitedView):
     """Extract entities AND relations from a document (single-call per chunk).
     
     POST /api/v1/documents/{id}/extract-entities-relations/
@@ -1193,7 +1230,7 @@ class GraphNodesView(APIView):
             )
 
 
-class ProjectExtractEntitiesView(AuthenticatedAPIView):
+class ProjectExtractEntitiesView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/extract-entities/."""
 
     def post(self, request, id):
@@ -1754,7 +1791,7 @@ class ProjectDocumentRelationshipDetailView(AuthenticatedAPIView):
         return Response({'status': 'updated'}, status=status.HTTP_200_OK)
 
 
-class ProjectQueryView(AuthenticatedAPIView):
+class ProjectQueryView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/query/
 
     Accepts {"query": "..."} and returns matching entity IDs via pgvector semantic search.
@@ -1895,13 +1932,30 @@ class ProjectQueryView(AuthenticatedAPIView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
-        return Response({
+        response_body: dict = {
             'query': query,
             'is_nl_query': nl,
             'answer': answer,
             'entity_ids': entity_ids,
             'count': count,
-        }, status=status.HTTP_200_OK)
+        }
+
+        if nl and answer:
+            response_body['ai_generated'] = True
+            response_body['provider'] = (
+                (getattr(project, 'provider', '') or '').strip()
+                or settings.NER_DEFAULT_PROVIDER
+            )
+            response_body['model'] = (
+                (getattr(project, 'model', '') or '').strip()
+                or settings.NER_DEFAULT_MODEL
+            )
+            response_body['disclaimer'] = (
+                'This response is AI-generated from document evidence. '
+                'Verify critical information with the source documents.'
+            )
+
+        return Response(response_body, status=status.HTTP_200_OK)
 
 
 class SMQTemplateView(AuthenticatedAPIView):
@@ -1960,7 +2014,7 @@ class ProjectSMQAnswerView(AuthenticatedAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProjectSMQGenerateView(AuthenticatedAPIView):
+class ProjectSMQGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/smq/{section_id}/generate/."""
 
     def post(self, request, id, section_id):
@@ -2038,7 +2092,7 @@ class ProjectReportView(AuthenticatedAPIView):
         return Response({'project': str(project.id), 'sections': payload}, status=status.HTTP_200_OK)
 
 
-class ProjectReportGenerateView(AuthenticatedAPIView):
+class ProjectReportGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/report/generate/."""
 
     def post(self, request, id):
@@ -2088,7 +2142,7 @@ class ProjectReportGenerateView(AuthenticatedAPIView):
             )
 
 
-class ProjectReportRegenerateView(AuthenticatedAPIView):
+class ProjectReportRegenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/report/regenerate/{section_id}/."""
 
     def post(self, request, id, section_id):
@@ -2275,7 +2329,7 @@ class ProjectPriorityTableView(AuthenticatedAPIView):
         )
 
 
-class ProjectPriorityGenerateNotesView(AuthenticatedAPIView):
+class ProjectPriorityGenerateNotesView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/stakeholders/priority/generate-notes/."""
 
     def post(self, request, id):
@@ -3863,7 +3917,7 @@ class PersonaListView(AuthenticatedAPIView):
         )
 
 
-class PersonaGenerateView(AuthenticatedAPIView):
+class PersonaGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/personas/generate/"""
 
     def post(self, request, id):
@@ -3982,7 +4036,7 @@ class PersonaStatusView(AuthenticatedAPIView):
         )
 
 
-class WorkplanGenerateView(AuthenticatedAPIView):
+class WorkplanGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/workplan/generate/"""
 
     def post(self, request, id):
@@ -4329,3 +4383,30 @@ class ProjectEntityDetailView(AuthenticatedAPIView):
         entity.save(update_fields=update_fields)
         _invalidate_project_summaries(project, [str(entity.id)])
         return Response({'status': 'updated'}, status=status.HTTP_200_OK)
+
+
+class AIFeedbackView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/ai-feedback/
+
+    Capture user feedback (thumbs up/down/flag) on any AI-generated content.
+    """
+
+    def post(self, request, id):
+        from .models import AIFeedback
+        from .serializers import AIFeedbackSerializer
+
+        project = _get_project_for_user_or_404(id, request.user)
+        serializer = AIFeedbackSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        AIFeedback.objects.create(
+            project=project,
+            user=request.user,
+            feedback_type=data['feedback_type'],
+            context_type=data['context_type'],
+            context_id=data.get('context_id', ''),
+            comment=data.get('comment', ''),
+        )
+        return Response({'status': 'recorded'}, status=status.HTTP_201_CREATED)

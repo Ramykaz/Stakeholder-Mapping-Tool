@@ -89,6 +89,7 @@ export default function SMQSection({
         onChange={(e) => setValue(e.target.value)}
         placeholder="Write your answer here or use Generate with AI"
         title={`SMQ section ${section.section_number} answer`}
+        aria-label={`SMQ section ${section.section_number} answer`}
       />
 
       <label className="grid gap-1.5">

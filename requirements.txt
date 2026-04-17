@@ -39,6 +39,18 @@ google-generativeai==0.8.4
 httpx<0.28  # groq 0.12.0 uses 'proxies' kwarg removed in httpx 0.28
 rapidfuzz==3.13.0
 
+# Observability
+sentry-sdk[django]==2.22.0
+
+# Rate limiting
+django-ratelimit==4.1.0
+
+# Circuit breaker
+pybreaker==1.2.0
+
+# API schema
+drf-spectacular==0.27.2
+
 # Testing
 pytest==8.1.1
 pytest-django==4.8.0

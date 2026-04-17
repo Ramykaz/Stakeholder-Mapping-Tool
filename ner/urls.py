@@ -80,4 +80,6 @@ urlpatterns = [
     path('projects/<uuid:id>/report/export/', views.ReportExportView.as_view(), name='project-report-export'),
     # US-014-04: Enriched entity detail (project-scoped)
     path('projects/<uuid:id>/entities/<uuid:entity_id>/', views.ProjectEntityDetailView.as_view(), name='project-entity-detail'),
+    # AI feedback
+    path('projects/<uuid:id>/ai-feedback/', views.AIFeedbackView.as_view(), name='project-ai-feedback'),
 ]

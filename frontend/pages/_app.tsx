@@ -1,9 +1,25 @@
-
 import React from 'react';
 import type { AppProps } from 'next/app';
+import type { NextWebVitalsMetric } from 'next/app';
 import Head from 'next/head';
 import '@/styles/globals.css';
 import ErrorBoundary from '@/components/ErrorBoundary';
+
+export function reportWebVitals(metric: NextWebVitalsMetric): void {
+  if (process.env.NODE_ENV === 'development') {
+    console.debug('[WebVitals]', metric.name, metric.value.toFixed(2));
+  }
+
+  // In production, forward Web Vitals to Sentry as measurements.
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const Sentry = require('@sentry/nextjs');
+      Sentry.setMeasurement(metric.name, metric.value, metric.name === 'CLS' ? '' : 'millisecond');
+    } catch {
+      // Sentry not available
+    }
+  }
+}
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
@@ -19,7 +35,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <link rel="manifest" href="/manifest.json" />
         <title>UNDP Stakeholder Analysis Tool</title>
       </Head>
-      <ErrorBoundary>
+      <ErrorBoundary label="app-root">
         <Component {...pageProps} />
       </ErrorBoundary>
     </>

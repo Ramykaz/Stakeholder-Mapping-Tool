@@ -40,8 +40,8 @@ export default function IntakeForm({ projectId, onDirtyChange }: IntakeFormProps
     setLoading(true);
     getProjectIntake(projectId)
       .then(async (data) => {
-        setProfile(data);
-        setBaseline(data);
+        setProfile(data || EMPTY_PROFILE);
+        setBaseline(data || EMPTY_PROFILE);
         const preview = await getProjectContextPreview(projectId);
         setContextPreview(preview.context || '');
       })

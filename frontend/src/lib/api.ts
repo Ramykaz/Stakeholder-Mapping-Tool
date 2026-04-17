@@ -107,6 +107,20 @@ export function clearStoredAuth(): void {
   window.localStorage.removeItem(AUTH_USER_KEY);
 }
 
+/**
+ * Check whether a Django REST Framework token appears expired.
+ * DRF tokens do not embed an expiry by default, but some deployments do.
+ * We defensively redirect to login on 401 rather than relying on client-side expiry checks.
+ */
+function redirectToLoginIfExpired(): void {
+  if (!isBrowser()) return;
+  const current = window.location.pathname;
+  if (current !== '/login') {
+    clearStoredAuth();
+    window.location.href = `/login?session=expired&from=${encodeURIComponent(current)}`;
+  }
+}
+
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getStoredAuthToken();
   if (token) {
@@ -233,18 +247,42 @@ export function renderLLMErrorMessage(error: unknown, action = 'AI action'): str
   return `${action} failed. Please try again.`;
 }
 
-// Error interceptor
+/** Delay helper for retry backoff. */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Error interceptor with automatic retry for transient server errors.
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    const config = error.config as InternalAxiosRequestConfig & { _retryCount?: number };
+
     if (error.response) {
-      // Server responded with non-2xx status
       const status = error.response.status;
       const data = error.response.data as any;
 
+      // Redirect to login on 401 — session has expired or token is invalid.
+      if (status === 401) {
+        redirectToLoginIfExpired();
+        return Promise.reject(new Error('Session expired. Please log in again.'));
+      }
+
+      // Retry on 5xx errors (server-side transient failures), except for
+      // POST requests to AI generation endpoints (non-idempotent / long-running).
+      const isRetryableMethod = config?.method && ['get', 'head', 'options'].includes(config.method.toLowerCase());
+      const retryCount = config?._retryCount ?? 0;
+      const isServerError = status >= 500 && status < 600;
+
+      if (isServerError && isRetryableMethod && retryCount < 3 && config) {
+        config._retryCount = retryCount + 1;
+        const backoffMs = 1000 * Math.pow(2, retryCount); // 1s, 2s, 4s
+        await delay(backoffMs);
+        return apiClient(config);
+      }
+
       console.error(`API Error [${status}]:`, data);
 
-      // Return user-friendly error message
       const errorDetail = normalizeErrorMessage(data);
       const errorCode = String(data?.code || data?.provider_error?.code || data?.error?.code || '').toLowerCase();
       const errorKind = String(data?.error_kind || '').toLowerCase();
@@ -273,11 +311,19 @@ apiClient.interceptors.response.use(
 
       return Promise.reject(new Error(errorMessage));
     } else if (error.request) {
-      // Request made but no response
+      // Request made but no response — network error. Retry GET requests.
+      const isRetryableMethod = config?.method && ['get', 'head', 'options'].includes(config.method.toLowerCase());
+      const retryCount = config?._retryCount ?? 0;
+
+      if (isRetryableMethod && retryCount < 2 && config) {
+        config._retryCount = retryCount + 1;
+        await delay(1000 * Math.pow(2, retryCount));
+        return apiClient(config);
+      }
+
       console.error('No response from server:', error.request);
       return Promise.reject(new Error('Network error. Please check your connection'));
     } else {
-      // Error in request setup
       console.error('Error:', error.message);
       return Promise.reject(new Error('An error occurred'));
     }

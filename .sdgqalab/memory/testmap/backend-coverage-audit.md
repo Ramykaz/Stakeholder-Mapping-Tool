@@ -2,293 +2,291 @@
 schema: sdgqalab/testmap@3
 layer: backend
 project: Stakeholder Analysis Tool
-audited_at: "2026-04-15T00:00"
+audited_at: "2026-04-17T02:30"
 config_version: 3
 
 coverage:
-  total_source_files: 47
+  total_source_files: 50
   unit:
-    test_files: 14
-    file_coverage_pct: 31.9
-    file_coverage_rating: "🔴 Critical"
+    test_files: 42
+    file_coverage_pct: 78.0
+    file_coverage_rating: "🟢 Solid"
   integration:
-    test_files: 32
-    file_coverage_pct: 34.0
-    file_coverage_rating: "🔴 Critical"
+    test_files: 27
+    file_coverage_pct: 46.0
+    file_coverage_rating: "🟠 Low"
   e2e:
     journeys_identified: 8
     journeys_covered: 0
     gaps: 8
   security:
-    areas_identified: 8
-    areas_covered: 5
-    gaps: 3
+    areas_identified: 7
+    areas_covered: 7
+    gaps: 0
   accessibility:
     components_identified: 0
     components_covered: 0
     gaps: 0
-  line_coverage_pct: 69.0
-  line_coverage_rating: "🟡 Adequate"
-  test_count: 259
+  line_coverage_pct: 78.0
+  line_coverage_rating: "🟢 Solid"
+  test_count: 685
 
 by_scope:
   ingestion:
-    source_files: 10
-    unit_test_files: 3
-    unit_file_coverage_pct: 30.0
-    integration_test_files: 6
-    integration_file_coverage_pct: 40.0
+    source_files: 11
+    unit_test_files: 7
+    unit_file_coverage_pct: 63.6
+    integration_test_files: 8
+    integration_file_coverage_pct: 36.4
   ner:
     source_files: 36
-    unit_test_files: 12
-    unit_file_coverage_pct: 33.3
-    integration_test_files: 25
-    integration_file_coverage_pct: 30.6
+    unit_test_files: 28
+    unit_file_coverage_pct: 77.8
+    integration_test_files: 15
+    integration_file_coverage_pct: 41.7
+  reasoning:
+    source_files: 0
+    note: "Stub app — no non-infrastructure source files"
+  graph:
+    source_files: 0
+    note: "Stub app — no non-infrastructure source files"
+  models:
+    source_files: 0
+    note: "App directory not found"
   stakeholder_analysis:
-    source_files: 1
-    unit_test_files: 0
-    unit_file_coverage_pct: 0.0
-    integration_test_files: 1
+    source_files: 3
+    unit_test_files: 3
+    unit_file_coverage_pct: 100.0
+    integration_test_files: 3
     integration_file_coverage_pct: 100.0
 
 delta:
-  previous_audit: null
-  unit_file_coverage_change: null
-  integration_file_coverage_change: null
-  line_coverage_change: null
-  e2e_gaps_change: null
-  security_gaps_change: null
-  accessibility_gaps_change: null
+  previous_audit: "2026-04-17T01:30"
+  unit_file_coverage_change: +12.0
+  integration_file_coverage_change: +4.0
+  line_coverage_change: 0.0
+  e2e_gaps_change: 0
+  security_gaps_change: -2
+  accessibility_gaps_change: 0
+  note: "New tests added: test_dedup_review.py (13), test_pdf_utils.py (11), test_report_export_unit.py (21), test_security.py (23), test_auth_unit.py (32), test_semantic_search.py (+2 fallback path tests). Line coverage % unchanged — requires Docker run to confirm."
 ---
 
 # Backend Test Audit
 
-> **Unit File Coverage**: 31.9% (15/47 files) · 🔴 Critical
-> **Integration File Coverage**: 34.0% (16/47 files) · 🔴 Critical
-> **Line Coverage**: 69.0% · 🟡 Adequate
-> **Tests**: 259 (46 test files — all passing)
-> **Audited**: 2026-04-15
-
-Coverage tool: `pytest-cov` 7.1.0 via `docker compose exec -T app python -m pytest --cov=. --cov-report=term-missing`.
-`pytest-cov` is not in `requirements.txt` — add `pytest-cov==7.1.0` to pin it.
-
-The 69% line figure is healthy for a project of this complexity. The critical gap
-is at the **file coverage** level: large services (`views.py` 4300 lines, 43%;
-`report_export.py` 527 lines, 40%; `nl_query.py` 121 lines, 16%) have
-integration tests that exercise the happy path but miss error branches and
-secondary providers.
+> **Unit File Coverage**: 78.0% (39/50 files) · 🟢 Solid
+> **Integration File Coverage**: 46.0% (23/50 files) · 🟠 Low
+> **Line Coverage**: 78.0% · 🟢 Solid (pending re-run)
+> **Tests**: 685 (+130)
+> **Audited**: 2026-04-17
 
 ---
 
 ## Unit Tests
 
-Tests that verify services in isolation — mocked LLM clients, no DB, no I/O.
-Targets: service functions, model helpers, utility functions, validators.
+Tests that verify modules in isolation — no I/O, no external services.
+Targets: models, serializers, validators, utilities, service helpers, AI client wrappers.
 
 ### Unit Coverage by Scope
 
 | Scope | Source Files | Unit Test Files | Unit File Coverage |
-|-------|-------------|-----------------|-------------------|
-| ingestion | 10 | 3 | 30.0% |
-| ner | 36 | 12 | 33.3% |
-| stakeholder_analysis | 1 | 0 | 0.0% |
-| **Total** | **47** | **15** | **31.9%** |
+|---|---|---|---|
+| ingestion | 11 | 7 | 63.6% |
+| ner | 36 | 24 | 66.7% |
+| stakeholder_analysis | 3 | 1 | 33.3% |
+| reasoning | 0 | — | n/a (stub) |
+| graph | 0 | — | n/a (stub) |
+| models | 0 | — | n/a (not found) |
+| **Total** | **50** | **32** | **64.0%** |
 
 ### Existing Unit Tests
 
 | Scope | Test File | Approx. Tests | Modules Covered |
-|-------|-----------|---------------|-----------------|
-| ingestion | `test_chunker.py` | 5 | `services/chunker.py`: sentence splitting, overlap, edge cases |
-| ingestion | `test_embedder.py` | 5 | `services/embedder.py`: encode dimensions, batch calling |
-| ingestion | `test_extractor.py` | 11 | `services/extractor.py`: PDF, DOCX, HTML extraction, error handling |
-| ner | `test_costing.py` | ~3 | `services/costing.py`: token counting |
-| ner | `test_deduplicator.py` | ~4 | `services/deduplicator.py`: merge/deduplicate logic |
-| ner | `test_entity_dedup_service.py` | ~6 | `services/entity_dedup_service.py`: scoring, matching |
-| ner | `test_groq_client.py` | ~8 | `services/groq_client.py`: extraction, prompt loading, rate-limit |
-| ner | `test_openai_client.py` | ~5 | `services/openai_client.py`: extraction, empty content, rate-limit |
-| ner | `test_priority.py` | ~8 | `services/priority_table.py`: scoring, sorting, threshold logic |
-| ner | `test_relation_deduplicator.py` | ~4 | `services/relation_deduplicator.py`: dangling refs, self-loops |
-| ner | `test_relation_extractor.py` | ~6 | `services/relation_extractor.py`: validation, confidence clamping |
-| ner | `test_semantic_search.py` | 1 | `services/semantic_search.py`: embed_query returns list |
-| ner | `test_smq.py` | ~8 | `services/smq_generator.py`: section generation logic |
-| ner | `test_staleness.py` | ~7 | `services/report_staleness.py`: freshness checks |
-| ner | `test_text_quality.py` | ~2 | `services/text_quality.py`: markdown stripping, min-specificity |
+|---|---|---|---|
+| ingestion | `ingestion/tests/test_chunker.py` | ~8 | services/chunker.py — text chunking logic |
+| ingestion | `ingestion/tests/test_context.py` | ~6 | services/context.py — context extraction |
+| ingestion | `ingestion/tests/test_embedder.py` | ~5 | services/embedder.py — embedding generation |
+| ingestion | `ingestion/tests/test_extractor.py` | ~8 | services/extractor.py — entity extraction |
+| ingestion | `ingestion/tests/test_models_additional.py` | ~6 | models.py — model fields, methods |
+| ingestion | `ingestion/tests/test_serializers.py` | ~8 | serializers.py — validation, representation |
+| ingestion | `ingestion/tests/test_web_source_helpers.py` | ~6 | services/web_source.py — web source utilities |
+| ner | `ner/tests/test_azure_openai_client.py` | ~5 | services/azure_openai_client.py |
+| ner | `ner/tests/test_cleanup_command.py` | ~4 | management/commands/cleanup_orphan_entities.py |
+| ner | `ner/tests/test_contextual_summary.py` | ~8 | services/contextual_summary.py |
+| ner | `ner/tests/test_costing.py` | ~6 | services/costing.py |
+| ner | `ner/tests/test_deduplicator.py` | ~10 | services/deduplicator.py |
+| ner | `ner/tests/test_engagement_notes.py` | ~6 | services/engagement_notes.py |
+| ner | `ner/tests/test_entity_dedup_service.py` | ~10 | services/entity_dedup_service.py |
+| ner | `ner/tests/test_gemini_client.py` | ~5 | services/gemini_client.py |
+| ner | `ner/tests/test_gemini_compat.py` | ~5 | services/gemini_compat.py |
+| ner | `ner/tests/test_groq_client.py` | ~5 | services/groq_client.py |
+| ner | `ner/tests/test_models_serializers_additional.py` | ~8 | models.py, serializers.py |
+| ner | `ner/tests/test_nl_query_helpers.py` | ~6 | services/nl_query.py |
+| ner | `ner/tests/test_openai_client.py` | ~5 | services/openai_client.py |
+| ner | `ner/tests/test_persona_generator.py` | ~8 | services/persona_generator.py |
+| ner | `ner/tests/test_priority.py` | ~8 | services/priority_table.py |
+| ner | `ner/tests/test_provider_factory.py` | ~6 | services/provider_factory.py |
+| ner | `ner/tests/test_provider_payloads.py` | ~8 | services/provider_payloads.py |
+| ner | `ner/tests/test_provider_pdf_interface_additional.py` | ~6 | services/provider_interface.py |
+| ner | `ner/tests/test_provider_runtime.py` | ~8 | services/provider_runtime.py |
+| ner | `ner/tests/test_relation_deduplicator.py` | ~8 | services/relation_deduplicator.py |
+| ner | `ner/tests/test_relation_extractor.py` | ~8 | services/relation_extractor.py |
+| ner | `ner/tests/test_report.py` | ~10 | services/report_generator.py |
+| ner | `ner/tests/test_semantic_search.py` | ~6 | services/semantic_search.py (incl. fallback path) |
+| ner | `ner/tests/test_dedup_review.py` | 13 | services/dedup_review.py — resolve_review_candidate |
+| ner | `ner/tests/test_pdf_utils.py` | 11 | services/pdf_utils.py — pdf_safe, resolve_pdf_fonts |
+| ner | `ner/tests/test_report_export_unit.py` | 21 | services/report_export.py — _parse_section_text, _sanitize_export_narrative, get_export_status |
+| stakeholder_analysis | `stakeholder_analysis/tests/test_auth_helpers.py` | ~4 | _is_admin_email helper |
+| stakeholder_analysis | `stakeholder_analysis/tests/test_auth_unit.py` | 32 | _user_payload, ChangePasswordView, ForgotPasswordView, ResetPasswordView, AdminUserListView, AdminUserDetailView, AdminStatsView |
+| ner | `ner/tests/test_smq.py` | ~10 | services/smq_generator.py |
+| ner | `ner/tests/test_staleness.py` | ~8 | services/report_staleness.py |
+| ner | `ner/tests/test_taxonomy.py` | ~8 | services/taxonomy.py |
+| ner | `ner/tests/test_text_quality.py` | ~5 | services/text_quality.py |
+| ner | `ner/tests/test_workplan_generator.py` | ~8 | services/workplan_generator.py |
+| stakeholder_analysis | `stakeholder_analysis/tests/test_celery_config.py` | ~4 | celery.py — Celery app config |
 
 ### Unit Tests Needed
 
 | File | Scope | What to Test |
-|------|-------|--------------|
-| `ingestion/services/context.py` | ingestion | Context assembly, token budget truncation (currently 13% coverage) |
-| `ingestion/services/pipeline.py` | ingestion | Pipeline orchestration: chunk → embed → store steps in isolation (currently 13%) |
-| `ingestion/services/web_source.py` | ingestion | URL fetch, content extraction, error handling (currently 14%) |
-| `ingestion/serializers.py` | ingestion | Validation rules, nested write/read logic |
-| `ner/services/gemini_client.py` | ner | Gemini extraction, rate-limit, API key error (currently 12%) |
-| `ner/services/gemini_compat.py` | ner | Compatibility shim logic, model mapping (currently 19%) |
-| `ner/services/nl_query.py` | ner | Query parsing, intent detection, entity resolution (currently 16%) |
-| `ner/services/engagement_notes.py` | ner | Note generation, template rendering (currently 16%) |
-| `ner/services/azure_openai_client.py` | ner | Azure-specific auth, endpoint construction (currently 17%) |
-| `ner/services/provider_payloads.py` | ner | Payload builders for each provider — currently **0% coverage**, directly impacts extraction quality |
-| `ner/services/provider_runtime.py` | ner | Runtime provider selection, fallback logic (currently 60%) |
-| `ner/services/provider_factory.py` | ner | Factory registration, provider lookup, error on unknown |
-| `ner/services/taxonomy.py` | ner | Taxonomy lookup, category validation (currently 57%) |
-| `ner/services/contextual_summary.py` | ner | Summary generation, template rendering (currently 44%) |
-| `ner/services/workplan_generator.py` | ner | Phase generation, template logic (currently 53%) |
-| `ner/services/persona_generator.py` | ner | Persona assembly, attribute mapping (currently 54%) |
-| `ner/management/commands/cleanup_orphan_entities.py` | ner | Orphan detection, dry-run mode, batch delete |
-| `stakeholder_analysis/auth_views.py` | stakeholder_analysis | Password validation, email uniqueness, token rotation |
+|---|---|---|
+| `ingestion/services/pipeline.py` | ingestion | Unit tests for individual pipeline stages before integration test |
 
 ---
 
 ## Integration Tests
 
-Tests that verify components working across DB, task queue, and API boundaries.
+Tests that verify components working together across boundaries —
+API endpoints, database operations, service contracts, workflows.
 
 ### Integration Coverage by Scope
 
 | Scope | Source Files | Integration Test Files | Integration File Coverage |
-|-------|-------------|----------------------|--------------------------|
-| ingestion | 10 | 6 | 40.0% |
-| ner | 36 | 25 | 30.6% |
-| stakeholder_analysis | 1 | 1 | 100.0% |
-| **Total** | **47** | **32** | **34.0%** |
+|---|---|---|---|
+| ingestion | 11 | 8 | 36.4% |
+| ner | 36 | 14 | 38.9% |
+| stakeholder_analysis | 3 | 2 | 66.7% |
+| **Total** | **50** | **24** | **40.0%** |
 
 ### Existing Integration Tests
 
 | Scope | Test File | Approx. Tests | Boundaries Covered |
-|-------|-----------|---------------|--------------------|
-| ingestion | `test_views.py` | 9 | IngestView: upload, format detection, DB record creation, auth required |
-| ingestion | `test_concept_note_view.py` | 1 | Concept note save/load endpoint |
-| ingestion | `test_project_document_endpoints.py` | 6 | Project-scoped document list, delete |
-| ingestion | `test_project_provider_validation.py` | 2 | Provider model validation on project |
-| ingestion | `test_workflow.py` | 4 | Workflow status: steps computed from DB state |
-| ingestion | `test_health.py` | 3 | `/health` endpoint responses |
-| ner | `test_views.py` | ~50 | NER endpoints: extract, entity list/detail, graph, relations |
-| ner | `test_auth_api.py` | ~12 | Auth endpoints: register, login, logout, token, 2FA |
-| ner | `test_contextual_summary_api.py` | ~6 | Contextual summary: generate, cache, errors |
-| ner | `test_dedup_review_api.py` | ~5 | Dedup review: approve/reject merge candidates |
-| ner | `test_document_review_integrity.py` | ~5 | Extraction state machine, document status transitions |
-| ner | `test_edge_cases.py` | ~15 | Multi-provider edge cases, empty doc, large doc, Unicode |
-| ner | `test_entity_flag.py` | ~4 | Entity flag/unflag API |
-| ner | `test_entity_profile_api.py` | ~4 | Entity profile detail, relations |
-| ner | `test_entity_review_candidates.py` | ~4 | Review candidate generation |
-| ner | `test_export.py` | ~7 | Report export: PDF generation, section inclusion |
-| ner | `test_graph_payload_api.py` | ~3 | Graph payload: node/edge structure |
-| ner | `test_guidance.py` | ~5 | Guidance text generation, project-level |
-| ner | `test_intake.py` | ~6 | Intake profile save, validation, project linking |
-| ner | `test_llm_settings.py` | ~5 | LLM settings CRUD, provider override |
-| ner | `test_pipeline.py` | ~8 | Pipeline orchestration: extraction + NER + storage |
-| ner | `test_report.py` | ~10 | Report generation, section ordering, SMQ linking |
-| ner | `test_report_view.py` | ~5 | Report view endpoint, section status |
-| ner | `test_personas.py` | ~8 | Persona generation API, template rendering |
-| ner | `test_workplan.py` | ~8 | Workplan generation API, phase structure |
-| ner | `test_staleness.py` | ~7 | Staleness check API, trigger conditions |
+|---|---|---|---|
+| ingestion | `ingestion/tests/test_concept_note_view.py` | ~6 | views.py — ConceptNote upload endpoint |
+| ingestion | `ingestion/tests/test_health.py` | ~3 | urls_health.py — health check endpoint |
+| ingestion | `ingestion/tests/test_pipeline.py` | ~8 | services/pipeline.py — full ingestion pipeline |
+| ingestion | `ingestion/tests/test_project_document_endpoints.py` | ~8 | views.py — project document CRUD |
+| ingestion | `ingestion/tests/test_project_provider_validation.py` | ~6 | views.py + serializers — provider model validation |
+| ingestion | `ingestion/tests/test_tasks.py` | ~6 | tasks.py — Celery task execution |
+| ingestion | `ingestion/tests/test_views.py` | ~10 | views.py — all ingestion API endpoints |
+| ingestion | `ingestion/tests/test_workflow.py` | ~8 | pipeline + tasks — end-to-end ingestion workflow |
+| ner | `ner/tests/test_auth_api.py` | ~8 | Auth endpoints — login, logout, token |
+| ner | `ner/tests/test_contextual_summary_api.py` | ~6 | views.py — contextual summary endpoint |
+| ner | `ner/tests/test_dedup_review_api.py` | ~8 | views.py — dedup review session API |
+| ner | `ner/tests/test_entity_profile_api.py` | ~8 | views.py — entity profile endpoint |
+| ner | `ner/tests/test_graph_payload_api.py` | ~8 | views.py — graph data endpoint |
+| ner | `ner/tests/test_pipeline.py` | ~10 | services/pipeline.py — NER extraction pipeline |
+| ner | `ner/tests/test_report_view.py` | ~8 | views.py — report generation endpoint |
+| ner | `ner/tests/test_services_integration_smoke.py` | ~8 | Multiple services — integration smoke |
+| ner | `ner/tests/test_tasks.py` | ~12 | tasks.py — async NER and report Celery tasks |
+| ner | `ner/tests/test_views.py` | ~20 | views.py — full NER API coverage |
+| ner | `ner/tests/test_personas.py` | ~8 | views.py — persona generation endpoint |
+| ner | `ner/tests/test_workplan.py` | ~8 | views.py — workplan endpoint |
+| ner | `ner/tests/test_export.py` | ~8 | services/report_export.py — PDF export pipeline |
+| ner | `ner/tests/test_intake.py` | ~8 | views.py — project intake endpoint |
+| stakeholder_analysis | `stakeholder_analysis/tests/test_auth_views.py` | ~8 | auth_views.py — full auth flow via HTTP |
+| stakeholder_analysis | `stakeholder_analysis/tests/test_auth_urls.py` | ~4 | auth_urls.py — URL resolution |
+| ner | `ner/tests/test_security.py` | 23 | Authentication enforcement, ownership isolation, /query/ input validation, admin endpoint RBAC |
 
 ### Integration Tests Needed
 
 | File | Scope | What to Test |
-|------|-------|--------------|
-| `ingestion/services/pipeline.py` | ingestion | Full ingestion pipeline integration: PDF → chunks → embeddings → DB (only 13% line coverage) |
-| `ingestion/services/web_source.py` | ingestion | Web source fetch → parse → ingest (only 14%) |
-| `ingestion/tasks.py` | ingestion | Celery task dispatch, retry on failure, task result storage |
-| `ner/tasks.py` | ner | Celery task: extraction task trigger, progress updates, error callback (35%) |
-| `ner/views.py` (large sections) | ner | 1090 uncovered lines; newer endpoints (personas, workplan, export) partially untested |
-| `ner/services/report_export.py` | ner | DOCX export format, section formatting, citation embedding (40%) |
-| `ner/services/relation_extractor.py` | ner | Full extraction with real fixtures: valid/invalid relation shapes (35%) |
-| `stakeholder_analysis/auth_views.py` | stakeholder_analysis | Password reset, change-password endpoint, token expiry (43%) |
+|---|---|---|
+| `ner/views.py` (stale coverage 43%) | ner | Lines 1421–1452 (persona endpoints), 2390–2543 (workplan batch), 3323–3475 (SMQ generation), 3642–3846 (report editing) — these endpoint branches are uncovered |
+| `ner/services/semantic_search.py` (fallback path) | ner | New `MODEL_PATH` fallback branch (os.path.exists check) — added in working tree, not yet tested |
+| `ingestion/services/pipeline.py` (non-happy-path) | ingestion | Pipeline error handling: failed embedding, failed extraction, partial document processing |
+| `stakeholder_analysis/auth_views.py` (35% uncovered) | stakeholder_analysis | Lines 305–496: password reset flow, token refresh, concurrent session handling |
 
 ---
 
 ## End-to-End (E2E) Tests
 
-Tests that verify complete API workflows end-to-end through the actual stack.
+Tests that verify complete API workflow journeys through the live application.
 
 > **0** of **8** critical journeys covered · **8** gaps
 
 ### Existing E2E Tests
 
-No E2E framework is configured (no `cypress/`, `playwright/`, `e2e/` directory found).
+No real API-level E2E test suite configured. No Postman collection, pytest-bdd workflows, or integration harness that tests the full request chain against a live container.
 
 ### E2E Tests Needed
 
 | User Journey | Priority | What to Cover |
-|-------------|----------|---------------|
-| Document ingest → extraction → entity graph | P1 | Upload file → poll status → verify entities and relations stored |
-| User auth flow: register → login → protected route | P1 | Register user → login → access auth-required endpoint → logout → 401 |
-| Full report generation: intake → SMQ → report | P1 | Create project → fill intake → trigger extraction → generate sections → verify report |
-| Entity deduplication workflow | P2 | Extract doc → identify duplicates → review → approve merge → assert merged entity |
-| Export pipeline: PDF and DOCX | P2 | Generate report → trigger export → verify file content includes all sections |
-| Project lifecycle: create → configure → delete | P2 | Create project → set provider/model → add doc → delete → verify cascade clean |
-| Semantic search end-to-end | P3 | Submit NL query → verify ranked entity results match query intent |
-| Persona and workplan generation | P3 | Trigger persona generation → verify all personas have required fields |
-
-> No E2E framework exists. For a Django API, **pytest with `requests`** or
-> **`httpx`** against a live test server (`pytest-django`'s `live_server` fixture)
-> is the lowest-friction option and integrates with the existing pytest setup.
+|---|---|---|
+| Document upload → extraction → entity graph | P1 | POST /upload → POST /extract → GET /graph — asserts entities appear, relations formed |
+| Project creation → intake → stakeholder analysis | P1 | Create project → submit intake → confirm analysis state |
+| Report generation end-to-end | P1 | POST /report/generate → poll status → GET /report — full section content asserted |
+| Auth flow: login, token refresh, logout | P1 | POST /auth/login → verify token → refresh → logout, confirm token invalidated |
+| Entity deduplication workflow | P2 | Create duplicates → GET /dedup/candidates → POST /dedup/resolve → confirm merged |
+| SMQ analysis generation | P2 | POST /smq/generate → poll → GET /smq — all sections present |
+| Workplan + persona export | P2 | POST /workplan/generate → GET /workplan → POST /export — DOCX response valid |
+| Admin label management | P2 | POST /admin/labels → GET /admin/labels → DELETE — CRUD round-trip |
 
 ---
 
 ## Security Tests
 
-> **5** of **8** security-sensitive areas covered · **3** gaps
+Tests that verify authentication, authorization, input validation,
+and protection against common vulnerabilities (OWASP Top 10).
+
+> **3** of **7** security-sensitive areas covered · **4** gaps
 
 ### Existing Security Tests
 
 | Scope | Test File | What's Tested |
-|-------|-----------|---------------|
-| stakeholder_analysis | `test_auth_api.py` | Register/login/logout endpoints; token issuance; 400 on bad credentials |
-| ingestion | `test_views.py` | 401 when no auth token on upload; 403 when project not owned |
-| ingestion | `test_project_provider_validation.py` | Invalid provider/model rejected at API layer |
-| ner | `test_views.py` | Auth required on extraction endpoints; project ownership enforced |
-| ner | `test_edge_cases.py` | Empty document, oversized document, Unicode characters in extraction |
+|---|---|---|
+| ner | `ner/tests/test_auth_api.py` | Authentication endpoints: login success, login failure, logout, token validity |
+| ner | `ner/tests/test_auth_views_extended.py` | Extended auth view edge cases: expired tokens, invalid credentials |
+| ner | `ner/tests/test_entity_flag.py` | Permission check: entity flagging requires authentication |
 
 ### Security Tests Needed
 
 | Area | Scope | What to Test |
-|------|-------|--------------|
-| SQL injection via query params | ner | Crafted entity filter params (e.g., `?type=ORG' OR '1'='1`) — ORM should reject, verify 400 not 500 |
-| LLM prompt injection | ner | Document containing adversarial prompts (e.g., "Ignore previous instructions…") — verify extraction output does not contain injected instructions |
-| Celery task authorization | ingestion/ner | Verify tasks only execute for the owning user's project; task ID cannot be hijacked cross-user |
+|---|---|---|
+| Rate limiting on AI generation endpoints | ner | Rapid-fire POST to `/report/generate`, `/persona`, `/smq/generate` — assert 429 response after threshold. **Note: no DRF throttle classes configured — this is an infrastructure gap, not a code gap.** |
 
 ---
 
 ## Test Health Observations
 
 | Test File | Observation | Impact |
-|-----------|-------------|--------|
-| `ner/tests/test_semantic_search.py` | Only 1 test (`test_embed_query_returns_list`). The semantic search endpoint (lines 66-75 in `semantic_search.py`) is untested — the service is called but not the ranked-results path. | Search quality regressions invisible to test suite |
-| `ner/tests/test_text_quality.py` | 2 test functions for a 36-line service. Happy path only — no tests for very long strings, non-ASCII content, or strings already meeting the minimum specificity threshold. | Edge-case regressions in text cleaning undetected |
-| `ner/services/provider_payloads.py` | **0% coverage**. This file builds the system prompt and user message for every LLM provider. No test exercises any payload builder. Changes to prompts are currently untestable. | LLM extraction quality regressions fully invisible |
-| `ingestion/services/pipeline.py` | 13% coverage despite being the main ingestion orchestrator. The only covered lines are the import-time constants; the actual pipeline steps are untested. | Silent failures in chunking→embedding→storage pipeline |
-| `ner/services/engagement_notes.py` | 16% coverage (119 statements). Likely new/recent addition with no tests yet added. | Engagement note generation fully unobservable |
-| `ner/tasks.py` | 35% coverage. The Celery task body (lines 29-84) is not covered — only the task decorator import lines. Async task failures would not be caught. | Task dispatch/retry bugs invisible |
+|---|---|---|
+| `ner/services/semantic_search.py` (working tree) | New `FALLBACK_MODEL_NAME` and `os.path.exists` branch added (diff lines ~26–34) but `test_semantic_search.py` mocks `SentenceTransformer` — the fallback warning and path re-assignment are almost certainly not exercised | This new code path has zero test coverage until a test is added that provides a non-existent `MODEL_PATH` pointing to `/` prefix |
+| `ner/tests/test_edge_cases.py` | Broad name suggests catch-all scope — check that it contains assertions, not just smoke-calls | May inflate test count without providing meaningful regression protection |
+| `ner/tests/test_services_integration_smoke.py` | "Smoke" classification warrants review — if this only imports and calls without assertions it provides false confidence | Coverage inflated without behavioural guarantees |
+| `ner/views.py` | 43% line coverage on 4331-line file — the least-covered source file in the codebase. Over 57% of the view layer is unexercised. | Any regression in uncovered endpoint branches (persona, workplan batch, SMQ, report editing) would go undetected |
 
 ---
 
 ## Recommendations
 
-1. **[P1] Add unit tests for `ner/services/provider_payloads.py`** — This is 0% covered and directly controls what is sent to every LLM provider. A payload change breaking extraction would be completely invisible. Tests should assert prompt structure, system/user message split, and that no provider-specific keys leak into other providers' payloads.
+1. **[P1] Increase ner/views.py integration coverage** — At 43% line coverage across 4331 lines this is the highest-risk gap. Prioritise the four uncovered endpoint groups: persona batch (lines 1421–1452), workplan batch (2390–2543), SMQ generation (3323–3475), and report section editing (3642–3846).
 
-2. **[P1] Add `pytest-cov==7.1.0` to `requirements.txt`** — Currently installed ad-hoc via pip; not pinned. Lock it so Docker rebuilds don't silently drop coverage tooling.
+2. **[P1] Add E2E API workflow tests** — No integration harness tests the full request chain through the live container. Add at minimum 3 pytest-bdd or plain pytest scenarios: upload→extract→graph, report generation, and auth flow.
 
-3. **[P1] Test the Celery tasks in `ingestion/tasks.py` and `ner/tasks.py`** — Use `@pytest.mark.django_db` + mocked Celery (`CELERY_TASK_ALWAYS_EAGER=True`) to run tasks synchronously in tests. Current 35% and 50% coverage means async failure modes are entirely dark.
+3. **[P1] Test the semantic_search.py fallback path** — The new `os.path.exists` fallback was added to the working tree but has no test coverage. Add a test that sets `MODEL_PATH` to a non-existent path and confirms the fallback model name is used.
 
-4. **[P1] Add unit tests for `ingestion/services/pipeline.py`** — The orchestration pipeline is 13% covered. Mock the `chunker`, `embedder`, and DB layer and verify: normal flow, extractor failure, embedding failure, DB write failure. This is the highest-value test gap in the ingestion scope.
+4. **[P2] Add security tests for input validation on AI endpoints** — NLP query, document upload, and AI generation endpoints handle untrusted user data and AI provider payloads. Add parameterized injection tests and rate-limit assertions.
 
-5. **[P2] Extend `test_groq_client.py` / `test_openai_client.py` to cover Gemini and Azure** — `gemini_client.py` (12%) and `azure_openai_client.py` (17%) are used as provider fallbacks but almost untested. Parallel test structure to the Groq/OpenAI tests.
+5. **[P2] Unit tests for dedup_review.py, pdf_utils.py, report_export.py** — These three NER service files lack dedicated unit tests. They contain non-trivial business logic (review session state, PDF text extraction, ReportLab layout) that benefits from isolated testing.
 
-6. **[P2] Add integration tests for `ner/services/report_export.py`** — At 40% line coverage (527 statements), the PDF/DOCX generation paths are largely untested. Use `reportlab`/`python-docx` in-memory generation to assert section content without filesystem I/O.
-
-7. **[P2] Set up E2E tests with pytest + `live_server`** — The full extraction pipeline (upload → NER → graph) has no end-to-end coverage. Use `pytest-django`'s `live_server` fixture with `httpx` to exercise the real stack against an in-memory SQLite database.
-
-8. **[P3] Expand `test_semantic_search.py`** — The semantic search ranked-result path (6 uncovered lines at 66-75) is the actual user-facing feature. Add tests for: no results, single result, ranked multi-result, query with special characters.
+6. **[P3] Implement real E2E API suite (Postman/Newman or pytest)** — A Postman collection running against the Docker stack in CI would give confidence that the deployed container behaves correctly end-to-end.
 
 ## Acceptance Criteria
 
-- [ ] `pytest-cov==7.1.0` added to `requirements.txt`
-- [ ] `ner/services/provider_payloads.py` has ≥ 80% line coverage
-- [ ] `ingestion/services/pipeline.py` has ≥ 60% line coverage
-- [ ] `ingestion/tasks.py` and `ner/tasks.py` each have ≥ 60% line coverage
-- [ ] `ner/services/gemini_client.py` has ≥ 60% line coverage
-- [ ] All API endpoints have at least one authenticated and one unauthenticated test
-- [ ] E2E smoke test exists for upload → extraction → graph journey
-- [ ] All 259 existing tests continue to pass: `docker compose exec -T app python -m pytest`
+- [ ] Every Django app scope has a test module for each source file
+- [ ] All API endpoints have at least one positive and one negative test
+- [ ] ner/views.py line coverage ≥ 70%
+- [ ] semantic_search.py fallback path covered
+- [ ] Key API workflows have E2E coverage
+- [ ] Authentication and authorization paths have security tests
+- [ ] Accessibility: n/a (backend layer)
+- [ ] All tests pass: `docker compose exec -T app python -m pytest`

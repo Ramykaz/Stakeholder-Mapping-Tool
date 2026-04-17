@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 _model = None
 MODEL_PATH = os.environ.get('EMBEDDING_MODEL_PATH', '/app/models/all-MiniLM-L6-v2')
+FALLBACK_MODEL_NAME = 'all-MiniLM-L6-v2'
 TOP_K_DEFAULT = 10
 
 
@@ -21,8 +22,16 @@ def _get_model():
     global _model  # noqa: PLW0603
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        logger.info("Loading embedding model from %s", MODEL_PATH)
-        _model = SentenceTransformer(MODEL_PATH)
+        model_source = MODEL_PATH
+        if MODEL_PATH.startswith('/') and not os.path.exists(MODEL_PATH):
+            logger.warning(
+                "Embedding model path %s not found; falling back to %s",
+                MODEL_PATH,
+                FALLBACK_MODEL_NAME,
+            )
+            model_source = FALLBACK_MODEL_NAME
+        logger.info("Loading embedding model from %s", model_source)
+        _model = SentenceTransformer(model_source)
     return _model
 
 

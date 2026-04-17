@@ -21,6 +21,44 @@ def test_embed_query_returns_list(mock_model):
         assert len(result) == 384
 
 
+def test_get_model_uses_fallback_when_path_not_found(mock_model):
+    """When MODEL_PATH starts with '/' and does not exist, fall back to FALLBACK_MODEL_NAME."""
+    import ner.services.semantic_search as ss
+
+    original_model = ss._model
+    ss._model = None
+
+    try:
+        with (
+            patch.object(ss, 'MODEL_PATH', '/nonexistent/path'),
+            patch('os.path.exists', return_value=False),
+            patch('sentence_transformers.SentenceTransformer', return_value=mock_model) as MockST,
+        ):
+            ss._get_model()
+            MockST.assert_called_once_with(ss.FALLBACK_MODEL_NAME)
+    finally:
+        ss._model = original_model
+
+
+def test_get_model_uses_local_path_when_exists(mock_model):
+    """When MODEL_PATH exists on disk, load directly from that path."""
+    import ner.services.semantic_search as ss
+
+    original_model = ss._model
+    ss._model = None
+
+    try:
+        with (
+            patch.object(ss, 'MODEL_PATH', '/some/real/path'),
+            patch('os.path.exists', return_value=True),
+            patch('sentence_transformers.SentenceTransformer', return_value=mock_model) as MockST,
+        ):
+            ss._get_model()
+            MockST.assert_called_once_with('/some/real/path')
+    finally:
+        ss._model = original_model
+
+
 def test_search_entity_ids_empty_project(db):
     """Empty project returns empty list."""
     from django.contrib.auth import get_user_model

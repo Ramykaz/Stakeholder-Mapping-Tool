@@ -49,7 +49,7 @@ layers:
     # — Coverage audit settings —
     scopes:
       - src/components
-      - src/pages
+      - pages
       - src/lib
 
     test_command: >-

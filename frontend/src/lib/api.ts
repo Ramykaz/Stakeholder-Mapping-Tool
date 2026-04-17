@@ -7,6 +7,29 @@ import axios, {
   AxiosResponse,
 } from 'axios';
 
+/** Thin wrapper around Sentry to avoid hard import failures when Sentry DSN is not set. */
+function captureException(err: unknown, extras?: Record<string, unknown>): void {
+  try {
+    // eslint-disable-next-line
+    const Sentry = require('@sentry/nextjs');
+    Sentry.captureException(err, extras ? { extra: extras } : undefined);
+  } catch {
+    // Sentry not available
+  }
+}
+
+const AI_ENDPOINT_PATTERNS = [
+  /\/extract-entities/,
+  /\/extract-relations/,
+  /\/report\/generate/,
+  /\/personas\/generate/,
+  /\/workplan\/generate/,
+  /\/smq\/.*\/generate/,
+  /\/stakeholders\/priority\/generate-notes/,
+  /\/summary\//,
+  /\/query\//,
+];
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
 export type ProviderName = 'groq' | 'openai' | 'azure_openai' | 'gemini';
@@ -107,11 +130,54 @@ export function clearStoredAuth(): void {
   window.localStorage.removeItem(AUTH_USER_KEY);
 }
 
+/**
+ * Check whether a Django REST Framework token appears expired.
+ * DRF tokens do not embed an expiry by default, but some deployments do.
+ * We defensively redirect to login on 401 rather than relying on client-side expiry checks.
+ */
+function redirectToLoginIfExpired(): void {
+  if (!isBrowser()) return;
+  const current = window.location.pathname;
+  if (current !== '/login') {
+    clearStoredAuth();
+    window.location.href = `/login?session=expired&from=${encodeURIComponent(current)}`;
+  }
+}
+
+function generateRequestId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getStoredAuthToken();
   if (token) {
     config.headers.Authorization = `Token ${token}`;
   }
+  config.headers['X-Request-ID'] = generateRequestId();
+
+  // Wrap AI-heavy endpoints in a Sentry performance span for monitoring
+  const url = config.url || '';
+  const isAiEndpoint = AI_ENDPOINT_PATTERNS.some((p) => p.test(url));
+  if (isAiEndpoint) {
+    try {
+      // eslint-disable-next-line
+      const Sentry = require('@sentry/nextjs');
+      const spanName = `ai.request ${config.method?.toUpperCase() || 'POST'} ${url}`;
+      const span = Sentry.startInactiveSpan({ name: spanName, op: 'http.client.ai' });
+      (config as any).__sentrySpan = span;
+    } catch {
+      // Sentry not available
+    }
+  }
+
   return config;
 });
 
@@ -233,18 +299,58 @@ export function renderLLMErrorMessage(error: unknown, action = 'AI action'): str
   return `${action} failed. Please try again.`;
 }
 
-// Error interceptor
+/** Delay helper for retry backoff. */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Error interceptor with automatic retry for transient server errors.
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => response,
-  (error: AxiosError) => {
+  (response: AxiosResponse) => {
+    // Finish any active Sentry span on success
+    const span = (response.config as any).__sentrySpan;
+    if (span) {
+      try { span.end(); } catch { /* ignore */ }
+    }
+    return response;
+  },
+  async (error: AxiosError) => {
+    const config = error.config as InternalAxiosRequestConfig & { _retryCount?: number };
+
+    // Finish Sentry span on any error
+    const sentrySpan = (config as any)?.__sentrySpan;
+    if (sentrySpan) {
+      try { sentrySpan.end(); } catch { /* ignore */ }
+    }
+
     if (error.response) {
-      // Server responded with non-2xx status
       const status = error.response.status;
       const data = error.response.data as any;
 
-      console.error(`API Error [${status}]:`, data);
+      // Redirect to login on 401 — session has expired or token is invalid.
+      if (status === 401) {
+        redirectToLoginIfExpired();
+        return Promise.reject(new Error('Session expired. Please log in again.'));
+      }
 
-      // Return user-friendly error message
+      // Retry on 5xx errors (server-side transient failures), except for
+      // POST requests to AI generation endpoints (non-idempotent / long-running).
+      const isRetryableMethod = config?.method && ['get', 'head', 'options'].includes(config.method.toLowerCase());
+      const retryCount = config?._retryCount ?? 0;
+      const isServerError = status >= 500 && status < 600;
+
+      if (isServerError && isRetryableMethod && retryCount < 3 && config) {
+        config._retryCount = retryCount + 1;
+        const backoffMs = 1000 * Math.pow(2, retryCount); // 1s, 2s, 4s
+        await delay(backoffMs);
+        return apiClient(config);
+      }
+
+      console.error(`API Error [${status}]:`, data);
+      if (isServerError) {
+        captureException(error, { status, url: config?.url, method: config?.method });
+      }
+
       const errorDetail = normalizeErrorMessage(data);
       const errorCode = String(data?.code || data?.provider_error?.code || data?.error?.code || '').toLowerCase();
       const errorKind = String(data?.error_kind || '').toLowerCase();
@@ -273,12 +379,22 @@ apiClient.interceptors.response.use(
 
       return Promise.reject(new Error(errorMessage));
     } else if (error.request) {
-      // Request made but no response
+      // Request made but no response — network error. Retry GET requests.
+      const isRetryableMethod = config?.method && ['get', 'head', 'options'].includes(config.method.toLowerCase());
+      const retryCount = config?._retryCount ?? 0;
+
+      if (isRetryableMethod && retryCount < 2 && config) {
+        config._retryCount = retryCount + 1;
+        await delay(1000 * Math.pow(2, retryCount));
+        return apiClient(config);
+      }
+
       console.error('No response from server:', error.request);
+      captureException(error, { type: 'network_error', url: config?.url });
       return Promise.reject(new Error('Network error. Please check your connection'));
     } else {
-      // Error in request setup
       console.error('Error:', error.message);
+      captureException(error);
       return Promise.reject(new Error('An error occurred'));
     }
   }

@@ -520,3 +520,9 @@ class ReportExportStatusSerializer(serializers.Serializer):
     has_personas = serializers.BooleanField()
     has_workplan = serializers.BooleanField()
     section_statuses = serializers.ListField(child=serializers.DictField(), required=False)
+
+class AIFeedbackSerializer(serializers.Serializer):
+    feedback_type = serializers.ChoiceField(choices=['thumbs_up', 'thumbs_down', 'flag'])
+    context_type = serializers.ChoiceField(choices=['nl_query', 'summary', 'report', 'persona', 'workplan', 'smq'])
+    context_id = serializers.CharField(allow_blank=True, default='')
+    comment = serializers.CharField(allow_blank=True, default='', max_length=2000)

@@ -2,6 +2,7 @@
 import os
 import logging
 import dj_database_url
+import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -15,10 +16,13 @@ import sys
 def _require_env(name: str, default=None, required=True) -> str:
     value = os.environ.get(name, default)
     if required and (value is None or str(value).strip() == ''):
-        raise ImproperlyConfigured(
+        msg = (
             f"Missing required environment variable: {name}. "
             f"Copy .env.example to .env and set this value."
         )
+        sys.stderr.write(f"ERROR: {msg}\n")
+        sys.stderr.flush()
+        raise ImproperlyConfigured(msg)
     return str(value).strip() if value is not None else value
 
 
@@ -107,6 +111,29 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-insecure-secret-key-change-in-production')
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Sentry — error capture and performance monitoring
+# Initialised early, before Django apps load. No-ops when SENTRY_DSN is blank.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_sentry_dsn = os.environ.get('SENTRY_DSN', '').strip()
+if _sentry_dsn:
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.environ.get('SENTRY_ENVIRONMENT', 'development'),
+        traces_sample_rate=float(os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
+        send_default_pii=False,
+        release=os.environ.get('SENTRY_RELEASE', None),
+    )
+
+def _optional_app(name):
+    try:
+        import importlib
+        importlib.import_module(name)
+        return [name]
+    except ImportError:
+        return []
+
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
@@ -114,17 +141,25 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'rest_framework.authtoken',
+    *_optional_app('drf_spectacular'),
+    *_optional_app('django_prometheus'),
     'ingestion',
     'ner',
     'reasoning',
     'graph',
 ]
 
+_has_prometheus = 'django_prometheus' in INSTALLED_APPS
+
 MIDDLEWARE = [
+    *(['django_prometheus.middleware.PrometheusBeforeMiddleware'] if _has_prometheus else []),
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'django.middleware.gzip.GZipMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'stakeholder_analysis.middleware.RequestIdMiddleware',
+    *(['django_prometheus.middleware.PrometheusAfterMiddleware'] if _has_prometheus else []),
 ]
 
 ROOT_URLCONF = 'stakeholder_analysis.urls'
@@ -160,15 +195,50 @@ USE_TZ = True
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
 
+try:
+    import pythonjsonlogger  # noqa: F401
+    _json_formatter = {
+        '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+        'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+    }
+    _console_formatter = 'json'
+except ImportError:
+    _json_formatter = None
+    _console_formatter = 'simple'
+
+_formatters = {
+    'simple': {'format': '%(levelname)s %(name)s %(message)s'},
+}
+if _json_formatter:
+    _formatters['json'] = _json_formatter
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': _formatters,
+    'filters': {
+        'request_id': {
+            '()': 'stakeholder_analysis.middleware.RequestIdFilter',
+        },
+    },
     'handlers': {
-        'console': {'class': 'logging.StreamHandler'},
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': _console_formatter,
+            'filters': ['request_id'],
+        },
     },
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
+    },
+    'loggers': {
+        # Log slow queries — DEBUG in dev, WARNING (for actual errors) in prod.
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'WARNING',
+            'propagate': False,
+        },
     },
 }
 
@@ -203,7 +273,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:3000',
 ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
-CORS_ALLOW_HEADERS = ['accept', 'authorization', 'content-type', 'x-requested-with']
+CORS_ALLOW_HEADERS = ['accept', 'authorization', 'content-type', 'x-requested-with', 'x-request-id']
+CORS_EXPOSE_HEADERS = ['x-request-id']
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -258,6 +329,28 @@ else:
             'LOCATION': 'stakeholder-analysis-local-cache',
         }
     }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rate limiting (django-ratelimit)
+# ─────────────────────────────────────────────────────────────────────────────
+
+RATELIMIT_USE_CACHE = 'default'
+RATELIMIT_FAIL_OPEN = False  # Deny when cache is unavailable
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OpenAPI schema (drf-spectacular)
+# ─────────────────────────────────────────────────────────────────────────────
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Stakeholder Analysis Tool API',
+    'DESCRIPTION': (
+        'REST API for the UNDP Stakeholder Analysis Tool — '
+        'document ingestion, NER extraction, graph queries, and AI-powered insights.'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+}
 
 # Celery
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', os.environ.get('REDIS_URL', 'redis://redis:6379/0'))

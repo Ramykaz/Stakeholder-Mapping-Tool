@@ -20,6 +20,7 @@ import {
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 import EmptyState from '@/components/EmptyState';
+import RouteErrorBoundary from '@/components/RouteErrorBoundary';
 import { CytoscapeNode, CytoscapeEdge } from '@/types';
 import { mapDegreeToSize } from '@/lib/graphFocus';
 
@@ -366,23 +367,26 @@ export default function MapPage() {
 
                 {/* Cytoscape graph */}
                 {!loading && !error && (
-                  <GraphVisualization
-                    nodes={nodes}
-                    edges={edges}
-                    onNodeClick={handleNodeClick}
-                    onBackgroundClick={handleClosePanel}
-                    onFocusExit={handleClosePanel}
-                    highlightNodeIds={highlightNodeIds}
-                    focusNodeIds={focusNodeIds}
-                    centerNodeId={centerNodeId}
-                    command={graphCommand}
-                    showFilterPanel
-                    showLegend
-                  />
+                  <RouteErrorBoundary label="Graph" inline>
+                    <GraphVisualization
+                      nodes={nodes}
+                      edges={edges}
+                      onNodeClick={handleNodeClick}
+                      onBackgroundClick={handleClosePanel}
+                      onFocusExit={handleClosePanel}
+                      highlightNodeIds={highlightNodeIds}
+                      focusNodeIds={focusNodeIds}
+                      centerNodeId={centerNodeId}
+                      command={graphCommand}
+                      showFilterPanel
+                      showLegend
+                    />
+                  </RouteErrorBoundary>
                 )}
 
                 {/* Entity side panel (right overlay) */}
                 {selectedNode && (
+                  <RouteErrorBoundary label="Entity panel" inline>
                   <div style={{
                     position: 'absolute', top: 16, right: 16, bottom: 80, zIndex: 5,
                     width: 300, overflowY: 'auto',
@@ -532,6 +536,7 @@ export default function MapPage() {
                       </button>
                     </div>
                   </div>
+                  </RouteErrorBoundary>
                 )}
 
                 {/* NL Query bar (bottom center) */}

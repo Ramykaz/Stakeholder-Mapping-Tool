@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import ReportSectionCard from '@/components/ReportSectionCard';
+import RouteErrorBoundary from '@/components/RouteErrorBoundary';
 import PersonaCard, { PersonaCardSkeleton } from '@/components/PersonaCard';
 import WorkplanAccordion, { WorkplanAccordionSkeleton } from '@/components/WorkplanAccordion';
 import StalenessNotice from '@/components/StalenessNotice';
@@ -410,29 +411,31 @@ export default function ProjectReportPage() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              {sections.map((section) => (
-                <div key={section.section_id} id={`section-${section.section_number}`}>
-                  {section.status === 'stale' && (
-                    <div className="mb-2">
-                      <StalenessNotice
-                        title={`Section ${section.section_number} is stale due to newer extracted documents.`}
-                        onRegenerate={() => void onRegenerate(section.section_id)}
-                        onKeepCurrent={() => void onKeepSectionCurrent(section.section_id)}
-                        isRegenerating={busy}
-                      />
-                    </div>
-                  )}
-                  <ReportSectionCard
-                    section={section}
-                    initiativeName={initiativeName}
-                    busy={busy}
-                    onRegenerate={onRegenerate}
-                    onSaveEdit={onSaveEdit}
-                  />
-                </div>
-              ))}
-            </div>
+            <RouteErrorBoundary label="Report sections" inline>
+              <div className="space-y-3">
+                {sections.map((section) => (
+                  <div key={section.section_id} id={`section-${section.section_number}`}>
+                    {section.status === 'stale' && (
+                      <div className="mb-2">
+                        <StalenessNotice
+                          title={`Section ${section.section_number} is stale due to newer extracted documents.`}
+                          onRegenerate={() => void onRegenerate(section.section_id)}
+                          onKeepCurrent={() => void onKeepSectionCurrent(section.section_id)}
+                          isRegenerating={busy}
+                        />
+                      </div>
+                    )}
+                    <ReportSectionCard
+                      section={section}
+                      initiativeName={initiativeName}
+                      busy={busy}
+                      onRegenerate={onRegenerate}
+                      onSaveEdit={onSaveEdit}
+                    />
+                  </div>
+                ))}
+              </div>
+            </RouteErrorBoundary>
 
             <hr className="my-6 border-[var(--border)]" />
             <div id="personas" className="mb-3">
@@ -446,26 +449,28 @@ export default function ProjectReportPage() {
               <div className="text-sm text-[var(--coral,#f0614a)] mb-3">{personaGenerationMessage}</div>
             ) : null}
 
-            {personasLoading || personasGenerating ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {[1, 2, 3].map((i) => <PersonaCardSkeleton key={i} />)}
-              </div>
-            ) : personas.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {personas.map((persona) => (
-                  <PersonaCard
-                    key={persona.id}
-                    persona={persona}
-                    entityTypeColor={getEntityColor(persona.entity_type_label || '')}
-                    onEntityClick={(entityId) => void router.push(`/projects/${projectId}/entities/${entityId}`)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-[var(--text3)]">
-                No personas generated yet. Click Generate personas to create them from extracted stakeholder evidence.
-              </p>
-            )}
+            <RouteErrorBoundary label="Personas" inline>
+              {personasLoading || personasGenerating ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {[1, 2, 3].map((i) => <PersonaCardSkeleton key={i} />)}
+                </div>
+              ) : personas.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {personas.map((persona) => (
+                    <PersonaCard
+                      key={persona.id}
+                      persona={persona}
+                      entityTypeColor={getEntityColor(persona.entity_type_label || '')}
+                      onEntityClick={(entityId) => void router.push(`/projects/${projectId}/entities/${entityId}`)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--text3)]">
+                  No personas generated yet. Click Generate personas to create them from extracted stakeholder evidence.
+                </p>
+              )}
+            </RouteErrorBoundary>
           </>
         )}
 
@@ -524,19 +529,23 @@ export default function ProjectReportPage() {
               </div>
             )}
 
-            {workplanLoading || workplanIsGenerating ? (
-              <WorkplanAccordionSkeleton />
-            ) : (
-              <WorkplanAccordion
-                components={workplan?.components || []}
-                onEntityClick={(entityId) => void router.push(`/projects/${projectId}/entities/${entityId}`)}
-              />
-            )}
+            <RouteErrorBoundary label="Workplan" inline>
+              {workplanLoading || workplanIsGenerating ? (
+                <WorkplanAccordionSkeleton />
+              ) : (
+                <WorkplanAccordion
+                  components={workplan?.components || []}
+                  onEntityClick={(entityId) => void router.push(`/projects/${projectId}/entities/${entityId}`)}
+                />
+              )}
+            </RouteErrorBoundary>
           </div>
         )}
 
         {activeTab === 'export' && projectId && (
-          <ExportTab projectId={projectId} />
+          <RouteErrorBoundary label="Export" inline>
+            <ExportTab projectId={projectId} />
+          </RouteErrorBoundary>
         )}
       </Layout>
     </>

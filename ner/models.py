@@ -707,3 +707,60 @@ class WorkplanTask(models.Model):
 
     def __str__(self):
         return f"WorkplanTask<{self.component_id}:{self.order}>"
+
+
+
+class AIFeedback(models.Model):
+    """User feedback on AI-generated content."""
+
+    FEEDBACK_THUMBS_UP = 'thumbs_up'
+    FEEDBACK_THUMBS_DOWN = 'thumbs_down'
+    FEEDBACK_FLAG = 'flag'
+    FEEDBACK_CHOICES = [
+        (FEEDBACK_THUMBS_UP, 'Thumbs Up'),
+        (FEEDBACK_THUMBS_DOWN, 'Thumbs Down'),
+        (FEEDBACK_FLAG, 'Flag for Review'),
+    ]
+
+    CONTEXT_NL_QUERY = 'nl_query'
+    CONTEXT_SUMMARY = 'summary'
+    CONTEXT_REPORT = 'report'
+    CONTEXT_PERSONA = 'persona'
+    CONTEXT_WORKPLAN = 'workplan'
+    CONTEXT_SMQ = 'smq'
+    CONTEXT_CHOICES = [
+        (CONTEXT_NL_QUERY, 'NL Query Answer'),
+        (CONTEXT_SUMMARY, 'Entity Summary'),
+        (CONTEXT_REPORT, 'Report Section'),
+        (CONTEXT_PERSONA, 'Stakeholder Persona'),
+        (CONTEXT_WORKPLAN, 'Workplan'),
+        (CONTEXT_SMQ, 'SMQ Answer'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='ai_feedback',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='ai_feedback',
+    )
+    feedback_type = models.CharField(max_length=16, choices=FEEDBACK_CHOICES)
+    context_type = models.CharField(max_length=16, choices=CONTEXT_CHOICES)
+    context_id = models.CharField(max_length=255, blank=True, default='')
+    comment = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ner_ai_feedback'
+        indexes = [
+            models.Index(fields=['project', 'context_type']),
+            models.Index(fields=['user', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"AIFeedback<{self.feedback_type}:{self.context_type}:{self.project_id}>"

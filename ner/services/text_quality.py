@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import re
 
+from ner.services.content_safety import filter_llm_text
 
-def normalize_llm_text(text: str, *, strip_list_markers: bool = True) -> str:
-    """Return clean plain text without markdown/control artifacts."""
-    cleaned = (text or '').replace('\r\n', '\n').replace('\r', '\n')
+
+def normalize_llm_text(text: str, *, strip_list_markers: bool = True, _context: str = 'text_quality') -> str:
+    """Return clean plain text without markdown/control artifacts.
+
+    Also applies the content safety filter before returning.
+    """
+    # Apply safety filter first — catches injection / PII before any other processing.
+    safe_text = filter_llm_text(text or '', context=_context).text
+    cleaned = safe_text.replace('\r\n', '\n').replace('\r', '\n')
     cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)
     cleaned = re.sub(r'__(.*?)__', r'\1', cleaned)
     cleaned = re.sub(r'`([^`]*)`', r'\1', cleaned)

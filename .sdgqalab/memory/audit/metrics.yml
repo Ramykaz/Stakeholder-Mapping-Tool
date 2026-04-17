@@ -1,0 +1,560 @@
+# SDG AI Lab QA Kit — Audit Metrics History
+#
+# Each audit run appends one snapshot to the `snapshots` array.
+# Never overwrite previous snapshots — they form the audit history.
+
+snapshots:
+  - date: "2026-04-17T03:00"
+    overall_score_pct: 80.0
+    overall_rating: "Solid"
+    verdict: "PRODUCTION READY"
+    total_checks: 329
+    pass: 199
+    partial: 59
+    fail: 17
+    na: 63
+    blockers: 0
+    critical_issues: 0
+    high_issues: 2
+    medium_issues: 6
+    low_issues: 3
+
+    layers:
+      backend:
+        type: "python-django-ml"
+        score_pct: 79.3
+        rating: "Solid"
+      frontend:
+        type: "nextjs-typescript"
+        score_pct: 79.0
+        rating: "Solid"
+      project-wide:
+        type: "documentation"
+        score_pct: 85.0
+        rating: "Exemplary"
+
+    quality_attributes:
+      backend-safety:
+        domain_name: "Safety (AI)"
+        layer: "backend"
+        score_pct: 84.4
+        rating: "Exemplary"
+        pass: 11
+        partial: 5
+        fail: 0
+        na: 4
+        delta: +12.5
+      backend-performance:
+        domain_name: "Performance Efficiency"
+        layer: "backend"
+        score_pct: 72.5
+        rating: "Solid"
+        pass: 12
+        partial: 5
+        fail: 3
+        na: 2
+        delta: +2.5
+      frontend-reliability:
+        domain_name: "Reliability"
+        layer: "frontend"
+        score_pct: 79.4
+        rating: "Solid"
+        pass: 12
+        partial: 3
+        fail: 2
+        na: 5
+        delta: +2.9
+
+  - date: "2026-04-17T02:00"
+    overall_score_pct: 79.0
+    overall_rating: "Solid"
+    verdict: "PRODUCTION READY"
+    total_checks: 329
+    pass: 196
+    partial: 60
+    fail: 20
+    na: 63
+    blockers: 0
+    critical_issues: 1
+    high_issues: 3
+    medium_issues: 7
+    low_issues: 2
+
+    layers:
+      backend:
+        type: "python-django-ml"
+        score_pct: 78.1
+        rating: "Solid"
+      frontend:
+        type: "nextjs-typescript"
+        score_pct: 78.2
+        rating: "Solid"
+      project-wide:
+        type: "documentation"
+        score_pct: 85.0
+        rating: "Exemplary"
+
+    quality_attributes:
+      backend-observability:
+        domain_name: "Observability"
+        layer: "backend"
+        score_pct: 71.1
+        rating: "Solid"
+        pass: 12
+        partial: 3
+        fail: 4
+        na: 1
+        delta: +31.6
+      backend-data-quality:
+        domain_name: "Data Quality"
+        layer: "backend"
+        score_pct: 71.9
+        rating: "Solid"
+        pass: 9
+        partial: 5
+        fail: 2
+        na: 2
+        delta: +6.3
+      frontend-observability:
+        domain_name: "Observability"
+        layer: "frontend"
+        score_pct: 75.0
+        rating: "Solid"
+        pass: 9
+        partial: 3
+        fail: 2
+        na: 6
+        delta: +32.1
+      frontend-interaction-capability:
+        domain_name: "Interaction Capability (AI)"
+        layer: "frontend"
+        score_pct: 72.2
+        rating: "Solid"
+        pass: 9
+        partial: 8
+        fail: 1
+        na: 0
+        delta: +13.9
+
+  - date: "2026-04-17T01:00"
+    overall_score_pct: 74.5
+    overall_rating: "Solid"
+    verdict: "CONDITIONALLY READY"
+    total_checks: 329
+    pass: 179
+    partial: 75
+    fail: 37
+    na: 63
+    blockers: 0
+    critical_issues: 2
+    high_issues: 8
+    medium_issues: 18
+    low_issues: 7
+
+    layers:
+      backend:
+        type: "python-django-ml"
+        score_pct: 74.1
+        rating: "Solid"
+      frontend:
+        type: "nextjs-typescript"
+        score_pct: 73.3
+        rating: "Solid"
+      project-wide:
+        type: "documentation"
+        score_pct: 85.0
+        rating: "Exemplary"
+
+    quality_attributes:
+      backend-security:
+        domain_name: "Security"
+        layer: "backend"
+        score_pct: 88.5
+        rating: "Exemplary"
+        pass: 21
+        partial: 4
+        fail: 1
+        na: 2
+        delta: +6.5
+      backend-safety:
+        domain_name: "Safety (AI)"
+        layer: "backend"
+        score_pct: 71.9
+        rating: "Solid"
+        pass: 9
+        partial: 5
+        fail: 2
+        na: 4
+        delta: +28.2
+      backend-observability:
+        domain_name: "Observability"
+        layer: "backend"
+        score_pct: 39.5
+        rating: "Low"
+        pass: 4
+        partial: 7
+        fail: 8
+        na: 1
+        delta: +15.8
+      backend-reliability:
+        domain_name: "Reliability"
+        layer: "backend"
+        score_pct: 77.5
+        rating: "Solid"
+        pass: 12
+        partial: 7
+        fail: 1
+        na: 2
+        delta: +17.5
+      backend-maintainability:
+        domain_name: "Maintainability"
+        layer: "backend"
+        score_pct: 85.7
+        rating: "Exemplary"
+        pass: 16
+        partial: 4
+        fail: 1
+        na: 1
+        delta: +8.3
+      backend-flexibility:
+        domain_name: "Flexibility"
+        layer: "backend"
+        score_pct: 82.4
+        rating: "Solid"
+        pass: 13
+        partial: 2
+        fail: 2
+        na: 1
+        delta: +20.6
+      backend-data-quality:
+        domain_name: "Data Quality"
+        layer: "backend"
+        score_pct: 65.6
+        rating: "Adequate"
+        pass: 8
+        partial: 5
+        fail: 3
+        na: 2
+        delta: +6.2
+      backend-compatibility:
+        domain_name: "Compatibility"
+        layer: "backend"
+        score_pct: 73.3
+        rating: "Solid"
+        pass: 9
+        partial: 4
+        fail: 2
+        na: 1
+        delta: +6.6
+      backend-performance:
+        domain_name: "Performance Efficiency"
+        layer: "backend"
+        score_pct: 70.0
+        rating: "Solid"
+        pass: 12
+        partial: 4
+        fail: 4
+        na: 2
+        delta: +7.5
+      backend-interaction-capability:
+        domain_name: "Interaction Capability (AI)"
+        layer: "backend"
+        score_pct: 87.5
+        rating: "Exemplary"
+        pass: 3
+        partial: 1
+        fail: 0
+        na: 14
+        delta: +37.5
+      frontend-security:
+        domain_name: "Security"
+        layer: "frontend"
+        score_pct: 83.3
+        rating: "Solid"
+        pass: 13
+        partial: 4
+        fail: 1
+        na: 10
+        delta: +6.8
+      frontend-observability:
+        domain_name: "Observability"
+        layer: "frontend"
+        score_pct: 42.9
+        rating: "Low"
+        pass: 3
+        partial: 6
+        fail: 5
+        na: 6
+        delta: +25.0
+      frontend-reliability:
+        domain_name: "Reliability"
+        layer: "frontend"
+        score_pct: 76.5
+        rating: "Solid"
+        pass: 11
+        partial: 4
+        fail: 2
+        na: 5
+        delta: +14.7
+      frontend-maintainability:
+        domain_name: "Maintainability"
+        layer: "frontend"
+        score_pct: 85.7
+        rating: "Exemplary"
+        pass: 16
+        partial: 4
+        fail: 1
+        na: 1
+        delta: +4.8
+      frontend-flexibility:
+        domain_name: "Flexibility"
+        layer: "frontend"
+        score_pct: 78.1
+        rating: "Solid"
+        pass: 11
+        partial: 3
+        fail: 2
+        na: 2
+        delta: +9.4
+      frontend-interaction-capability:
+        domain_name: "Interaction Capability (AI)"
+        layer: "frontend"
+        score_pct: 58.3
+        rating: "Adequate"
+        pass: 5
+        partial: 11
+        fail: 2
+        na: 0
+        delta: 0.0
+      frontend-performance:
+        domain_name: "Performance Efficiency"
+        layer: "frontend"
+        score_pct: 80.6
+        rating: "Solid"
+        pass: 12
+        partial: 5
+        fail: 1
+        na: 4
+        delta: +16.7
+      frontend-compatibility:
+        domain_name: "Compatibility"
+        layer: "frontend"
+        score_pct: 73.1
+        rating: "Solid"
+        pass: 7
+        partial: 5
+        fail: 1
+        na: 3
+        delta: +7.7
+      project-documentation:
+        domain_name: "Documentation"
+        layer: "project-wide"
+        score_pct: 85.0
+        rating: "Exemplary"
+        pass: 14
+        partial: 6
+        fail: 0
+        na: 0
+        delta: +25.0
+
+  - date: "2026-04-17T00:00"
+    overall_score_pct: 61.6
+    overall_rating: "Adequate"
+    verdict: "NOT RECOMMENDED"
+    total_checks: 390
+    pass: 154
+    partial: 95
+    fail: 78
+    na: 63
+    blockers: 3
+    critical_issues: 3
+    high_issues: 15
+    medium_issues: 28
+    low_issues: 12
+
+    layers:
+      backend:
+        type: "python-django-ml"
+        score_pct: 60.7
+        rating: "Adequate"
+      frontend:
+        type: "nextjs-typescript"
+        score_pct: 63.1
+        rating: "Adequate"
+      project-wide:
+        type: "documentation"
+        score_pct: 60.0
+        rating: "Adequate"
+
+    quality_attributes:
+      backend-security:
+        domain_name: "Security"
+        layer: "backend"
+        score_pct: 82.0
+        rating: "Solid"
+        pass: 18
+        partial: 5
+        fail: 2
+        na: 3
+      backend-safety:
+        domain_name: "Safety (AI)"
+        layer: "backend"
+        score_pct: 43.75
+        rating: "Low"
+        pass: 5
+        partial: 4
+        fail: 7
+        na: 4
+      backend-observability:
+        domain_name: "Observability"
+        layer: "backend"
+        score_pct: 23.7
+        rating: "Critical"
+        pass: 2
+        partial: 5
+        fail: 12
+        na: 1
+      backend-reliability:
+        domain_name: "Reliability"
+        layer: "backend"
+        score_pct: 60.0
+        rating: "Adequate"
+        pass: 9
+        partial: 6
+        fail: 5
+        na: 2
+      backend-maintainability:
+        domain_name: "Maintainability"
+        layer: "backend"
+        score_pct: 77.4
+        rating: "Solid"
+        pass: 14
+        partial: 5
+        fail: 2
+        na: 1
+      backend-flexibility:
+        domain_name: "Flexibility"
+        layer: "backend"
+        score_pct: 61.8
+        rating: "Adequate"
+        pass: 8
+        partial: 5
+        fail: 4
+        na: 1
+      backend-data-quality:
+        domain_name: "Data Quality"
+        layer: "backend"
+        score_pct: 59.4
+        rating: "Adequate"
+        pass: 7
+        partial: 5
+        fail: 4
+        na: 2
+      backend-compatibility:
+        domain_name: "Compatibility"
+        layer: "backend"
+        score_pct: 66.7
+        rating: "Adequate"
+        pass: 8
+        partial: 4
+        fail: 3
+        na: 1
+      backend-performance:
+        domain_name: "Performance Efficiency"
+        layer: "backend"
+        score_pct: 62.5
+        rating: "Adequate"
+        pass: 10
+        partial: 5
+        fail: 5
+        na: 2
+      backend-interaction-capability:
+        domain_name: "Interaction Capability (AI)"
+        layer: "backend"
+        score_pct: 50.0
+        rating: "Adequate"
+        pass: 1
+        partial: 2
+        fail: 1
+        na: 14
+      frontend-security:
+        domain_name: "Security"
+        layer: "frontend"
+        score_pct: 76.5
+        rating: "Solid"
+        pass: 11
+        partial: 4
+        fail: 2
+        na: 11
+      frontend-observability:
+        domain_name: "Observability"
+        layer: "frontend"
+        score_pct: 17.9
+        rating: "Critical"
+        pass: 1
+        partial: 3
+        fail: 10
+        na: 6
+      frontend-reliability:
+        domain_name: "Reliability"
+        layer: "frontend"
+        score_pct: 61.8
+        rating: "Adequate"
+        pass: 8
+        partial: 5
+        fail: 4
+        na: 5
+      frontend-maintainability:
+        domain_name: "Maintainability"
+        layer: "frontend"
+        score_pct: 80.9
+        rating: "Solid"
+        pass: 15
+        partial: 4
+        fail: 2
+        na: 1
+      frontend-flexibility:
+        domain_name: "Flexibility"
+        layer: "frontend"
+        score_pct: 68.75
+        rating: "Adequate"
+        pass: 9
+        partial: 4
+        fail: 3
+        na: 2
+      frontend-interaction-capability:
+        domain_name: "Interaction Capability (AI)"
+        layer: "frontend"
+        score_pct: 58.3
+        rating: "Adequate"
+        pass: 5
+        partial: 11
+        fail: 2
+        na: 0
+      frontend-performance:
+        domain_name: "Performance Efficiency"
+        layer: "frontend"
+        score_pct: 63.9
+        rating: "Adequate"
+        pass: 9
+        partial: 5
+        fail: 4
+        na: 4
+      frontend-compatibility:
+        domain_name: "Compatibility"
+        layer: "frontend"
+        score_pct: 65.4
+        rating: "Adequate"
+        pass: 6
+        partial: 5
+        fail: 2
+        na: 3
+      project-documentation:
+        domain_name: "Documentation"
+        layer: "project-wide"
+        score_pct: 60.0
+        rating: "Adequate"
+        pass: 8
+        partial: 8
+        fail: 4
+        na: 0

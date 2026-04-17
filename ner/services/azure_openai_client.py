@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 
 from ner.services.openai_client import _parse_entities_response

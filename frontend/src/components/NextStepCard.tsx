@@ -89,8 +89,8 @@ export default function NextStepCard({ step, show = true }: NextStepCardProps) {
   const routeBasedStep = currentIndex >= 0 ? orderedFlow[currentIndex + 1] : null;
   const effectiveStep = routeBasedStep || step;
 
-  const onDocumentsPage = router.asPath.includes('/documents');
-  const onMapPage = router.asPath.includes('/map');
+  const onDocumentsPage = (router.asPath || '').includes('/documents');
+  const onMapPage = (router.asPath || '').includes('/map');
 
   const contextualDescription = (() => {
     if (onDocumentsPage && effectiveStep.number === 3) {

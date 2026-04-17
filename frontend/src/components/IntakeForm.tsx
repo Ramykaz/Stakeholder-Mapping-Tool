@@ -40,8 +40,8 @@ export default function IntakeForm({ projectId, onDirtyChange }: IntakeFormProps
     setLoading(true);
     getProjectIntake(projectId)
       .then(async (data) => {
-        setProfile(data);
-        setBaseline(data);
+        setProfile(data || EMPTY_PROFILE);
+        setBaseline(data || EMPTY_PROFILE);
         const preview = await getProjectContextPreview(projectId);
         setContextPreview(preview.context || '');
       })
@@ -127,12 +127,16 @@ export default function IntakeForm({ projectId, onDirtyChange }: IntakeFormProps
       </div>
 
       <label className="grid gap-1.5">
-        <span className="text-sm text-[var(--text2)]">Initiative Title</span>
+        <span className="text-sm text-[var(--text2)]">Initiative Title <span className="text-[var(--coral,#f0614a)]" aria-hidden="true">*</span></span>
         <input
           className="input-field text-sm"
           value={profile.initiative_name}
           onChange={(e) => setField('initiative_name', e.target.value)}
           placeholder="AI for Good Hackathon"
+          required
+          aria-required="true"
+          aria-invalid={!(profile.initiative_name || '').trim() ? true : undefined}
+          aria-describedby={message && message.includes('Failed') ? 'intake-form-message' : undefined}
         />
       </label>
 
@@ -227,7 +231,12 @@ export default function IntakeForm({ projectId, onDirtyChange }: IntakeFormProps
       </label>
 
       {message && (
-        <div className={`text-xs ${message.includes('Failed') ? 'text-[var(--coral,#f0614a)]' : 'text-[var(--teal)]'}`}>
+        <div
+          id="intake-form-message"
+          role={message.includes('Failed') ? 'alert' : 'status'}
+          aria-live="polite"
+          className={`text-xs ${message.includes('Failed') ? 'text-[var(--coral,#f0614a)]' : 'text-[var(--teal)]'}`}
+        >
           {message}
         </div>
       )}

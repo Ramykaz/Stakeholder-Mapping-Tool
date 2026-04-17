@@ -14,7 +14,7 @@ from ner.services.provider_factory import resolve_provider_model_for_project
 from ner.services.provider_runtime import normalize_azure_endpoint
 
 if TYPE_CHECKING:
-    from ingestion.models import Project
+    pass
 
 logger = logging.getLogger(__name__)
 

@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ner.services.content_safety import filter_llm_text
 from ner.services.gemini_compat import generate_gemini_text
 from ner.services.provider_factory import resolve_provider_model
 from ner.services.provider_runtime import normalize_azure_endpoint
@@ -97,7 +98,8 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
                     messages=[{'role': 'user', 'content': prompt}],
                     max_tokens=max_tokens,
                 )
-                return resp.choices[0].message.content.strip()
+                raw = resp.choices[0].message.content.strip()
+                return filter_llm_text(raw, context='nl_query_groq').text
             except Exception as exc:
                 msg = str(exc)
                 msg_lower = msg.lower()
@@ -142,7 +144,7 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
             retry_kwargs['max_completion_tokens'] = max(max_tokens * 4, 1024)
             resp = client.chat.completions.create(**retry_kwargs)
             content = _normalize_message_content(resp.choices[0].message.content).strip()
-        return content
+        return filter_llm_text(content, context='nl_query_openai').text
 
     if provider == 'azure_openai':
         from openai import AzureOpenAI
@@ -169,10 +171,11 @@ def _call_provider(prompt: str, provider: str, model: str, max_tokens: int = 512
             retry_kwargs['max_completion_tokens'] = max(max_tokens * 4, 1024)
             resp = client.chat.completions.create(**retry_kwargs)
             content = _normalize_message_content(resp.choices[0].message.content).strip()
-        return content
+        return filter_llm_text(content, context='nl_query_azure').text
 
     if provider == 'gemini':
-        return generate_gemini_text(prompt, model)
+        raw = generate_gemini_text(prompt, model)
+        return filter_llm_text(raw, context='nl_query_gemini').text
 
     raise ValueError(f"Unsupported provider: {provider}")
 

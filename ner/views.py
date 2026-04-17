@@ -1,12 +1,3 @@
-from .services.pipeline import (
-    extract_entities_for_document,
-    extract_relations_for_document,
-    extract_relations_only_for_document,
-    ExtractionCancelledError,
-    _extraction_progress,
-    get_active_entity_style_map,
-    cleanup_orphan_entities,
-)
 """REST API views for NER pipeline."""
 
 import csv
@@ -15,6 +6,7 @@ import logging
 import re
 import time
 from datetime import timedelta
+
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models
@@ -22,11 +14,13 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from ingestion.models import Document, Project, get_or_create_default_project
 from ingestion.services.context import get_project_context
+
 from .models import (
     Entity,
     EntityMention,
@@ -41,11 +35,9 @@ from .models import (
     ProjectSMQResponse,
     ProjectSMQAnswer,
     ReportSection,
-    EngagementNote,
 )
 from .serializers import (
     EntitySerializer,
-    CytoscapeNodeSerializer,
     NERRunSerializer,
     RelationSerializer,
     EntityLabelSerializer,
@@ -63,19 +55,31 @@ from .serializers import (
     DocumentReviewEntitySerializer,
     DocumentReviewRelationshipSerializer,
 )
-from .services.report_staleness import flag_stale_report_sections
 from .services.contextual_summary import get_or_generate_summary
 from .services.entity_dedup_service import EntityDedupService
 from .services.pdf_utils import pdf_safe, resolve_pdf_fonts
-from .services.provider_runtime import ProviderConfigError, classify_provider_error, validate_provider_runtime_config
-from .services.provider_factory import resolve_provider_model
-from .services.smq_generator import generate_smq_section
+from .services.pipeline import (
+    ExtractionCancelledError,
+    _extraction_progress,
+    cleanup_orphan_entities,
+    extract_entities_for_document,
+    extract_relations_for_document,
+    extract_relations_only_for_document,
+    get_active_entity_style_map,
+)
 from .services.priority_table import compute_priority_scores
+from .services.provider_factory import resolve_provider_model
+from .services.provider_runtime import (
+    ProviderConfigError,
+    classify_provider_error,
+    validate_provider_runtime_config,
+)
+from .services.report_staleness import flag_stale_report_sections
+from .services.smq_generator import generate_smq_section
 from .tasks import (
     generate_report_sections_task,
-    regenerate_report_section_task,
-    generate_priority_notes_task,
     generate_workplan_task,
+    regenerate_report_section_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +88,44 @@ _entity_dedup_service = EntityDedupService()
 
 class AuthenticatedAPIView(APIView):
     permission_classes = [IsAuthenticated]
+
+
+class AIRateLimitedView(AuthenticatedAPIView):
+    """Base view that applies per-user rate limiting to AI-heavy endpoints.
+
+    Subclasses may override `_rate` and `_rate_group` to customise limits.
+    Defaults: 10 requests/minute per authenticated user.
+    """
+
+    _rate: str = '10/m'
+    _rate_group: str = 'ai_default'
+
+    def dispatch(self, request, *args, **kwargs):
+        # django-ratelimit uses REMOTE_ADDR by default for anonymous users;
+        # we key on the authenticated user's ID for accurate per-user limits.
+        # Use getattr because dispatch runs before DRF wraps the raw WSGIRequest,
+        # so request.user may not yet be set (no AuthenticationMiddleware in stack).
+        _user = getattr(request, 'user', None)
+        user_key = str(_user.pk) if _user and getattr(_user, 'is_authenticated', False) else None
+        if user_key:
+            from django_ratelimit.core import is_ratelimited
+            limited = is_ratelimited(
+                request,
+                group=self._rate_group,
+                key='user',
+                rate=self._rate,
+                increment=True,
+            )
+            if limited:
+                return Response(
+                    {
+                        'error': 'rate_limit_exceeded',
+                        'detail': f'Too many requests. Limit: {self._rate}. Please wait before retrying.',
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={'Retry-After': '60'},
+                )
+        return super().dispatch(request, *args, **kwargs)
 
 
 def _get_document_for_user_or_404(document_id, user):
@@ -526,7 +568,7 @@ def handle_groq_error(exception):
     )
 
 
-class ExtractEntitiesView(AuthenticatedAPIView):
+class ExtractEntitiesView(AIRateLimitedView):
     """Extract entities from a document using Groq Llama 3.
     
     POST /api/v1/documents/{id}/extract-entities/
@@ -609,11 +651,17 @@ class ExtractEntitiesView(AuthenticatedAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
-            logger.error(f"Extraction error: {e}", exc_info=True)
+            logger.error(
+                "extraction_error document_id=%s user_id=%s error=%s",
+                id,
+                getattr(request.user, 'id', None),
+                e,
+                exc_info=True,
+            )
             return handle_groq_error(e)
 
 
-class ExtractEntitiesRelationsView(AuthenticatedAPIView):
+class ExtractEntitiesRelationsView(AIRateLimitedView):
     """Extract entities AND relations from a document (single-call per chunk).
     
     POST /api/v1/documents/{id}/extract-entities-relations/
@@ -1193,7 +1241,7 @@ class GraphNodesView(APIView):
             )
 
 
-class ProjectExtractEntitiesView(AuthenticatedAPIView):
+class ProjectExtractEntitiesView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/extract-entities/."""
 
     def post(self, request, id):
@@ -1437,7 +1485,13 @@ class ProjectExtractEntitiesView(AuthenticatedAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
-            logger.error(f"Project extraction error: {e}", exc_info=True)
+            logger.error(
+                "project_extraction_error project_id=%s user_id=%s error=%s",
+                id,
+                getattr(request.user, 'id', None),
+                e,
+                exc_info=True,
+            )
             project_id = str(id)
             _set_project_extraction_status(
                 project_id,
@@ -1489,20 +1543,49 @@ class ProjectExtractStopView(AuthenticatedAPIView):
 
 
 class ProjectEntitiesView(AuthenticatedAPIView):
-    """GET /api/v1/projects/{id}/entities/."""
+    """GET /api/v1/projects/{id}/entities/
+
+    Optional query params: page (default 1), page_size (default 100, max 500).
+    Returns paginated entity list with total_count.
+    """
 
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
-        entities = Entity.objects.filter(project=project).select_related('parent_entity').prefetch_related('aliases').order_by('-created_at')
+        entities_qs = (
+            Entity.objects.filter(project=project)
+            .select_related('parent_entity')
+            .prefetch_related('aliases')
+            .order_by('-created_at')
+        )
+
+        # Pagination
+        try:
+            page_size = max(1, min(500, int(request.query_params.get('page_size', 100))))
+        except (ValueError, TypeError):
+            page_size = 100
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+        except (ValueError, TypeError):
+            page = 1
+
+        total_count = entities_qs.count()
+        offset = (page - 1) * page_size
+        entities = entities_qs[offset:offset + page_size]
+
         serializer = EntitySerializer(entities, many=True)
-        return Response(
+        response = Response(
             {
                 'project_id': str(project.id),
                 'entities': serializer.data,
-                'total_count': len(serializer.data),
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': max(1, -(-total_count // page_size)),
             },
             status=status.HTTP_200_OK,
         )
+        response['Cache-Control'] = 'private, max-age=30'
+        return response
 
 
 class ProjectGraphView(AuthenticatedAPIView):
@@ -1754,7 +1837,7 @@ class ProjectDocumentRelationshipDetailView(AuthenticatedAPIView):
         return Response({'status': 'updated'}, status=status.HTTP_200_OK)
 
 
-class ProjectQueryView(AuthenticatedAPIView):
+class ProjectQueryView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/query/
 
     Accepts {"query": "..."} and returns matching entity IDs via pgvector semantic search.
@@ -1770,6 +1853,17 @@ class ProjectQueryView(AuthenticatedAPIView):
 
         project = _get_project_for_user_or_404(id, request.user)
         query = (request.data.get('query') or '').strip()
+        if not query:
+            return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Input sanitization: strip prompt-injection patterns and enforce length limit
+        if len(query) > 2000:
+            return Response(
+                {'error': 'query too long', 'detail': 'Query must be 2000 characters or fewer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from .services.content_safety import sanitize_entity_text
+        query = sanitize_entity_text(query)
         if not query:
             return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1895,13 +1989,44 @@ class ProjectQueryView(AuthenticatedAPIView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
-        return Response({
+        # Compute relevance score to communicate AI confidence
+        relevance_score: float | None = None
+        if nl:
+            try:
+                from .services.semantic_search import compute_query_relevance_score
+                relevance_score = compute_query_relevance_score(project, query)
+            except Exception:  # noqa: BLE001
+                pass
+
+        response_body: dict = {
             'query': query,
             'is_nl_query': nl,
             'answer': answer,
             'entity_ids': entity_ids,
             'count': count,
-        }, status=status.HTTP_200_OK)
+        }
+        if relevance_score is not None:
+            response_body['relevance_score'] = relevance_score
+
+        if nl and answer:
+            response_body['ai_generated'] = True
+            response_body['provider'] = (
+                (getattr(project, 'provider', '') or '').strip()
+                or settings.NER_DEFAULT_PROVIDER
+            )
+            response_body['model'] = (
+                (getattr(project, 'model', '') or '').strip()
+                or settings.NER_DEFAULT_MODEL
+            )
+            response_body['disclaimer'] = (
+                'This response is AI-generated from document evidence. '
+                'Verify critical information with the source documents.'
+            )
+
+        nl_response = Response(response_body, status=status.HTTP_200_OK)
+        # NL query responses are personalised and short-lived; no caching
+        nl_response['Cache-Control'] = 'no-store'
+        return nl_response
 
 
 class SMQTemplateView(AuthenticatedAPIView):
@@ -1960,7 +2085,7 @@ class ProjectSMQAnswerView(AuthenticatedAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProjectSMQGenerateView(AuthenticatedAPIView):
+class ProjectSMQGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/smq/{section_id}/generate/."""
 
     def post(self, request, id, section_id):
@@ -1972,7 +2097,7 @@ class ProjectSMQGenerateView(AuthenticatedAPIView):
         try:
             generated = generate_smq_section(project, section, notes_text=(answer.notes_text or ''))
         except Exception as exc:
-            logger.exception('SMQ section generation failed project=%s section=%s', project.id, section.id)
+            logger.exception('smq_generation_failed project_id=%s section_id=%s user_id=%s', project.id, section.id, getattr(request.user, 'id', None))
             error_kind = classify_provider_error(exc)
             return Response(
                 {'error': 'llm_error', 'error_kind': error_kind, 'detail': str(exc)},
@@ -2038,7 +2163,7 @@ class ProjectReportView(AuthenticatedAPIView):
         return Response({'project': str(project.id), 'sections': payload}, status=status.HTTP_200_OK)
 
 
-class ProjectReportGenerateView(AuthenticatedAPIView):
+class ProjectReportGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/report/generate/."""
 
     def post(self, request, id):
@@ -2088,7 +2213,7 @@ class ProjectReportGenerateView(AuthenticatedAPIView):
             )
 
 
-class ProjectReportRegenerateView(AuthenticatedAPIView):
+class ProjectReportRegenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/report/regenerate/{section_id}/."""
 
     def post(self, request, id, section_id):
@@ -2275,7 +2400,7 @@ class ProjectPriorityTableView(AuthenticatedAPIView):
         )
 
 
-class ProjectPriorityGenerateNotesView(AuthenticatedAPIView):
+class ProjectPriorityGenerateNotesView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/stakeholders/priority/generate-notes/."""
 
     def post(self, request, id):
@@ -2819,7 +2944,6 @@ class DeduplicationReviewListView(AuthenticatedAPIView):
         for c in candidates:
             left_chunk = None
             if c.left_entity.chunk_id_id:
-                from ingestion.models import Chunk
                 chunk = getattr(c.left_entity, 'chunk_id', None)
                 if chunk:
                     left_chunk = (chunk.text or '')[:280]
@@ -3239,7 +3363,6 @@ def _gather_report_data(project):
     )
 
     # Most influential entities: ranked by number of relations (degree centrality)
-    from django.db.models import OuterRef, Subquery
     entity_ids = list(entities.values_list('id', flat=True).distinct())
     rel_counts = {}
     for eid in entity_ids:
@@ -3496,7 +3619,6 @@ def _clean_narrative(text: str) -> str:
 def _build_project_report_docx(project):
     """Build an LLM-narrated DOCX stakeholder analysis report."""
     from docx import Document as DocxDocument
-    from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     data = _gather_report_data(project)
@@ -3519,7 +3641,9 @@ def _build_project_report_docx(project):
     summary_table = doc.add_table(rows=1, cols=3)
     summary_table.style = 'Light List Accent 1'
     hdr = summary_table.rows[0].cells
-    hdr[0].text = 'Documents'; hdr[1].text = 'Stakeholders'; hdr[2].text = 'Relationships'
+    hdr[0].text = 'Documents'
+    hdr[1].text = 'Stakeholders'
+    hdr[2].text = 'Relationships'
     row = summary_table.add_row().cells
     row[0].text = str(data['doc_count'])
     row[1].text = str(data['entity_count'])
@@ -3542,10 +3666,12 @@ def _build_project_report_docx(project):
         type_table = doc.add_table(rows=1, cols=2)
         type_table.style = 'Light List Accent 1'
         hdr = type_table.rows[0].cells
-        hdr[0].text = 'Type'; hdr[1].text = 'Count'
+        hdr[0].text = 'Type'
+        hdr[1].text = 'Count'
         for row_data in data['type_counts']:
             row = type_table.add_row().cells
-            row[0].text = row_data['entity_type']; row[1].text = str(row_data['count'])
+            row[0].text = row_data['entity_type']
+            row[1].text = str(row_data['count'])
         doc.add_paragraph('')
 
     # Most influential stakeholders
@@ -3554,7 +3680,10 @@ def _build_project_report_docx(project):
         inf_table = doc.add_table(rows=1, cols=4)
         inf_table.style = 'Light List Accent 1'
         hdr = inf_table.rows[0].cells
-        hdr[0].text = 'Stakeholder'; hdr[1].text = 'Type'; hdr[2].text = 'Connections'; hdr[3].text = 'Confidence'
+        hdr[0].text = 'Stakeholder'
+        hdr[1].text = 'Type'
+        hdr[2].text = 'Connections'
+        hdr[3].text = 'Confidence'
         for e in data['influential_entities'][:12]:
             row = inf_table.add_row().cells
             row[0].text = e['name']
@@ -3573,7 +3702,9 @@ def _build_project_report_docx(project):
         rel_table = doc.add_table(rows=1, cols=3)
         rel_table.style = 'Light List Accent 1'
         hdr = rel_table.rows[0].cells
-        hdr[0].text = 'Source'; hdr[1].text = 'Relationship'; hdr[2].text = 'Target'
+        hdr[0].text = 'Source'
+        hdr[1].text = 'Relationship'
+        hdr[2].text = 'Target'
         for r in data['top_relations'][:30]:
             row = rel_table.add_row().cells
             row[0].text = r.source_entity.canonical_name if r.source_entity else ''
@@ -3863,7 +3994,7 @@ class PersonaListView(AuthenticatedAPIView):
         )
 
 
-class PersonaGenerateView(AuthenticatedAPIView):
+class PersonaGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/personas/generate/"""
 
     def post(self, request, id):
@@ -3982,7 +4113,7 @@ class PersonaStatusView(AuthenticatedAPIView):
         )
 
 
-class WorkplanGenerateView(AuthenticatedAPIView):
+class WorkplanGenerateView(AIRateLimitedView):
     """POST /api/v1/projects/{id}/workplan/generate/"""
 
     def post(self, request, id):
@@ -4329,3 +4460,30 @@ class ProjectEntityDetailView(AuthenticatedAPIView):
         entity.save(update_fields=update_fields)
         _invalidate_project_summaries(project, [str(entity.id)])
         return Response({'status': 'updated'}, status=status.HTTP_200_OK)
+
+
+class AIFeedbackView(AuthenticatedAPIView):
+    """POST /api/v1/projects/{id}/ai-feedback/
+
+    Capture user feedback (thumbs up/down/flag) on any AI-generated content.
+    """
+
+    def post(self, request, id):
+        from .models import AIFeedback
+        from .serializers import AIFeedbackSerializer
+
+        project = _get_project_for_user_or_404(id, request.user)
+        serializer = AIFeedbackSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        AIFeedback.objects.create(
+            project=project,
+            user=request.user,
+            feedback_type=data['feedback_type'],
+            context_type=data['context_type'],
+            context_id=data.get('context_id', ''),
+            comment=data.get('comment', ''),
+        )
+        return Response({'status': 'recorded'}, status=status.HTTP_201_CREATED)

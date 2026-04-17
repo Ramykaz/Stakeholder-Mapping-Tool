@@ -214,6 +214,9 @@ class ChangePasswordView(APIView):
         if not request.user.check_password(current):
             return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if len(new_pw or '') < 8:
+            return Response({'detail': 'Password must be at least 8 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             validate_password(new_pw, user=request.user)
         except Exception as e:
@@ -283,6 +286,9 @@ class ResetPasswordView(APIView):
                 {'detail': 'Reset link is invalid or has expired.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if len(new_password or '') < 8:
+            return Response({'detail': 'Password must be at least 8 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             validate_password(new_password, user=user)
@@ -414,7 +420,7 @@ class AdminProjectListView(AdminRequiredMixin, APIView):
         if err:
             return err
 
-        from ingestion.models import Project, Document
+        from ingestion.models import Project
         from django.db.models import Count
 
         page = int(request.query_params.get('page', 1))

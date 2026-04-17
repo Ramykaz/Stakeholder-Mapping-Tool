@@ -54,8 +54,6 @@ class TestRequiredEnvVars:
 
     def test_all_required_vars_set_does_not_raise(self):
         """Settings import should succeed when all required vars are present."""
-        import importlib
-        import ingestion  # noqa: ensure app is importable
 
         # This is tested implicitly by the test suite running at all —
         # conftest.py sets all required env vars before Django initialises.

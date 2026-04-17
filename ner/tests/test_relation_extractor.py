@@ -1,7 +1,6 @@
 """
 Test suite for relation extraction service.
 """
-import pytest
 from unittest.mock import MagicMock
 from ner.services.relation_extractor import validate_relations
 

@@ -8,7 +8,6 @@ from decimal import Decimal
 from time import perf_counter
 from typing import Callable
 
-from django.conf import settings
 from django.db import models, transaction
 from ingestion.models import Document, Chunk, ExtractionGuidance
 from ner.models import Entity, EntityMention, NERRun, Relation, EntityLabel

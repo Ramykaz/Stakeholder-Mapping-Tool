@@ -2,12 +2,57 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from urllib.parse import urlparse
 from dataclasses import dataclass
 from decimal import Decimal
 
+import pybreaker
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-provider circuit breakers
+# Opens after 3 consecutive failures; resets after 60 seconds.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _on_circuit_open(cb: pybreaker.CircuitBreaker) -> None:
+    logger.error(
+        "circuit_breaker: circuit OPEN for provider=%s — too many recent failures",
+        cb.name,
+    )
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_message(
+            f"Provider circuit breaker opened: {cb.name}",
+            level='error',
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_CIRCUIT_BREAKERS: dict[str, pybreaker.CircuitBreaker] = {}
+
+
+def _get_circuit_breaker(provider: str) -> pybreaker.CircuitBreaker:
+    """Return (or create) a per-provider CircuitBreaker instance."""
+    if provider not in _CIRCUIT_BREAKERS:
+        _CIRCUIT_BREAKERS[provider] = pybreaker.CircuitBreaker(
+            fail_max=3,
+            reset_timeout=60,
+            name=provider,
+            listeners=[pybreaker.CircuitBreakerListener()],
+        )
+        _CIRCUIT_BREAKERS[provider].add_listeners(
+            type('_OpenListener', (pybreaker.CircuitBreakerListener,), {
+                'state_change': lambda self, cb, old, new: (
+                    _on_circuit_open(cb) if new.name == 'open' else None
+                ),
+            })()
+        )
+    return _CIRCUIT_BREAKERS[provider]
 
 
 @dataclass
@@ -133,20 +178,80 @@ def classify_provider_error(exc: Exception) -> str:
 
 
 def run_with_retry(provider: str, func, *, retries: int = 3, base_delay_seconds: float = 1.0):
-    """Run provider call with bounded retries for transient failures."""
+    """Run provider call with circuit breaker + bounded retries for transient failures.
+
+    The circuit breaker opens after 3 consecutive failures and rejects calls for
+    60 seconds, preventing thundering-herd retries against a degraded provider.
+    """
+    cb = _get_circuit_breaker(provider)
     last_error: Exception | None = None
-    for attempt in range(1, retries + 1):
-        try:
-            return func()
-        except ProviderConfigError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            if is_auth_config_error(exc):
-                raise ProviderConfigError(provider=provider, detail=str(exc)) from exc
-            if attempt >= retries or not is_rate_limit_error(exc):
+
+    def _call_once():
+        for attempt in range(1, retries + 1):
+            try:
+                return func()
+            except ProviderConfigError:
                 raise
-            time.sleep(base_delay_seconds * (2 ** (attempt - 1)))
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError(f"Unexpected retry failure for provider {provider}")
+            except Exception as exc:  # noqa: BLE001
+                nonlocal last_error
+                last_error = exc
+                if is_auth_config_error(exc):
+                    raise ProviderConfigError(provider=provider, detail=str(exc)) from exc
+                if attempt >= retries or not is_rate_limit_error(exc):
+                    raise
+                time.sleep(base_delay_seconds * (2 ** (attempt - 1)))
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(f"Unexpected retry failure for provider {provider}")
+
+    try:
+        result = cb.call(_call_once)
+        _log_token_usage(provider, result)
+        return result
+    except pybreaker.CircuitBreakerError as exc:
+        raise ProviderConfigError(
+            provider=provider,
+            detail='Provider temporarily unavailable — circuit breaker open. Try again in 60 seconds.',
+        ) from exc
+
+
+def _log_token_usage(provider: str, result) -> None:
+    """Log LLM token usage from provider response objects (best-effort)."""
+    try:
+        usage = None
+        if hasattr(result, 'usage'):
+            usage = result.usage
+        elif isinstance(result, dict) and 'usage' in result:
+            usage = result['usage']
+
+        if usage is None:
+            return
+
+        prompt_tokens = (
+            getattr(usage, 'prompt_tokens', None)
+            or getattr(usage, 'input_tokens', None)
+            or (usage.get('prompt_tokens') if isinstance(usage, dict) else None)
+            or (usage.get('input_tokens') if isinstance(usage, dict) else None)
+            or 0
+        )
+        completion_tokens = (
+            getattr(usage, 'completion_tokens', None)
+            or getattr(usage, 'output_tokens', None)
+            or (usage.get('completion_tokens') if isinstance(usage, dict) else None)
+            or (usage.get('output_tokens') if isinstance(usage, dict) else None)
+            or 0
+        )
+        total_tokens = (
+            getattr(usage, 'total_tokens', None)
+            or (usage.get('total_tokens') if isinstance(usage, dict) else None)
+            or (prompt_tokens + completion_tokens)
+        )
+        logger.info(
+            "llm_token_usage provider=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+            provider,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # token logging is best-effort; never disrupt the call path

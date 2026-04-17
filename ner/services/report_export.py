@@ -9,7 +9,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ingestion.models import Project
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -155,12 +155,12 @@ def generate_pdf_report(project) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     from reportlab.lib import colors
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
         PageBreak, HRFlowable,
     )
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.enums import TA_CENTER
     from ner.models import ReportSection, EngagementNote, StakeholderPersona, WorkplanComponent
     from ner.services.pdf_utils import pdf_safe, resolve_pdf_fonts
 
@@ -169,10 +169,7 @@ def generate_pdf_report(project) -> bytes:
     navy_color = colors.HexColor(NAVY)
     teal_color = colors.HexColor(TEAL)
     light_grey_color = colors.HexColor(LIGHT_GREY)
-    alt_row_color = colors.HexColor('#EBF4F5')
-
     # ── Styles ──────────────────────────────────────────────────────────────
-    styles = getSampleStyleSheet()
     cover_title = ParagraphStyle(
         'CoverTitle', fontName=FONT_BOLD, fontSize=28, textColor=navy_color,
         spaceAfter=24, alignment=TA_CENTER, leading=34,
@@ -443,7 +440,7 @@ def generate_docx_report(project) -> bytes:
     Returns raw bytes.
     """
     from docx import Document as DocxDocument
-    from docx.shared import Pt, Cm, RGBColor
+    from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from ner.models import ReportSection, EngagementNote, StakeholderPersona, WorkplanComponent
 
@@ -664,7 +661,7 @@ def generate_pdf_workplan(project) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     from reportlab.lib import colors
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.enums import TA_CENTER
     from ner.models import WorkplanComponent
@@ -689,7 +686,6 @@ def generate_pdf_workplan(project) -> bytes:
     teal_color = colors.HexColor(TEAL)
     light_grey_color = colors.HexColor(LIGHT_GREY)
 
-    styles = getSampleStyleSheet()
     cover_title = ParagraphStyle(
         'WpCoverTitle', fontName=FONT_BOLD, fontSize=24, textColor=navy_color,
         spaceAfter=18, alignment=TA_CENTER, leading=30,

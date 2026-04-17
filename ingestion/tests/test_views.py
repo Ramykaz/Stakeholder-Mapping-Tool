@@ -1,5 +1,4 @@
 """Contract tests for POST /api/v1/documents/ (IngestView)."""
-import io
 import uuid
 import pytest
 from unittest.mock import patch, MagicMock

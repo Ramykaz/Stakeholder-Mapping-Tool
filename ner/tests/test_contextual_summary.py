@@ -1,6 +1,5 @@
 """Unit/integration tests for ner.services.contextual_summary."""
 
-import pytest
 from unittest.mock import patch, MagicMock
 from django.test import TestCase
 from django.contrib.auth import get_user_model

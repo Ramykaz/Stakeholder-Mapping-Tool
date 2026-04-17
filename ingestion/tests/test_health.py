@@ -1,5 +1,4 @@
 """Tests for GET /health (HealthView)."""
-import pytest
 from unittest.mock import patch
 from django.db import OperationalError
 from rest_framework.test import APIRequestFactory

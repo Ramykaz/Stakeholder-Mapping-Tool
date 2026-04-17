@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from typing import List, Dict
+from typing import List
 from ner.models import Entity
 
 logger = logging.getLogger(__name__)

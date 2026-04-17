@@ -1,7 +1,7 @@
 """Unit tests for ner.services.provider_factory."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from django.test import override_settings
 
 from ner.services.provider_factory import (

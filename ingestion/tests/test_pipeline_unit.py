@@ -6,7 +6,7 @@ tests run fast without requiring a live database or model.
 
 import io
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import numpy as np
 
 

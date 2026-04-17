@@ -1,7 +1,7 @@
 """Unit/integration tests for ner.management.commands.cleanup_orphan_entities."""
 
 from io import StringIO
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from django.test import TestCase
 from django.core.management import call_command
 from django.contrib.auth import get_user_model

@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from ingestion.models import Project, ConceptNote, Document, InitiativeProfile, ExtractionGuidance, WebSource, get_or_create_default_project
+from ingestion.models import Project, Document, InitiativeProfile, ExtractionGuidance, WebSource, get_or_create_default_project
 from ingestion.serializers import (
     DocumentSerializer,
     ProjectSummarySerializer,
@@ -363,7 +363,7 @@ class ProjectDocumentUploadView(AuthenticatedAPIView):
     parser_classes = [MultiPartParser]
 
     def get(self, request, id):
-        from django.db.models import Avg, Case, When, IntegerField, Value, Sum, Exists, OuterRef
+        from django.db.models import Exists, OuterRef
         from ner.models import Entity, EntityMention, NERRun, Relation
 
         project = resolve_project_for_user_or_404(id, request.user)

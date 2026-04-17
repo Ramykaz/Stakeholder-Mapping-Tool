@@ -414,7 +414,7 @@ class AdminProjectListView(AdminRequiredMixin, APIView):
         if err:
             return err
 
-        from ingestion.models import Project, Document
+        from ingestion.models import Project
         from django.db.models import Count
 
         page = int(request.query_params.get('page', 1))

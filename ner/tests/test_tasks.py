@@ -1,7 +1,6 @@
 """Unit/integration tests for ner.tasks (Celery task wrappers)."""
 
-import uuid
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache

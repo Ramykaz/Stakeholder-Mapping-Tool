@@ -8,7 +8,7 @@ Covers:
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
@@ -333,7 +333,6 @@ class TestDocumentUploadSecurity:
         assert resp.status_code in (400, 415)
 
     def test_unsupported_extension_returns_415(self):
-        import io as _io
         from django.core.files.uploadedfile import SimpleUploadedFile
         url, client = self._upload_url()
         bad_file = SimpleUploadedFile('malware.exe', b'\x4d\x5a\x90', content_type='application/octet-stream')
@@ -346,7 +345,6 @@ class TestDocumentUploadSecurity:
         assert resp.status_code == 400
 
     def test_unauthenticated_upload_returns_401(self):
-        import io as _io
         from django.core.files.uploadedfile import SimpleUploadedFile
         user, _ = _make_user_and_client('sec_upload_noauth', 'uploadnoauth@example.com')
         project = _make_project(user)

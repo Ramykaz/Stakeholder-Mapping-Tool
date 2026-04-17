@@ -1,7 +1,6 @@
 """Tests for EntityFlagView and graph exclusion of flagged entities."""
 
 import pytest
-from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 

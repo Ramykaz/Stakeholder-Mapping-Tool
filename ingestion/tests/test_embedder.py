@@ -1,7 +1,7 @@
 """Unit tests for ingestion.services.embedder."""
 import pytest
 import numpy as np
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestEmbedChunks:

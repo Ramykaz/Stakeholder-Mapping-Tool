@@ -1,6 +1,5 @@
 """Unit tests for ner.services.nl_query pure helper functions."""
 
-import pytest
 
 
 class TestIsNlQuestion:

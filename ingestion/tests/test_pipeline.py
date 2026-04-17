@@ -1,8 +1,7 @@
 """Unit/integration tests for ingestion.services.pipeline."""
 
 import numpy as np
-import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 

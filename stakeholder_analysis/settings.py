@@ -123,6 +123,14 @@ if _sentry_dsn:
         release=os.environ.get('SENTRY_RELEASE', None),
     )
 
+def _optional_app(name):
+    try:
+        import importlib
+        importlib.import_module(name)
+        return [name]
+    except ImportError:
+        return []
+
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
@@ -130,23 +138,25 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'rest_framework.authtoken',
-    'drf_spectacular',
-    'django_prometheus',
+    *_optional_app('drf_spectacular'),
+    *_optional_app('django_prometheus'),
     'ingestion',
     'ner',
     'reasoning',
     'graph',
 ]
 
+_has_prometheus = 'django_prometheus' in INSTALLED_APPS
+
 MIDDLEWARE = [
-    'django_prometheus.middleware.PrometheusBeforeMiddleware',
+    *(['django_prometheus.middleware.PrometheusBeforeMiddleware'] if _has_prometheus else []),
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.gzip.GZipMiddleware',
     'django.middleware.common.CommonMiddleware',
     'stakeholder_analysis.middleware.RequestIdMiddleware',
-    'django_prometheus.middleware.PrometheusAfterMiddleware',
+    *(['django_prometheus.middleware.PrometheusAfterMiddleware'] if _has_prometheus else []),
 ]
 
 ROOT_URLCONF = 'stakeholder_analysis.urls'
@@ -182,18 +192,27 @@ USE_TZ = True
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
 
+try:
+    import pythonjsonlogger  # noqa: F401
+    _json_formatter = {
+        '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+        'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+    }
+    _console_formatter = 'json'
+except ImportError:
+    _json_formatter = None
+    _console_formatter = 'simple'
+
+_formatters = {
+    'simple': {'format': '%(levelname)s %(name)s %(message)s'},
+}
+if _json_formatter:
+    _formatters['json'] = _json_formatter
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'formatters': {
-        'json': {
-            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
-            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
-        },
-        'simple': {
-            'format': '%(levelname)s %(name)s %(message)s',
-        },
-    },
+    'formatters': _formatters,
     'filters': {
         'request_id': {
             '()': 'stakeholder_analysis.middleware.RequestIdFilter',
@@ -202,7 +221,7 @@ LOGGING = {
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'json',
+            'formatter': _console_formatter,
             'filters': ['request_id'],
         },
     },

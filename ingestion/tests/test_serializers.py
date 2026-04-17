@@ -1,10 +1,8 @@
 """Unit tests for ingestion serializer validation rules."""
 
-import pytest
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 
-from ingestion.models import Project, WebSource
 from ingestion.serializers import ProjectWriteSerializer, WebSourceSerializer
 
 User = get_user_model()

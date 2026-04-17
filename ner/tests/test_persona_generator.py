@@ -1,9 +1,7 @@
 """Unit tests for ner.services.persona_generator."""
 
 import json
-import pytest
-from unittest.mock import patch, MagicMock
-from django.test import TestCase
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 
 User = get_user_model()

@@ -3,18 +3,16 @@
 import pytest
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
-from django.test import TestCase, override_settings
+from django.test import override_settings
 
 from ner.services.provider_runtime import (
     ProviderConfigError,
     get_missing_provider_settings,
     normalize_azure_endpoint,
-    validate_provider_runtime_config,
     normalize_usage,
     is_rate_limit_error,
     is_auth_config_error,
     normalize_provider_error_kind,
-    classify_provider_error,
     run_with_retry,
 )
 

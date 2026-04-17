@@ -1,5 +1,4 @@
 """Unit tests for ingestion.services.chunker."""
-import pytest
 from unittest.mock import patch, MagicMock
 
 
@@ -58,7 +57,7 @@ class TestChunkText:
         mock_tok.encode.return_value = list(range(10))
         mock_get_tok.return_value = mock_tok
 
-        from ingestion.services.chunker import chunk_text, MAX_TOKENS
+        from ingestion.services.chunker import chunk_text
         result = chunk_text("placeholder")
 
         assert isinstance(result, list)

@@ -10,24 +10,25 @@ audited_at: "2026-04-17T01:00"
 config_version: 2
 
 score:
-  pass: 12
-  partial: 3
-  fail: 4
+  pass: 4
+  partial: 7
+  fail: 8
   na: 1
   applicable: 19
-  score_pct: 71.1
-  rating: "🟢 Solid"
+  score_pct: 39.5
+  rating: "🟠 Low"
 
 priority_summary:
   p0_blockers: 0
   p1_critical: 0
-  p2_important: 2
-  p3_improvement: 2
+  p2_important: 7
+  p3_improvement: 3
 
 delta:
-  previous_audit: "2026-04-17T01:00"
-  score_change: +31.6
-  new_passes: ["OBS-001", "OBS-003", "OBS-004", "OBS-010", "OBS-012", "OBS-014", "OBS-016", "OBS-018"]
+  previous_audit: "2026-04-17T00:00"
+  score_change: +15.8
+  new_passes: ["OBS-007", "OBS-009"]
+  new_partials: ["OBS-008", "OBS-019"]
 ---
 
 # Observability Audit — Backend

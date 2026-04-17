@@ -730,22 +730,41 @@ class HealthView(APIView):
     """
     GET /health
 
-    Returns service liveness and database connectivity status.
+    Returns service liveness, database connectivity, and cache/Redis status.
     Responds within 1 second under normal conditions.
+    All checks are best-effort — partial degradation returns 200 with component status.
     """
 
     permission_classes = [AllowAny]
 
     def get(self, request):
+        checks: dict = {}
+
+        # Database check
         try:
             connection.ensure_connection()
-            return Response(
-                {'status': 'healthy', 'database': 'connected'},
-                status=status.HTTP_200_OK,
-            )
+            checks['database'] = 'connected'
         except OperationalError:
             logger.warning("Health check: database unreachable.")
-            return Response(
-                {'status': 'unhealthy', 'database': 'unreachable'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            checks['database'] = 'unreachable'
+
+        # Cache / Redis check
+        try:
+            from django.core.cache import cache
+            _probe_key = '_health_probe'
+            cache.set(_probe_key, '1', timeout=5)
+            if cache.get(_probe_key) == '1':
+                checks['cache'] = 'connected'
+            else:
+                checks['cache'] = 'degraded'
+        except Exception:  # noqa: BLE001
+            checks['cache'] = 'unreachable'
+
+        all_healthy = all(v in ('connected',) for v in checks.values())
+        checks['status'] = 'healthy' if all_healthy else 'degraded'
+
+        http_status = (
+            status.HTTP_200_OK if checks['database'] == 'connected'
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        return Response(checks, status=http_status)

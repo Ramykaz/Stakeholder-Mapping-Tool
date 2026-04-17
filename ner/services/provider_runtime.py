@@ -205,9 +205,53 @@ def run_with_retry(provider: str, func, *, retries: int = 3, base_delay_seconds:
         raise RuntimeError(f"Unexpected retry failure for provider {provider}")
 
     try:
-        return cb.call(_call_once)
+        result = cb.call(_call_once)
+        _log_token_usage(provider, result)
+        return result
     except pybreaker.CircuitBreakerError as exc:
         raise ProviderConfigError(
             provider=provider,
             detail='Provider temporarily unavailable — circuit breaker open. Try again in 60 seconds.',
         ) from exc
+
+
+def _log_token_usage(provider: str, result) -> None:
+    """Log LLM token usage from provider response objects (best-effort)."""
+    try:
+        usage = None
+        if hasattr(result, 'usage'):
+            usage = result.usage
+        elif isinstance(result, dict) and 'usage' in result:
+            usage = result['usage']
+
+        if usage is None:
+            return
+
+        prompt_tokens = (
+            getattr(usage, 'prompt_tokens', None)
+            or getattr(usage, 'input_tokens', None)
+            or (usage.get('prompt_tokens') if isinstance(usage, dict) else None)
+            or (usage.get('input_tokens') if isinstance(usage, dict) else None)
+            or 0
+        )
+        completion_tokens = (
+            getattr(usage, 'completion_tokens', None)
+            or getattr(usage, 'output_tokens', None)
+            or (usage.get('completion_tokens') if isinstance(usage, dict) else None)
+            or (usage.get('output_tokens') if isinstance(usage, dict) else None)
+            or 0
+        )
+        total_tokens = (
+            getattr(usage, 'total_tokens', None)
+            or (usage.get('total_tokens') if isinstance(usage, dict) else None)
+            or (prompt_tokens + completion_tokens)
+        )
+        logger.info(
+            "llm_token_usage provider=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+            provider,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # token logging is best-effort; never disrupt the call path

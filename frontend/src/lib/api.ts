@@ -7,6 +7,29 @@ import axios, {
   AxiosResponse,
 } from 'axios';
 
+/** Thin wrapper around Sentry to avoid hard import failures when Sentry DSN is not set. */
+function captureException(err: unknown, extras?: Record<string, unknown>): void {
+  try {
+    // eslint-disable-next-line
+    const Sentry = require('@sentry/nextjs');
+    Sentry.captureException(err, extras ? { extra: extras } : undefined);
+  } catch {
+    // Sentry not available
+  }
+}
+
+const AI_ENDPOINT_PATTERNS = [
+  /\/extract-entities/,
+  /\/extract-relations/,
+  /\/report\/generate/,
+  /\/personas\/generate/,
+  /\/workplan\/generate/,
+  /\/smq\/.*\/generate/,
+  /\/stakeholders\/priority\/generate-notes/,
+  /\/summary\//,
+  /\/query\//,
+];
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
 
 export type ProviderName = 'groq' | 'openai' | 'azure_openai' | 'gemini';
@@ -121,11 +144,40 @@ function redirectToLoginIfExpired(): void {
   }
 }
 
+function generateRequestId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getStoredAuthToken();
   if (token) {
     config.headers.Authorization = `Token ${token}`;
   }
+  config.headers['X-Request-ID'] = generateRequestId();
+
+  // Wrap AI-heavy endpoints in a Sentry performance span for monitoring
+  const url = config.url || '';
+  const isAiEndpoint = AI_ENDPOINT_PATTERNS.some((p) => p.test(url));
+  if (isAiEndpoint) {
+    try {
+      // eslint-disable-next-line
+      const Sentry = require('@sentry/nextjs');
+      const spanName = `ai.request ${config.method?.toUpperCase() || 'POST'} ${url}`;
+      const span = Sentry.startInactiveSpan({ name: spanName, op: 'http.client.ai' });
+      (config as any).__sentrySpan = span;
+    } catch {
+      // Sentry not available
+    }
+  }
+
   return config;
 });
 
@@ -254,9 +306,22 @@ function delay(ms: number): Promise<void> {
 
 // Error interceptor with automatic retry for transient server errors.
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => response,
+  (response: AxiosResponse) => {
+    // Finish any active Sentry span on success
+    const span = (response.config as any).__sentrySpan;
+    if (span) {
+      try { span.end(); } catch { /* ignore */ }
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     const config = error.config as InternalAxiosRequestConfig & { _retryCount?: number };
+
+    // Finish Sentry span on any error
+    const sentrySpan = (config as any)?.__sentrySpan;
+    if (sentrySpan) {
+      try { sentrySpan.end(); } catch { /* ignore */ }
+    }
 
     if (error.response) {
       const status = error.response.status;
@@ -282,6 +347,9 @@ apiClient.interceptors.response.use(
       }
 
       console.error(`API Error [${status}]:`, data);
+      if (isServerError) {
+        captureException(error, { status, url: config?.url, method: config?.method });
+      }
 
       const errorDetail = normalizeErrorMessage(data);
       const errorCode = String(data?.code || data?.provider_error?.code || data?.error?.code || '').toLowerCase();
@@ -322,9 +390,11 @@ apiClient.interceptors.response.use(
       }
 
       console.error('No response from server:', error.request);
+      captureException(error, { type: 'network_error', url: config?.url });
       return Promise.reject(new Error('Network error. Please check your connection'));
     } else {
       console.error('Error:', error.message);
+      captureException(error);
       return Promise.reject(new Error('An error occurred'));
     }
   }

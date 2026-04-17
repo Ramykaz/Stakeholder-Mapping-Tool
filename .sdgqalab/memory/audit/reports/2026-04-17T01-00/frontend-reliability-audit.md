@@ -10,12 +10,12 @@ audited_at: "2026-04-17T01:00"
 config_version: 2
 
 score:
-  pass: 12
-  partial: 3
+  pass: 11
+  partial: 4
   fail: 2
   na: 5
   applicable: 17
-  score_pct: 79.4
+  score_pct: 76.5
   rating: "🟢 Solid"
 
 priority_summary:
@@ -25,17 +25,17 @@ priority_summary:
   p3_improvement: 3
 
 delta:
-  previous_audit: "2026-04-17T01:00"
-  score_change: +2.9
-  new_passes: ["REL-001"]
+  previous_audit: "2026-04-17T00:00"
+  score_change: +14.7
+  new_passes: ["REL-004", "REL-005", "REL-007"]
 ---
 
 # Reliability Audit — Frontend
 
-> **Score**: 79.4% · 🟢 Solid
-> **Results**: 12 pass · 3 partial · 2 fail · 5 n/a
-> **Blockers**: 0 | **Critical**: 0 | **High**: 2
-> **Audited**: 2026-04-17T02:00
+> **Score**: 61.8% · 🟡 Adequate
+> **Results**: 8 pass · 5 partial · 4 fail · 5 n/a
+> **Blockers**: 0 | **Critical**: 0 | **High**: 4
+> **Audited**: 2026-04-17
 > **Layer**: frontend (nextjs-typescript)
 > **ISO Grounding**: ISO/IEC 25010:2023 Reliability
 
@@ -49,35 +49,35 @@ The frontend has solid fault tolerance for a Next.js application: error boundari
 
 ## Results
 
-### ✅ PASS (12 items)
+### ✅ PASS (8 items)
 
 | Check ID | Item | Evidence |
 |----------|------|----------|
-| REL-001 | Error boundary coverage | `ErrorBoundary.tsx` (root, Sentry-integrated); `RouteErrorBoundary.tsx` wraps `GraphVisualization`, entity side panel, report sections, personas, workplan, and export tab in `map.tsx` + `report.tsx` |
+| REL-001 | Error handling | `ErrorBoundary.tsx` catches rendering errors; `lib/api.ts` catches all API errors |
 | REL-003 | Health status awareness | API `401` responses trigger logout + redirect; network errors show `ErrorMessage` |
-| REL-004 | API retry logic | `api.ts`: exponential backoff retry (1s, 2s, 4s) on 5xx and network errors via axios response interceptor; skips POST extraction |
-| REL-005 | Circuit breaker | `provider_runtime.py`: `pybreaker` circuit breaker per provider (fail_max=3, reset_timeout=60); raises `ProviderConfigError` on open circuit |
-| REL-007 | Session persistence | Token stored in localStorage; `isTokenExpired()` checks JWT expiry before requests; 401 response clears token and redirects to `/login?session=expired` |
 | REL-008 | State persistence | No critical in-memory state; project data re-fetched on load |
 | REL-009 | Graceful degradation | AI-unavailable errors show user-friendly messages; empty states used |
 | REL-013 | TypeScript null safety | `tsconfig.json`: `"strict": true` — null/undefined runtime errors caught at compile time |
 | REL-018 | LLM error fallback | Loading states + error messages on all AI generation endpoints |
-| REL-019 | Sentry error reporting | `ErrorBoundary.componentDidCatch` + `RouteErrorBoundary.componentDidCatch` both call `Sentry.captureException` with section label |
 | REL-020 | Input validation | Form validation before API call; disabled submit during in-flight requests |
 | REL-021 | Idempotent UI | Re-triggering extraction shows idempotent UI state |
 
-### ⚠️ PARTIAL (3 items)
+### ⚠️ PARTIAL (5 items)
 
 | Check ID | Item | What Passes | What's Missing | Severity |
 |----------|------|-------------|----------------|----------|
+| REL-001 | Error boundary coverage | Root-level ErrorBoundary present | No per-route error boundaries for isolated failures | high |
+| REL-004 | API retry logic | `api.ts` handles 401 with logout | No automatic retry on 5xx or network errors; user must manually refresh | high |
+| REL-007 | Session persistence | Token stored in localStorage survives reload | No token refresh mechanism; expired tokens require manual re-login | medium |
 | REL-011 | Offline handling | API errors show error states | No service worker; no offline message; blank/broken UI if network drops mid-session | medium |
-| REL-015 | Recovery documentation | `RouteErrorBoundary` shows inline "Retry" button | No user-facing documentation for common UI failure scenarios | low |
 | REL-016 | LLM response validation | Loading states during generation | No validation that AI response has expected structure before rendering | medium |
 
-### ❌ FAIL (2 items)
+### ❌ FAIL (4 items)
 
 | Check ID | Item | Evidence | Severity | Priority |
 |----------|------|----------|----------|----------|
+| REL-004 | Network retry | No `retry` logic on fetch calls; single attempt only | high | P2 |
+| REL-005 | Circuit breaker | No exponential backoff; AI errors cause immediate failure display | medium | P2 |
 | REL-011 | Offline/service worker | No `next-pwa` or service worker configured | low | P3 |
 | REL-015 | Recovery documentation | No user-facing documentation for common UI failure scenarios | low | P3 |
 

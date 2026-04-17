@@ -646,7 +646,13 @@ class ExtractEntitiesView(AIRateLimitedView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
-            logger.error(f"Extraction error: {e}", exc_info=True)
+            logger.error(
+                "extraction_error document_id=%s user_id=%s error=%s",
+                id,
+                getattr(request.user, 'id', None),
+                e,
+                exc_info=True,
+            )
             return handle_groq_error(e)
 
 
@@ -1474,7 +1480,13 @@ class ProjectExtractEntitiesView(AIRateLimitedView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
-            logger.error(f"Project extraction error: {e}", exc_info=True)
+            logger.error(
+                "project_extraction_error project_id=%s user_id=%s error=%s",
+                id,
+                getattr(request.user, 'id', None),
+                e,
+                exc_info=True,
+            )
             project_id = str(id)
             _set_project_extraction_status(
                 project_id,
@@ -1526,20 +1538,49 @@ class ProjectExtractStopView(AuthenticatedAPIView):
 
 
 class ProjectEntitiesView(AuthenticatedAPIView):
-    """GET /api/v1/projects/{id}/entities/."""
+    """GET /api/v1/projects/{id}/entities/
+
+    Optional query params: page (default 1), page_size (default 100, max 500).
+    Returns paginated entity list with total_count.
+    """
 
     def get(self, request, id):
         project = _get_project_for_user_or_404(id, request.user)
-        entities = Entity.objects.filter(project=project).select_related('parent_entity').prefetch_related('aliases').order_by('-created_at')
+        entities_qs = (
+            Entity.objects.filter(project=project)
+            .select_related('parent_entity')
+            .prefetch_related('aliases')
+            .order_by('-created_at')
+        )
+
+        # Pagination
+        try:
+            page_size = max(1, min(500, int(request.query_params.get('page_size', 100))))
+        except (ValueError, TypeError):
+            page_size = 100
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+        except (ValueError, TypeError):
+            page = 1
+
+        total_count = entities_qs.count()
+        offset = (page - 1) * page_size
+        entities = entities_qs[offset:offset + page_size]
+
         serializer = EntitySerializer(entities, many=True)
-        return Response(
+        response = Response(
             {
                 'project_id': str(project.id),
                 'entities': serializer.data,
-                'total_count': len(serializer.data),
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': max(1, -(-total_count // page_size)),
             },
             status=status.HTTP_200_OK,
         )
+        response['Cache-Control'] = 'private, max-age=30'
+        return response
 
 
 class ProjectGraphView(AuthenticatedAPIView):
@@ -1810,6 +1851,17 @@ class ProjectQueryView(AIRateLimitedView):
         if not query:
             return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Input sanitization: strip prompt-injection patterns and enforce length limit
+        if len(query) > 2000:
+            return Response(
+                {'error': 'query too long', 'detail': 'Query must be 2000 characters or fewer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from .services.content_safety import sanitize_entity_text
+        query = sanitize_entity_text(query)
+        if not query:
+            return Response({'error': 'query is required'}, status=status.HTTP_400_BAD_REQUEST)
+
         entity_ids = search_entity_ids_for_project(project, query, top_k=24)
 
         # Lexical fallback: add strongly matching entity names when embedding retrieval misses terms.
@@ -1932,6 +1984,15 @@ class ProjectQueryView(AIRateLimitedView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
+        # Compute relevance score to communicate AI confidence
+        relevance_score: float | None = None
+        if nl:
+            try:
+                from .services.semantic_search import compute_query_relevance_score
+                relevance_score = compute_query_relevance_score(project, query)
+            except Exception:  # noqa: BLE001
+                pass
+
         response_body: dict = {
             'query': query,
             'is_nl_query': nl,
@@ -1939,6 +2000,8 @@ class ProjectQueryView(AIRateLimitedView):
             'entity_ids': entity_ids,
             'count': count,
         }
+        if relevance_score is not None:
+            response_body['relevance_score'] = relevance_score
 
         if nl and answer:
             response_body['ai_generated'] = True
@@ -1955,7 +2018,10 @@ class ProjectQueryView(AIRateLimitedView):
                 'Verify critical information with the source documents.'
             )
 
-        return Response(response_body, status=status.HTTP_200_OK)
+        nl_response = Response(response_body, status=status.HTTP_200_OK)
+        # NL query responses are personalised and short-lived; no caching
+        nl_response['Cache-Control'] = 'no-store'
+        return nl_response
 
 
 class SMQTemplateView(AuthenticatedAPIView):
@@ -2026,7 +2092,7 @@ class ProjectSMQGenerateView(AIRateLimitedView):
         try:
             generated = generate_smq_section(project, section, notes_text=(answer.notes_text or ''))
         except Exception as exc:
-            logger.exception('SMQ section generation failed project=%s section=%s', project.id, section.id)
+            logger.exception('smq_generation_failed project_id=%s section_id=%s user_id=%s', project.id, section.id, getattr(request.user, 'id', None))
             error_kind = classify_provider_error(exc)
             return Response(
                 {'error': 'llm_error', 'error_kind': error_kind, 'detail': str(exc)},

@@ -10,24 +10,24 @@ audited_at: "2026-04-17T01:00"
 config_version: 2
 
 score:
-  pass: 9
-  partial: 8
-  fail: 1
+  pass: 5
+  partial: 11
+  fail: 2
   na: 0
   applicable: 18
-  score_pct: 72.2
-  rating: "🟢 Solid"
+  score_pct: 58.3
+  rating: "🟡 Adequate"
 
 priority_summary:
   p0_blockers: 0
   p1_critical: 0
-  p2_important: 1
-  p3_improvement: 5
+  p2_important: 4
+  p3_improvement: 9
 
 delta:
-  previous_audit: "2026-04-17T01:00"
-  score_change: +13.9
-  new_passes: ["INT-003", "INT-005", "INT-015", "INT-018"]
+  previous_audit: "2026-04-17T00:00"
+  score_change: 0.0
+  new_passes: []
 ---
 
 # Interaction Capability Audit — Frontend

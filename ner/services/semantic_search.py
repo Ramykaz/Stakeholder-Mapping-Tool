@@ -88,3 +88,23 @@ def search_chunks_for_entity(project: 'Project', entity_name: str, top_k: int = 
     """Return top-K chunks most relevant to an entity name, scoped to the project."""
     query_vector = embed_query(entity_name)
     return search_chunks(project, query_vector, top_k=top_k)
+
+
+def compute_query_relevance_score(project: 'Project', query: str, top_k: int = 5) -> float | None:
+    """Return a 0.0–1.0 relevance score for a query against the project's corpus.
+
+    Uses the mean cosine similarity (1 - distance) of the top-K matching chunks.
+    Returns None if no chunks are found.
+    """
+    try:
+        query_vector = embed_query(query)
+        chunks = search_chunks(project, query_vector, top_k=top_k)
+        distances = [getattr(c, 'distance', None) for c in chunks if getattr(c, 'distance', None) is not None]
+        if not distances:
+            return None
+        # cosine distance in pgvector is 0 (identical) to 2 (opposite)
+        # cosine similarity = 1 - distance (for normalized vectors)
+        scores = [max(0.0, min(1.0, 1.0 - float(d))) for d in distances]
+        return round(sum(scores) / len(scores), 3)
+    except Exception:  # noqa: BLE001
+        return None

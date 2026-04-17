@@ -11,24 +11,23 @@ config_version: 2
 
 score:
   pass: 12
-  partial: 5
-  fail: 3
+  partial: 4
+  fail: 4
   na: 2
   applicable: 20
-  score_pct: 72.5
+  score_pct: 70.0
   rating: "🟢 Solid"
 
 priority_summary:
   p0_blockers: 0
-  p1_critical: 1
-  p2_important: 2
+  p1_critical: 2
+  p2_important: 3
   p3_improvement: 3
 
 delta:
-  previous_audit: "2026-04-17T01:00"
-  score_change: +2.5
-  new_passes: []
-  new_partials: ["PER-004"]
+  previous_audit: "2026-04-17T00:00"
+  score_change: +7.5
+  new_passes: ["PER-008", "PER-011"]
 ---
 
 # Performance Efficiency Audit — Backend

@@ -10,24 +10,24 @@ audited_at: "2026-04-17T01:00"
 config_version: 2
 
 score:
-  pass: 9
+  pass: 8
   partial: 5
-  fail: 2
+  fail: 3
   na: 2
   applicable: 16
-  score_pct: 71.9
-  rating: "🟢 Solid"
+  score_pct: 65.6
+  rating: "🟡 Adequate"
 
 priority_summary:
   p0_blockers: 0
   p1_critical: 1
-  p2_important: 1
-  p3_improvement: 3
+  p2_important: 2
+  p3_improvement: 4
 
 delta:
-  previous_audit: "2026-04-17T01:00"
-  score_change: +6.3
-  new_passes: ["DQ-015"]
+  previous_audit: "2026-04-17T00:00"
+  score_change: +6.2
+  new_passes: ["DQ-008"]
   new_fails: []
 ---
 

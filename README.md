@@ -1,5 +1,132 @@
 # Stakeholder Analysis Tool
 
+Stakeholder Analysis Tool is a full-stack platform for building stakeholder maps from project documents.
+It ingests files/web sources, extracts entities and relationships, generates SMQ/report outputs, and supports export workflows for decision-making teams.
+
+## What this system does
+
+- Create project workspaces and store initiative context
+- Ingest documents (`pdf`, `docx`, `txt`, `md`) and web text sources
+- Extract entities + relationships with configurable LLM providers
+- Build project knowledge graphs for review and analysis
+- Generate SMQ answers, report sections, personas, and workplans
+- Export report/workplan outputs in PDF and DOCX
+
+## Current architecture
+
+- Frontend: Next.js 14 + TypeScript
+- Backend: Django 4.2 + Django REST Framework
+- Async jobs: Celery + Redis
+- Database: PostgreSQL 15 + `pgvector`
+- Embeddings: `all-MiniLM-L6-v2` (local)
+- LLM providers: Groq, OpenAI, Azure OpenAI, Gemini
+
+## Quick start (Docker)
+
+1. Clone repository and create environment file:
+
+```bash
+git clone <repo-url>
+cd stakeholder-analysis-tool
+cp .env.example .env
+```
+
+2. Set required values in `.env`:
+
+- `DATABASE_URL`
+- `SECRET_KEY`
+- `DEBUG`
+- `ALLOWED_HOSTS`
+- At least one provider key (`GROQ_API_KEY` or other provider credentials)
+
+3. Start services:
+
+```bash
+docker compose up --build -d
+```
+
+4. Verify:
+
+```bash
+curl http://localhost:8000/health
+docker compose ps
+```
+
+Frontend: `http://localhost:3000`  
+Backend: `http://localhost:8000`
+
+## Core workflow
+
+1. Create project and define initiative profile
+2. Upload documents or add web sources
+3. Run extraction and review entities/relations
+4. Analyze graph map and stakeholder context
+5. Generate SMQ and report sections
+6. Generate personas and workplan
+7. Export final outputs
+
+## Main folders
+
+- `frontend/` — Next.js app
+- `ingestion/` — ingestion + chunking + embedding pipeline
+- `ner/` — extraction, generation, semantic retrieval, export logic
+- `stakeholder_analysis/` — Django settings, auth, API routing, Celery config
+- `specs/` — feature/spec implementation history
+- `docs/` — operational and user-facing documentation
+
+## Documentation map
+
+- `docs/SETUP.md`
+- `docs/DEPLOYMENT.md`
+- `docs/RUNBOOK.md`
+- `docs/TESTER_GUIDE.md`
+- `docs/TECHNICAL_DOCUMENTATION.md`
+- `docs/USER_GUIDE.md`
+- `docs/AI_RISKS.md`
+- `docs/MODEL_CARD.md`
+- `docs/DATA_HANDLING.md`
+- `docs/DATA_RETENTION.md`
+- `docs/BACKUP_RECOVERY.md`
+- `docs/PROJECT_REQUIREMENTS.md`
+- `docs/ADR-graph-library.md`
+
+## Developer checks
+
+Backend:
+
+```bash
+docker compose exec -T app python -m pytest
+docker compose exec -T app ruff check .
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm test -- --watchAll=false --ci
+```
+
+## Specs index (latest)
+
+All current specs in `specs/`:
+
+- `001-doc-ingestion-pipeline`
+- `002-ner-pipeline`
+- `003-openai-llm-toggle`
+- `004-entity-relation-extraction`
+- `005-llm-joint-extraction-labels`
+- `006-entity-dedup-aliases`
+- `007-project-model-concept-note-api`
+- `008-ui-and-graph-redesign`
+- `009-complete-ui-rewiring`
+- `010-graph-visualization-fixes`
+- `011-intelligence-layer`
+- `013-structured-intake-report`
+- `014-personas-workplan-export`
+- `015-ux-graph-llm-overhaul`
+- `016-document-extraction-integrity`
+# Stakeholder Analysis Tool
+
 AI-powered stakeholder analysis platform for UNDP. Ingests policy documents, extracts named entities and relationships, builds knowledge graphs, and supports RAG-based reasoning over stakeholder networks.
 
 ## Features

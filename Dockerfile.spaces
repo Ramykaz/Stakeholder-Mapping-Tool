@@ -1,0 +1,51 @@
+# ─── Stage 1: builder ────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir --timeout=300 --retries=5 -r requirements.txt
+
+RUN pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+
+RUN python -c "\
+from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('all-MiniLM-L6-v2').save('/build/models/all-MiniLM-L6-v2')"
+
+
+# ─── Stage 2: runtime ────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+# Install Redis + supervisord alongside the app runtime deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    fonts-dejavu-core \
+    redis-server \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /build/models /app/models
+
+ENV HF_HOME=/app/models
+
+WORKDIR /app
+
+COPY . .
+COPY supervisord.conf /etc/supervisor/conf.d/app.conf
+
+# Redis and Celery both use the local Redis instance
+ENV CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+ENV CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+ENV REDIS_URL=redis://127.0.0.1:6379/0
+
+EXPOSE 8000
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/app.conf"]

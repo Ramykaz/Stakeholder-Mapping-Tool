@@ -37,15 +37,22 @@ import { getStatusBadgeClass } from '@/lib/entityTypes';
 import { formatFileSize } from '@/lib/uiState';
 import Layout from '@/components/Layout';
 import EmptyState from '@/components/EmptyState';
+import { FileText, FileType, Globe, X } from 'lucide-react';
 import ErrorMessage from '@/components/ErrorMessage';
 
 const POLLING_INTERVAL = 3000;
 const TERMINAL_STATUSES = ['completed', 'failed'];
 
 function getFileIcon(fmt: string) {
-  if (fmt === 'pdf')  return '📄';
-  if (fmt === 'docx') return '📘';
-  return '📝';
+  const color = getFileIconColor(fmt);
+  const Icon = fmt === 'docx' ? FileType : FileText;
+  return <Icon size={16} strokeWidth={1.75} color={color} />;
+}
+
+function getFileIconColor(fmt: string) {
+  if (fmt === 'pdf')  return 'var(--coral)';
+  if (fmt === 'docx') return 'var(--accent)';
+  return 'var(--amber)';
 }
 
 function getFileIconBg(fmt: string) {
@@ -474,7 +481,7 @@ export default function DocumentsPage() {
               {!loading && unifiedRows.length === 0 && (
                 <div style={{ marginBottom: 24 }}>
                   <EmptyState
-                    icon="📄"
+                    icon={<FileText size={28} strokeWidth={1.5} />}
                     title="No sources yet"
                     description="Upload files, add URLs, crawl a site, or paste text to get started."
                     compact
@@ -506,8 +513,9 @@ export default function DocumentsPage() {
                           width: 32, height: 32, borderRadius: 7, flexShrink: 0,
                           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
                           background: 'var(--accent-soft)',
+                          color: 'var(--accent)',
                         }}>
-                          🌐
+                          <Globe size={16} strokeWidth={1.75} />
                         </div>
 
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -537,8 +545,8 @@ export default function DocumentsPage() {
 
                         <button
                           onClick={(e) => void onDeleteWebSource(e, source.id)}
-                          style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, fontSize: 14 }}
-                        >✕</button>
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, display: 'inline-flex' }}
+                        ><X size={14} strokeWidth={1.75} /></button>
                       </div>
                     </div>
                   );
@@ -705,8 +713,8 @@ export default function DocumentsPage() {
                       {/* Delete */}
                       <button
                         onClick={e => void onDelete(e, doc.id)}
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, fontSize: 14 }}
-                      >✕</button>
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, display: 'inline-flex' }}
+                      ><X size={14} strokeWidth={1.75} /></button>
                     </div>
 
                     {/* Expanded review */}
@@ -986,10 +994,10 @@ export default function DocumentsPage() {
                     </div>
                     <button
                       onClick={() => setStaleToastVisible(false)}
-                      style={{ background: 'none', border: 'none', color: '#92400E', cursor: 'pointer', fontSize: 14, padding: 0 }}
+                      style={{ background: 'none', border: 'none', color: '#92400E', cursor: 'pointer', padding: 0, display: 'inline-flex' }}
                       aria-label="Dismiss notification"
                     >
-                      ✕
+                      <X size={14} strokeWidth={1.75} />
                     </button>
                   </div>
                 </div>

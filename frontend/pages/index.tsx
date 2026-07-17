@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { getStoredAuthToken } from '@/lib/api';
 import TopNavigation from '@/components/layout/TopNavigation';
+import { Compass, ScanSearch, Brain, FileText } from 'lucide-react';
 
 export default function Home() {
   const router = useRouter();
@@ -98,13 +99,13 @@ export default function Home() {
           {/* Capability pillars */}
           <div className="pillars-grid" style={{ marginTop: 72, opacity: 0, animation: 'fadeUp .6s .8s forwards' }}>
             {[
-              { icon: '🧭', l: 'Initiative-profile first' },
-              { icon: '📥', l: 'Analyze + graph review' },
-              { icon: '🧠', l: 'SMQ + report workflow' },
-              { icon: '📄', l: 'Stakeholder table + export' },
+              { icon: Compass, l: 'Initiative-profile first' },
+              { icon: ScanSearch, l: 'Analyze + graph review' },
+              { icon: Brain, l: 'SMQ + report workflow' },
+              { icon: FileText, l: 'Stakeholder table + export' },
             ].map(s => (
               <div key={s.l} style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                <div style={{ fontSize: 26 }}>{s.icon}</div>
+                <div style={{ color: 'var(--accent)' }}><s.icon size={26} strokeWidth={1.75} /></div>
                 <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--text3)', letterSpacing: '0.03em' }}>
                   {s.l}
                 </div>

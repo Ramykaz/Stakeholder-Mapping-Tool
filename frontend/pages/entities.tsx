@@ -40,7 +40,7 @@ export default function GlobalEntitiesPage() {
             <div style={{ maxWidth: 800, margin: '0 auto' }}>
               <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
                 <div>
-                  <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 6 }}>
+                  <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--text)', marginBottom: 6 }}>
                     All Entities
                   </h1>
                   <p style={{ color: 'var(--text2)', fontSize: 13 }}>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ReportSectionResponse } from '@/lib/api';
 import { replaceInitiativePlaceholders } from '@/lib/initiativeText';
 import { normalizeLlmText } from '@/lib/llmText';
+import { Clock, TriangleAlert } from 'lucide-react';
 
 interface ReportSectionCardProps {
   section: ReportSectionResponse;
@@ -71,7 +72,9 @@ export default function ReportSectionCard({ section, initiativeName = '', onRege
           alignItems: 'flex-start',
           gap: 10,
         }}>
-          <span style={{ fontSize: 16, flexShrink: 0 }}>{isRateLimit(section.error_message) ? '⏳' : '⚠'}</span>
+          <span style={{ flexShrink: 0, display: 'inline-flex', color: isRateLimit(section.error_message) ? '#B45309' : 'var(--coral,#f0614a)' }}>
+            {isRateLimit(section.error_message) ? <Clock size={16} strokeWidth={1.75} /> : <TriangleAlert size={16} strokeWidth={1.75} />}
+          </span>
           <p className="text-sm" style={{ color: isRateLimit(section.error_message) ? '#7a3f02' : 'var(--coral,#f0614a)', margin: 0 }}>
             {section.error_message || 'Generation failed.'}
           </p>

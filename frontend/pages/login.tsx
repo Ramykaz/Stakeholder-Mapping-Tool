@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import { loginUser } from '@/lib/api';
+import { FileText, Brain, Map } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -147,12 +148,12 @@ export default function LoginPage() {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
-                  { icon: '📄', text: 'Upload PDFs, DOCX, TXT, or Markdown files' },
-                  { icon: '🧠', text: 'LLM extracts entities & relationships' },
-                  { icon: '🗺️', text: 'Explore an interactive knowledge graph' },
+                  { icon: FileText, text: 'Upload PDFs, DOCX, TXT, or Markdown files' },
+                  { icon: Brain, text: 'LLM extracts entities & relationships' },
+                  { icon: Map, text: 'Explore an interactive knowledge graph' },
                 ].map(f => (
                   <div key={f.text} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 16 }}>{f.icon}</span>
+                    <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><f.icon size={16} strokeWidth={1.75} /></span>
                     <span style={{ fontSize: 12, color: 'var(--text2)' }}>{f.text}</span>
                   </div>
                 ))}

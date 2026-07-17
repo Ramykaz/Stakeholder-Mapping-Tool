@@ -13,6 +13,7 @@ import {
   AdminStats,
   AdminUserRecord,
 } from '@/lib/api';
+import { Lock } from 'lucide-react';
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 
@@ -121,7 +122,7 @@ export default function AdminPage() {
         <Head><title>Admin — Access Denied</title></Head>
         <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+            <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--text3)', marginBottom: 16 }}><Lock size={44} strokeWidth={1.5} /></div>
             <h1 style={{ fontFamily: 'var(--serif)', color: 'var(--text)', marginBottom: 8 }}>Admin access required</h1>
             <p style={{ color: 'var(--text3)', marginBottom: 24 }}>You do not have permission to view this page.</p>
             <button className="btn-ghost" onClick={() => void router.push('/projects')}>← Back to projects</button>
@@ -172,7 +173,7 @@ export default function AdminPage() {
 
               {/* Page header */}
               <div style={{ marginBottom: 28 }}>
-                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 4 }}>Admin Dashboard</h1>
+                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--text)', marginBottom: 4 }}>Admin Dashboard</h1>
                 <p style={{ fontSize: 13, color: 'var(--text3)' }}>System-wide oversight and management</p>
               </div>
 

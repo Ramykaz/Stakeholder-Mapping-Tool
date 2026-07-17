@@ -144,6 +144,31 @@ function redirectToLoginIfExpired(): void {
   }
 }
 
+/**
+ * Some environments can't reach the backend at all (connection refused / DNS /
+ * CORS failure — not a slow response timing out). Send the user to a "coming
+ * soon" page instead of surfacing a raw network error on whatever page they're on.
+ */
+function redirectToComingSoon(url?: string): void {
+  if (!isBrowser()) return;
+  const current = window.location.pathname;
+  if (current === '/coming-soon') return;
+  const feature = featureFromUrl(url);
+  const suffix = feature ? `?feature=${encodeURIComponent(feature)}` : '';
+  window.location.href = `/coming-soon${suffix}`;
+}
+
+function featureFromUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  if (url.includes('/auth/login')) return 'login';
+  if (url.includes('/auth/register')) return 'register';
+  if (url.includes('/documents')) return 'documents';
+  if (url.includes('/graph') || url.includes('/query')) return 'graph';
+  if (url.includes('/report')) return 'report';
+  if (url.includes('/projects')) return 'projects';
+  return undefined;
+}
+
 function generateRequestId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -391,6 +416,13 @@ apiClient.interceptors.response.use(
 
       console.error('No response from server:', error.request);
       captureException(error, { type: 'network_error', url: config?.url });
+
+      // A genuine connection failure (backend not reachable at all) — as opposed to a
+      // slow request timing out.
+      if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
+        redirectToComingSoon(config?.url);
+      }
+
       return Promise.reject(new Error('Network error. Please check your connection'));
     } else {
       console.error('Error:', error.message);

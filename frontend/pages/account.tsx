@@ -186,7 +186,7 @@ export default function AccountPage() {
           <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
 
-              <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 28 }}>
+              <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--text)', marginBottom: 28 }}>
                 My Account
               </h1>
 

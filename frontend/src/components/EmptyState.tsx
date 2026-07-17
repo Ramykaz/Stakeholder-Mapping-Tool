@@ -1,7 +1,8 @@
 import React from 'react';
+import { FolderOpen } from 'lucide-react';
 
 interface EmptyStateProps {
-  /** Icon or emoji to display (e.g. '📊' or an SVG element) */
+  /** Icon to display — a lucide-react element (or any ReactNode) */
   icon?: React.ReactNode;
   /** Primary heading */
   title: string;
@@ -24,7 +25,7 @@ interface EmptyStateProps {
  * Used across all rewired pages when no data is available.
  */
 export default function EmptyState({
-  icon = '📂',
+  icon,
   title,
   description,
   actionLabel,
@@ -41,11 +42,9 @@ export default function EmptyState({
       borderRadius: compact ? 10 : 14,
       background: 'var(--bg2)',
     }}>
-      {typeof icon === 'string' ? (
-        <div style={{ fontSize: compact ? 28 : 40, marginBottom: compact ? 10 : 16 }}>{icon}</div>
-      ) : (
-        <div style={{ marginBottom: compact ? 10 : 16, display: 'flex', justifyContent: 'center' }}>{icon}</div>
-      )}
+      <div style={{ marginBottom: compact ? 10 : 16, display: 'flex', justifyContent: 'center', color: 'var(--text3)' }}>
+        {icon ?? <FolderOpen size={compact ? 28 : 40} strokeWidth={1.5} />}
+      </div>
 
       <h3 style={{
         fontFamily: 'var(--serif)',

@@ -148,7 +148,7 @@ export default function ProjectSettingsPage() {
       {/* LLM Provider selection */}
       {providerData && (
         <div className="max-w-2xl card space-y-4 mt-4">
-          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--text)' }}>LLM Provider</h2>
+          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--text)' }}>LLM Provider</h2>
           <p style={{ fontSize: 13, color: 'var(--text3)' }}>
             Select which LLM provider and model to use for extraction, summaries, and queries in this project.
           </p>

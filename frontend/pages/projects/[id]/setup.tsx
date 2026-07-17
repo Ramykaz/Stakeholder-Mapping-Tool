@@ -102,7 +102,7 @@ export default function SetupPage() {
               {/* Header */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: '#fff' }}>
+                  <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: '#fff' }}>
                     Concept Note
                   </h1>
                   {saving && (

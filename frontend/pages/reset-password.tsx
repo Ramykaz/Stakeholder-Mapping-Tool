@@ -55,7 +55,7 @@ export default function ResetPasswordPage() {
       <Head><title>Reset Password — UNDP Stakeholder Analysis</title></Head>
       <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: '100%', maxWidth: 420, padding: '0 24px' }}>
-          <h1 style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--text)', marginBottom: 8 }}>Set a new password</h1>
+          <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--text)', marginBottom: 8 }}>Set a new password</h1>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 28, lineHeight: 1.6 }}>
             Choose a strong password for your account.
           </p>

@@ -5,6 +5,7 @@ import Layout from '@/components/Layout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import ErrorMessage from '@/components/ErrorMessage';
 import { uploadDocument, uploadDocumentToProject, extractEntities, extractEntitiesForProject, extractEntitiesRelations, extractRelations, getDocuments, deleteDocument, getExtractionProgress, DocumentSummary } from '@/lib/api';
+import { FileText, File as FileIcon } from 'lucide-react';
 
 const GROQ_DEFAULT_MODEL = 'llama-3.1-8b-instant';
 const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-5-mini', 'gpt-5-nano'] as const;
@@ -306,11 +307,10 @@ export default function UploadPage() {
     return `${(size / 1024 / 1024).toFixed(2)} MB`;
   };
 
-  const getFileIcon = (name: string) => {
+  const getFileIcon = (name: string, size = 20) => {
     const ext = name.split('.').pop()?.toLowerCase();
-    if (ext === 'pdf') return '📄';
-    if (ext === 'docx') return '📝';
-    return '📃';
+    if (ext === 'pdf' || ext === 'docx') return <FileText size={size} strokeWidth={1.5} />;
+    return <FileIcon size={size} strokeWidth={1.5} />;
   };
 
   const resolveModel = () => {
@@ -393,8 +393,8 @@ export default function UploadPage() {
             >
               {(file || fileName) ? (
                 <div className="animate-fade-in">
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl">
-                    {getFileIcon(fileName)}
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                    {getFileIcon(fileName, 26)}
                   </div>
                   <p className="text-sm font-semibold text-navy-700">{fileName}</p>
                   <p className="text-xs text-gray-500 mt-1">{formatFileSize(fileSize)}</p>
@@ -712,8 +712,8 @@ export default function UploadPage() {
             {documents.map((doc) => (
               <div key={doc.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/80 transition-colors">
                 {/* File icon */}
-                <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-base">
-                  {doc.file_format === 'pdf' ? '📄' : doc.file_format === 'docx' ? '📝' : '📃'}
+                <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                  {getFileIcon(doc.filename, 16)}
                 </div>
 
                 {/* Info */}

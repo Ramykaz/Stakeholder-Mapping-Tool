@@ -22,10 +22,11 @@
   --amber-soft:   rgba(245,166,35,0.10);
   --coral:        #f0614a;
   --coral-soft:   rgba(240,97,74,0.10);
-  /* Single corporate font stack — Inter everywhere, JetBrains Mono for code */
-  --sans:  'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --serif: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --mono:  'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  /* Inter for body text; Manrope for headings/display (aliased as --serif, used app-wide for titles); JetBrains Mono for code */
+  --sans:    'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --serif:   'Manrope', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --display: 'Manrope', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono:    'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
 
 /* ===== Light / Day Mode ===== */
@@ -227,10 +228,31 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
 hr, .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
 
 /* ===== Typography ===== */
-.display { font-family: var(--sans); font-weight: 700; color: var(--text); line-height: 1.15; letter-spacing: -0.02em; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--display);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+h4 { font-size: 1.0625rem; }
+h5 { font-size: 0.9375rem; }
+h6 { font-size: 0.875rem; }
+
+.display { font-family: var(--display); font-weight: 700; color: var(--text); line-height: 1.15; letter-spacing: -0.02em; }
 .mono    { font-family: var(--mono); }
 .muted   { color: var(--text2); }
 .dimmed  { color: var(--text3); }
+
+/* Consistent type scale — use these instead of ad hoc text-* sizes for page/section titles */
+.text-page-title    { font-size: 1.75rem;  line-height: 1.25; font-weight: 700; font-family: var(--display); letter-spacing: -0.02em; }
+.text-section-title { font-size: 1.25rem;  line-height: 1.3;  font-weight: 700; font-family: var(--display); letter-spacing: -0.01em; }
+.text-card-title     { font-size: 1.0625rem; line-height: 1.4; font-weight: 600; font-family: var(--display); }
+.text-body           { font-size: 0.9375rem; line-height: 1.6; font-weight: 400; }
+.text-caption        { font-size: 0.8125rem; line-height: 1.5; font-weight: 500; }
 
 /* Global readability bump for commonly used Tailwind text utilities */
 .text-xs { font-size: 0.82rem !important; }
@@ -381,7 +403,7 @@ div:hover > .card-menu-btn { opacity: 1 !important; }
 }
 
 .error-page-title {
-  font-family: var(--serif);
+  font-family: var(--display);
   color: var(--text);
   margin-bottom: 12px;
 }

@@ -20,6 +20,7 @@ import {
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 import EmptyState from '@/components/EmptyState';
+import { BarChart3 } from 'lucide-react';
 import RouteErrorBoundary from '@/components/RouteErrorBoundary';
 import { CytoscapeNode, CytoscapeEdge } from '@/types';
 import { mapDegreeToSize } from '@/lib/graphFocus';
@@ -355,7 +356,7 @@ export default function MapPage() {
                   }}>
                     <div style={{ maxWidth: 420 }}>
                       <EmptyState
-                        icon="📊"
+                        icon={<BarChart3 size={40} strokeWidth={1.5} />}
                         title="No graph yet"
                         description={error}
                         actionLabel="Go to workspace to extract →"
@@ -605,7 +606,7 @@ export default function MapPage() {
                   return (
                   <div style={{ maxWidth: 800, margin: '0 auto' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 20 }}>
-                      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--text)', margin: 0 }}>
+                      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--text)', margin: 0 }}>
                         All Entities
                       </h2>
                       <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text3)' }}>

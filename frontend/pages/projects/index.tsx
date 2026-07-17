@@ -10,6 +10,7 @@ import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 import EmptyState from '@/components/EmptyState';
 import ErrorMessage from '@/components/ErrorMessage';
+import { FolderKanban } from 'lucide-react';
 
 function formatDate(iso: string): string {
   try {
@@ -157,7 +158,7 @@ export default function ProjectsDashboard() {
 
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <h1 style={{ fontFamily: 'var(--serif)', fontSize: 32, color: '#fff' }}>Your projects</h1>
+              <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: '#fff' }}>Your projects</h1>
               <button onClick={() => setShowModal(true)} className="btn-primary">
                 + New Project
               </button>
@@ -182,7 +183,7 @@ export default function ProjectsDashboard() {
             {!loading && !error && projects.length === 0 && (
               <div style={{ maxWidth: 480, margin: '80px auto' }}>
                 <EmptyState
-                  icon="🗂️"
+                  icon={<FolderKanban size={40} strokeWidth={1.5} />}
                   title="No projects yet"
                   description="Create your first project to start mapping stakeholder relationships from your documents."
                   actionLabel="Create your first project"

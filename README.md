@@ -1,14 +1,3 @@
----
-title: Stakeholder Analysis Tool
-emoji: 🗺️
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-dockerfile: Dockerfile.spaces
-pinned: false
-app_port: 8000
----
-
 # Stakeholder Analysis Tool
 
 Stakeholder Analysis Tool is a full-stack platform for building stakeholder maps from project documents.

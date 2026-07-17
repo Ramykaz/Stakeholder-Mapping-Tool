@@ -272,6 +272,13 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ]
+_cors_extra_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '').strip()
+if _cors_extra_origins:
+    CORS_ALLOWED_ORIGINS += [
+        origin.strip()
+        for origin in _cors_extra_origins.split(',')
+        if origin.strip()
+    ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = ['accept', 'authorization', 'content-type', 'x-requested-with', 'x-request-id']
 CORS_EXPOSE_HEADERS = ['x-request-id']

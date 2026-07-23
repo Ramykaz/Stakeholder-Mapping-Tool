@@ -4,9 +4,13 @@ import { getProjects, deleteProject, getProjectReviewCandidates, getProject, get
 
 export interface SidebarProps {
   workspaceId?: string;
+  /** Mobile off-canvas open state */
+  open?: boolean;
+  /** Called after a navigation action or backdrop click to close the mobile drawer */
+  onClose?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
+const Sidebar: React.FC<SidebarProps> = ({ workspaceId, open, onClose }) => {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const isAuthenticated = !!getStoredAuthToken();
@@ -48,10 +52,12 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
 
   const navigateToProject = (id: string) => {
     void router.push(`/projects/${id}/map`);
+    onClose?.();
   };
 
   const onNewProject = () => {
     void router.push('/projects?create=1');
+    onClose?.();
   };
 
   const onSettings = () => {
@@ -60,6 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
     } else {
       void router.push('/account');
     }
+    onClose?.();
   };
 
   const handleOpenDropdown = (e: React.MouseEvent, projectId: string) => {
@@ -129,16 +136,11 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
 
   return (
     <>
-      <aside style={{
-        width: 248,
-        background: 'var(--bg2)',
-        borderRight: '1px solid var(--border)',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        flexShrink: 0,
-      }}>
+      <div
+        className={`app-sidebar-backdrop${open ? ' is-open' : ''}`}
+        onClick={() => onClose?.()}
+      />
+      <aside className={`app-sidebar${open ? ' is-open' : ''}`}>
         {/* Top section */}
         <div style={{ padding: '16px 12px 12px', borderBottom: '1px solid var(--border)' }}>
           <div style={{
@@ -239,7 +241,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
               {isActive(project.id) && projectSubPages.map(sub => (
                 <div
                   key={sub.path}
-                  onClick={() => void router.push(sub.path)}
+                  onClick={() => { void router.push(sub.path); onClose?.(); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '5px 10px 5px 28px', borderRadius: 6, cursor: 'pointer',
@@ -281,7 +283,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
         {/* Bottom section */}
         <div style={{ marginTop: 'auto', padding: '12px 8px', borderTop: '1px solid var(--border)' }}>
           {[
-            { label: 'Projects', action: () => void router.push('/projects') },
+            { label: 'Projects', action: () => { void router.push('/projects'); onClose?.(); } },
             { label: user?.is_admin ? 'Admin Settings' : 'Account Settings', action: onSettings },
           ].map(item => (
             <div
@@ -323,7 +325,7 @@ const Sidebar: React.FC<SidebarProps> = ({ workspaceId }) => {
             style={{
               background: 'var(--bg2)', border: '1px solid var(--border)',
               borderRadius: 12, padding: '28px 28px 24px',
-              width: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              width: '90vw', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
             }}
           >
             <h2 style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>

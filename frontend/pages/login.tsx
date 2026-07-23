@@ -90,10 +90,10 @@ export default function LoginPage() {
   return (
     <>
       <Head><title>Sign in — UNDP Stakeholder Analysis</title></Head>
-      <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
+      <div className="auth-screen" style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
 
         {/* Left panel */}
-        <div style={{
+        <div className="auth-panel-left" style={{
           flex: '0 0 52%', background: 'var(--bg2)', borderRight: '1px solid var(--border)',
           display: 'flex', flexDirection: 'column', padding: '40px 48px', position: 'relative', overflow: 'hidden',
         }}>
@@ -122,15 +122,15 @@ export default function LoginPage() {
           </div>
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative' }}>
-            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(28px,3vw,40px)', color: '#fff', lineHeight: 1.15, marginBottom: 16 }}>
+            <h2 className="auth-hero-title" style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(28px,3vw,40px)', color: '#fff', lineHeight: 1.15, marginBottom: 16 }}>
               Map who matters —{' '}
               <em style={{ color: 'var(--teal)', fontStyle: 'italic' }}>and why they connect</em>
             </h2>
-            <p style={{ fontSize: 14, color: 'var(--text2)', lineHeight: 1.7, maxWidth: 400, marginBottom: 40 }}>
+            <p className="auth-hero-copy" style={{ fontSize: 14, color: 'var(--text2)', lineHeight: 1.7, maxWidth: 400, marginBottom: 40 }}>
               Upload policy documents and let AI extract a living network of stakeholders.
             </p>
 
-            <svg width="280" height="160" viewBox="0 0 280 160" fill="none" style={{ marginBottom: 40, opacity: 0.6 }}>
+            <svg className="auth-hero-graphic" width="280" height="160" viewBox="0 0 280 160" fill="none" style={{ marginBottom: 40, opacity: 0.6 }}>
               <circle cx="140" cy="80" r="14" fill="var(--accent)" opacity="0.9"/>
               <circle cx="60"  cy="40" r="9"  fill="var(--teal)"   opacity="0.8"/>
               <circle cx="220" cy="40" r="9"  fill="var(--purple)" opacity="0.8"/>
@@ -145,7 +145,7 @@ export default function LoginPage() {
               <line x1="60"  y1="40" x2="220" y2="40"  stroke="var(--border2)" strokeWidth="1"/>
             </svg>
 
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
+            <div className="auth-feature-list" style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
                   { icon: FileText, text: 'Upload PDFs, DOCX, TXT, or Markdown files' },
@@ -163,7 +163,7 @@ export default function LoginPage() {
         </div>
 
         {/* Right panel */}
-        <div style={{
+        <div className="auth-panel-right" style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: '48px 40px', flexDirection: 'column',
         }}>

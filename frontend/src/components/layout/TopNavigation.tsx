@@ -5,9 +5,11 @@ import { getStoredAuthToken, getStoredAuthUser, logoutUser, getProjects, AuthUse
 
 export interface TopNavigationProps {
   workspaceId?: string;
+  /** Shown only on mobile — toggles the off-canvas sidebar */
+  onMenuClick?: () => void;
 }
 
-const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId }) => {
+const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId, onMenuClick }) => {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -89,7 +91,7 @@ const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId }) => {
   };
 
   return (
-    <header style={{
+    <header className="app-header" style={{
       height: 52,
       position: 'sticky',
       top: 0,
@@ -99,10 +101,21 @@ const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId }) => {
       backdropFilter: 'blur(12px)',
       display: 'flex',
       alignItems: 'center',
-      padding: '0 24px',
-      gap: 16,
       flexShrink: 0,
     }}>
+      {/* Hamburger — mobile only */}
+      {isAuthenticated && (
+        <button
+          className="hamburger-btn"
+          onClick={() => onMenuClick?.()}
+          aria-label="Toggle navigation menu"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+      )}
+
       {/* Logo */}
       <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }}>
         <div style={{
@@ -116,14 +129,14 @@ const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId }) => {
             <circle cx="3" cy="11" r="1.5"/><line x1="6.8" y1="8.8" x2="4.2" y2="10.2"/>
           </svg>
         </div>
-        <span style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+        <span className="nav-logo-text" style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--text)', whiteSpace: 'nowrap' }}>
           UNDP Stakeholder Analysis
         </span>
       </Link>
 
       {/* Search pill (authenticated only) */}
       {isAuthenticated && (
-        <div ref={searchRef} style={{ flex: 1, maxWidth: 320, position: 'relative' }}>
+        <div ref={searchRef} className="nav-search" style={{ flex: 1, maxWidth: 320, position: 'relative' }}>
           <div
             onClick={() => setSearchOpen(true)}
             style={{

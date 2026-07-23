@@ -23,10 +23,16 @@ export default function Layout({ children, title, subtitle, workspaceId, hideSid
   const activeWorkspaceId = workspaceId ?? (router.query.id as string | undefined);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [workflow, setWorkflow] = useState<WorkflowStatus | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     setIsAuthenticated(!!getStoredAuthToken());
   }, []);
+
+  // Close the mobile drawer whenever the route changes
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [router.asPath]);
 
   useEffect(() => {
     if (!activeWorkspaceId || !isAuthenticated) return;
@@ -40,12 +46,12 @@ export default function Layout({ children, title, subtitle, workspaceId, hideSid
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
-      <TopNavigation workspaceId={activeWorkspaceId} />
+      <TopNavigation workspaceId={activeWorkspaceId} onMenuClick={() => setSidebarOpen(v => !v)} />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {isAuthenticated && !hideSidebar && (
-          <Sidebar workspaceId={activeWorkspaceId} />
+          <Sidebar workspaceId={activeWorkspaceId} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         )}
-        <main style={{ flex: 1, overflowY: 'auto', padding: 40, display: 'flex', flexDirection: 'column' }}>
+        <main className="app-main">
           {/* Workflow stepper — only on project pages */}
           {workflow && activeWorkspaceId && (
             <div style={{ marginBottom: 24 }}>
@@ -56,12 +62,12 @@ export default function Layout({ children, title, subtitle, workspaceId, hideSid
           {(title || subtitle) && (
             <div style={{ marginBottom: 32 }}>
               {title && (
-                <h1 style={{ fontFamily: 'var(--serif)', fontSize: 32, color: '#fff', marginBottom: 6 }}>
+                <h1 className="text-page-title" style={{ color: 'var(--text)', marginBottom: 6 }}>
                   {title}
                 </h1>
               )}
               {subtitle && (
-                <p style={{ color: 'var(--text2)', fontSize: 16 }}>{subtitle}</p>
+                <p style={{ color: 'var(--text2)', fontSize: 15 }}>{subtitle}</p>
               )}
             </div>
           )}

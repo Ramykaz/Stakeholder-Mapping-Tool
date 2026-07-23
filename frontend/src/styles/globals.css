@@ -22,10 +22,10 @@
   --amber-soft:   rgba(245,166,35,0.10);
   --coral:        #f0614a;
   --coral-soft:   rgba(240,97,74,0.10);
-  /* Inter for body text; Manrope for headings/display (aliased as --serif, used app-wide for titles); JetBrains Mono for code */
-  --sans:    'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --serif:   'Manrope', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --display: 'Manrope', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Plus Jakarta Sans for body text; Sora for headings/display (aliased as --serif, used app-wide for titles); JetBrains Mono for code */
+  --sans:    'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --serif:   'Sora', 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --display: 'Sora', 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono:    'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
 
@@ -124,17 +124,22 @@
 /* ===== Base Styles ===== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { font-size: 17px; }
+html { font-size: 16px; }
 
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.01em;
+}
+
+@media (max-width: 640px) {
+  html { font-size: 15px; }
+  body { font-size: 14px; }
 }
 
 /* ===== Scrollbars ===== */
@@ -254,9 +259,85 @@ h6 { font-size: 0.875rem; }
 .text-body           { font-size: 0.9375rem; line-height: 1.6; font-weight: 400; }
 .text-caption        { font-size: 0.8125rem; line-height: 1.5; font-weight: 500; }
 
-/* Global readability bump for commonly used Tailwind text utilities */
-.text-xs { font-size: 0.82rem !important; }
-.text-sm { font-size: 0.95rem !important; }
+/* ===== App shell — responsive layout ===== */
+.app-header {
+  padding: 0 24px;
+  gap: 16px;
+}
+
+.hamburger-btn {
+  display: none;
+  width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--border2); background: var(--bg3);
+  align-items: center; justify-content: center; cursor: pointer;
+  color: var(--text2); flex-shrink: 0;
+}
+
+.app-sidebar {
+  width: 248px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.app-sidebar-backdrop { display: none; }
+
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .hamburger-btn { display: flex; }
+  .nav-search { display: none; }
+
+  .app-header { padding: 0 14px; gap: 10px; }
+
+  .app-sidebar {
+    position: fixed;
+    top: 52px; left: 0; bottom: 0;
+    height: auto;
+    z-index: 150;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.35);
+  }
+  .app-sidebar.is-open { transform: translateX(0); }
+
+  .app-sidebar-backdrop.is-open {
+    display: block;
+    position: fixed;
+    top: 52px; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 140;
+  }
+
+  .app-main { padding: 18px; }
+}
+
+@media (max-width: 480px) {
+  .nav-logo-text { display: none; }
+  .app-main { padding: 14px; }
+  .text-page-title { font-size: 1.375rem; }
+}
+
+/* ===== Login / auth split screen ===== */
+@media (max-width: 860px) {
+  .auth-screen { flex-direction: column !important; height: auto !important; min-height: 100vh; }
+  .auth-panel-left { flex: none !important; width: 100% !important; padding: 28px 24px !important; }
+  .auth-panel-left .auth-hero-graphic,
+  .auth-panel-left .auth-feature-list { display: none !important; }
+  .auth-panel-left .auth-hero-title { font-size: 26px !important; margin-bottom: 10px !important; }
+  .auth-panel-left .auth-hero-copy { margin-bottom: 0 !important; }
+  .auth-panel-right { padding: 32px 20px !important; }
+}
 
 /* ===== Card hover menu ===== */
 div:hover > .card-menu-btn { opacity: 1 !important; }

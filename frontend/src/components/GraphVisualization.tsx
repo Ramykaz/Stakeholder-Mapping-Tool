@@ -563,7 +563,7 @@ function GraphVisualizationInner({
     const metaColor = theme === 'dark' ? '#8f96ad' : '#4b5563';
     tooltipRef.current.innerHTML = `
       <div style="font-size:14px;color:${titleColor};font-weight:500;margin-bottom:4px">${node.label || ''}</div>
-      <div style="font-size:11px;color:${metaColor};font-family:'DM Mono',monospace">${node.entity_type || ''}</div>
+      <div style="font-size:11px;color:${metaColor};font-family:var(--mono)">${node.entity_type || ''}</div>
     `;
     tooltipRef.current.style.display = 'block';
   }, [theme]);
@@ -588,7 +588,7 @@ function GraphVisualizationInner({
     const tgt = nodeById.get(targetId)?.label || targetId;
     tooltipRef.current.innerHTML = `
       <div style="font-size:12px;color:${titleColor};font-weight:600;margin-bottom:4px">${relationLabel}</div>
-      <div style="font-size:11px;color:${metaColor};font-family:'DM Mono',monospace;margin-bottom:4px">${src} → ${tgt}</div>
+      <div style="font-size:11px;color:${metaColor};font-family:var(--mono);margin-bottom:4px">${src} → ${tgt}</div>
       <div style="font-size:11px;color:${metaColor};line-height:1.35">${relationMeaning}</div>
     `;
     tooltipRef.current.style.display = 'block';
@@ -824,7 +824,7 @@ function GraphVisualizationInner({
               <text
                 y={radius + 18}
                 textAnchor="middle"
-                fontFamily="Figtree, Outfit, system-ui, sans-serif"
+                fontFamily='"Plus Jakarta Sans", system-ui, sans-serif'
                 fontSize={Math.max(14, fontSize + 2)}
                 fill={labelColor}
                 stroke={labelHalo}
@@ -848,7 +848,7 @@ function GraphVisualizationInner({
         display: 'none', position: 'absolute', pointerEvents: 'none', zIndex: 50,
         background: panelBg, border: `1px solid ${panelBorder}`,
         borderRadius: 8, padding: '8px 12px',
-        fontFamily: 'Figtree, Outfit, system-ui, sans-serif',
+        fontFamily: 'var(--sans)',
         maxWidth: 220, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
       }}
     />

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { getStoredAuthToken, getStoredAuthUser, logoutUser, getProjects, AuthUser } from '../../lib/api';
+import { isDemoModeActive, exitDemoMode } from '../../lib/demoData';
 
 export interface TopNavigationProps {
   workspaceId?: string;
@@ -18,9 +19,19 @@ const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId, onMenuClick 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; type: 'project' }>>([]);
   const [isDark, setIsDark] = useState(true);
+  const [isDemo, setIsDemo] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsDemo(isDemoModeActive());
+  }, [router.pathname]);
+
+  const onExitDemo = async () => {
+    exitDemoMode();
+    await router.push('/');
+  };
 
   // Load saved theme on mount
   useEffect(() => {
@@ -133,6 +144,30 @@ const TopNavigation: React.FC<TopNavigationProps> = ({ workspaceId, onMenuClick 
           UNDP Stakeholder Analysis
         </span>
       </Link>
+
+      {isDemo && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+          padding: '4px 10px', borderRadius: 20,
+          background: 'var(--amber-soft)', border: '1px solid var(--amber)',
+        }}>
+          <span style={{
+            fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
+            letterSpacing: '0.04em', color: 'var(--amber)', whiteSpace: 'nowrap',
+          }}>
+            DEMO — sample data
+          </span>
+          <button
+            onClick={() => void onExitDemo()}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontSize: 11, color: 'var(--amber)', textDecoration: 'underline', whiteSpace: 'nowrap',
+            }}
+          >
+            Exit
+          </button>
+        </div>
+      )}
 
       {/* Search pill (authenticated only) */}
       {isAuthenticated && (

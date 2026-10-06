@@ -52,7 +52,7 @@ function TaskRow({ task, onEntityClick }: TaskRowProps) {
                     onEntityClick(task.related_entity!.id);
                   }}
                   className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium"
-                  style={{ background: '#007A8722', color: '#007A87' }}
+                  style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}
                 >
                   {task.related_entity.name}
                 </button>
@@ -92,7 +92,7 @@ function ComponentPanel({ component, onEntityClick }: {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-[var(--accent-subtle,#EBF4F5)] text-[var(--text)]">
+              <tr className="bg-[var(--accent-subtle)] text-[var(--text)]">
                 <th className="py-2 px-3 text-left font-semibold text-xs uppercase tracking-wide w-[40%]">Task</th>
                 <th className="py-2 px-3 text-left font-semibold text-xs uppercase tracking-wide w-[20%]">Owner</th>
                 <th className="py-2 px-3 text-left font-semibold text-xs uppercase tracking-wide w-[20%]">Timeline</th>

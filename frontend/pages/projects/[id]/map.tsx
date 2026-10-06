@@ -215,6 +215,11 @@ export default function MapPage() {
     setGraphCommand({ type, nonce: Date.now() });
 
   const [exportLoading, setExportLoading] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [router.asPath]);
   const handleExport = async (type: 'entities' | 'relations' | 'report-docx' | 'report-pdf') => {
     if (!id) return;
     setExportLoading(type);
@@ -225,9 +230,9 @@ export default function MapPage() {
     <>
       <Head><title>Map — {project?.name ?? 'Graph'}</title></Head>
       <div style={{ height: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <TopNavigation workspaceId={id} />
+        <TopNavigation workspaceId={id} onMenuClick={() => setSidebarOpen(v => !v)} />
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar workspaceId={id} />
+          <Sidebar workspaceId={id} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
           <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
             {/* Project banner */}

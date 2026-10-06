@@ -2,6 +2,7 @@ import React from 'react';
 import { ContextualSummaryResponse, GlobalEntityProfile } from '@/lib/api';
 import { CytoscapeNode } from '@/types';
 import { normalizeLlmText } from '@/lib/llmText';
+import { getEntityColor } from '@/lib/entityTypes';
 
 interface EntitySidePanelProps {
   node: CytoscapeNode;
@@ -17,19 +18,6 @@ interface EntitySidePanelProps {
   onGenerateSummary: (refresh?: boolean) => void;
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  PERSON:       '#2ec4a5',
-  ORGANIZATION: '#3d6fff',
-  GOVERNMENT:   '#3d6fff',
-  LOCATION:     '#f5a623',
-  ROLE:         '#7b8299',
-  EVENT:        '#9b6ef3',
-  PROJECT:      '#9b6ef3',
-  POLICY:       '#9b6ef3',
-  CONCEPT:      '#f0614a',
-  THEME:        '#f0614a',
-};
-
 export default function EntitySidePanel({
   node,
   profile,
@@ -44,7 +32,7 @@ export default function EntitySidePanel({
   onGenerateSummary,
 }: EntitySidePanelProps) {
   const confidencePercent = Math.round((node.data.confidence || 0) * 100);
-  const typeColor = TYPE_COLORS[node.data.entity_type] || '#7b8299';
+  const typeColor = getEntityColor(node.data.entity_type || '');
 
   return (
     <div style={{

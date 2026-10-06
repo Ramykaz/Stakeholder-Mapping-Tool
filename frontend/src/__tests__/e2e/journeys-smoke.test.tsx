@@ -58,7 +58,7 @@ jest.mock('@/lib/api', () => ({
 describe('Frontend journey smoke (E2E-style)', () => {
   test.each([
     ['login + auth navigation', '../../../pages/login'],
-    ['create project + onboarding', '../../../pages/projects/new'],
+    ['create project + onboarding', '../../../pages/projects/index'],
     ['document upload flow', '../../../pages/projects/[id]/documents'],
     ['graph interaction flow', '../../../pages/projects/[id]/map'],
     ['report generation flow', '../../../pages/projects/[id]/report'],

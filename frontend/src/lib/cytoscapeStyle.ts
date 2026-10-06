@@ -1,25 +1,20 @@
 // Cytoscape.js stylesheet — theme-adaptive, advanced visualization
 import { Theme } from '@/lib/uiState';
+import { getEntityColor } from '@/lib/entityTypes';
 
 type GraphStylesheetStyle = {
   selector: string;
   style: Record<string, unknown>;
 };
 
-export const TYPE_PALETTE: Record<string, string> = {
-  PERSON:       '#2edfb8',
-  ORGANIZATION: '#5b8fff',
-  GOVERNMENT:   '#5b8fff',
-  LOCATION:     '#ffc044',
-  ROLE:         '#e879a0',
-  EVENT:        '#af7fff',
-  PROJECT:      '#af7fff',
-  POLICY:       '#af7fff',
-  CONCEPT:      '#ff6f55',
-  THEME:        '#ff6f55',
-};
+// Derived from the single canonical entity-color map in entityTypes.ts so the
+// graph legend always matches entity badges shown elsewhere in the app.
+export const TYPE_PALETTE: Record<string, string> = Object.fromEntries(
+  ['PERSON', 'ORGANIZATION', 'GOVERNMENT', 'LOCATION', 'ROLE', 'EVENT', 'PROJECT', 'POLICY', 'CONCEPT', 'THEME']
+    .map((key) => [key, getEntityColor(key)])
+);
 
-const DEFAULT_COLOR = '#e879a0';
+const DEFAULT_COLOR = getEntityColor('');
 
 function hex2rgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -69,7 +64,7 @@ export function buildCytoscapeStylesheet(theme: Theme): GraphStylesheetStyle[] {
         'text-margin-y': 6,
         'font-size': '11px',
         'font-weight': '400' as any,
-        'font-family': '"Plus Jakarta Sans", system-ui, sans-serif',
+        'font-family': '"Public Sans", system-ui, sans-serif',
         width: 'data(node_size)',
         height: 'data(node_size)',
         'text-wrap': 'ellipsis' as any,

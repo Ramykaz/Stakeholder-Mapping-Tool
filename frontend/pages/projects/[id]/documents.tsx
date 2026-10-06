@@ -965,8 +965,8 @@ export default function DocumentsPage() {
                     right: 20,
                     bottom: 20,
                     maxWidth: 360,
-                    background: '#FFFBEB',
-                    border: '1px solid #F59E0B',
+                    background: 'var(--amber-soft)',
+                    border: '1px solid var(--amber)',
                     borderRadius: 10,
                     padding: '10px 12px',
                     boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
@@ -974,7 +974,7 @@ export default function DocumentsPage() {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 10 }}>
-                    <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: 'var(--amber)', lineHeight: 1.4 }}>
                       Your report was generated before this document was added.
                       <button
                         onClick={() => void router.push(`/projects/${id}/report`)}
@@ -982,7 +982,7 @@ export default function DocumentsPage() {
                           marginLeft: 6,
                           background: 'none',
                           border: 'none',
-                          color: '#007A87',
+                          color: 'var(--teal)',
                           cursor: 'pointer',
                           textDecoration: 'underline',
                           padding: 0,
@@ -994,7 +994,7 @@ export default function DocumentsPage() {
                     </div>
                     <button
                       onClick={() => setStaleToastVisible(false)}
-                      style={{ background: 'none', border: 'none', color: '#92400E', cursor: 'pointer', padding: 0, display: 'inline-flex' }}
+                      style={{ background: 'none', border: 'none', color: 'var(--amber)', cursor: 'pointer', padding: 0, display: 'inline-flex' }}
                       aria-label="Dismiss notification"
                     >
                       <X size={14} strokeWidth={1.75} />

@@ -35,6 +35,10 @@ export default function AccountPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('profile');
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [router.asPath]);
 
   // Profile
   const [username, setUsername] = useState('');
@@ -180,10 +184,10 @@ export default function AccountPage() {
     <>
       <Head><title>My Account — UNDP Stakeholder Analysis</title></Head>
       <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation />
+        <TopNavigation onMenuClick={() => setSidebarOpen(v => !v)} />
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
+          <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <main className="app-main">
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
 
               <h1 style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--text)', marginBottom: 28 }}>

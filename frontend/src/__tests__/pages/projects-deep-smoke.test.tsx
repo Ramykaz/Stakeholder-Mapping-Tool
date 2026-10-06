@@ -162,9 +162,7 @@ import DocumentsPage from '../../../pages/projects/[id]/documents';
 import MapPage from '../../../pages/projects/[id]/map';
 import ProjectSettingsPage from '../../../pages/projects/[id]/settings';
 import ReviewPage from '../../../pages/projects/[id]/review';
-import SetupPage from '../../../pages/projects/[id]/setup';
 import ProjectSMQPage from '../../../pages/projects/[id]/smq';
-import NewProjectPage from '../../../pages/projects/new';
 
 const mockCreateProject = createProject as jest.Mock;
 const mockGetProject = getProject as jest.Mock;
@@ -282,56 +280,12 @@ describe('Deep projects pages smoke coverage', () => {
     });
   });
 
-  it('setup page redirects to intake route', async () => {
-    routerState.pathname = '/projects/[id]/setup';
-    render(<SetupPage />);
-
-    await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith('/projects/proj-1/intake');
-    });
-  });
-
   it('renders smq page and shows first section', async () => {
     routerState.pathname = '/projects/[id]/smq';
     render(<ProjectSMQPage />);
 
     await waitFor(() => {
       expect(screen.getByText(/Section 1 of 1/i)).toBeInTheDocument();
-    });
-  });
-
-  it('new project wizard creates project and navigates to workspace', async () => {
-    routerState.pathname = '/projects/new';
-    routerState.query = {};
-
-    render(<NewProjectPage />);
-
-    fireEvent.change(screen.getByPlaceholderText(/Enter project name/i), { target: { value: 'Fresh Project' } });
-    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Describe the project/i)).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByPlaceholderText(/Describe the project/i), { target: { value: 'Description text' } });
-    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Paste concept note text/i)).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByPlaceholderText(/Paste concept note text/i), { target: { value: 'Concept content' } });
-    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Create Project/i })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /Create Project/i }));
-
-    await waitFor(() => {
-      expect(mockCreateProject).toHaveBeenCalled();
-      expect(mockPush).toHaveBeenCalledWith('/projects/proj-created/workspace');
     });
   });
 });

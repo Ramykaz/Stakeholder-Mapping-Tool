@@ -53,7 +53,7 @@ function LabelRow({
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg p-3 flex items-center gap-2 flex-wrap">
+    <div className="border rounded-lg p-3 flex items-center gap-2 flex-wrap" style={{ borderColor: 'var(--border2)' }}>
       <div
         style={{ width: 14, height: 14, borderRadius: '50%', background: draft.color, flexShrink: 0, border: '1px solid rgba(0,0,0,0.15)' }}
       />
@@ -76,7 +76,7 @@ function LabelRow({
         aria-label="Color"
         title="Color"
         type="color"
-        style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' }}
+        style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid var(--border2)', cursor: 'pointer' }}
         value={draft.color}
         onChange={(e) => setDraft({ ...draft, color: e.target.value })}
       />
@@ -90,7 +90,7 @@ function LabelRow({
         value={draft.display_order}
         onChange={(e) => setDraft({ ...draft, display_order: Number(e.target.value) })}
       />
-      <label className="inline-flex items-center gap-1 text-sm text-gray-600" style={{ whiteSpace: 'nowrap' }}>
+      <label className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text2)', whiteSpace: 'nowrap' }}>
         <input
           type="checkbox"
           checked={draft.active}
@@ -143,12 +143,12 @@ export default function EntityLabelsPanel({ labels, onCreate, onUpdate, onDelete
   return (
     <section className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-navy-700">Entity Labels</h2>
-        <span className="text-xs text-gray-500">{labels.length} total</span>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Entity Labels</h2>
+        <span className="text-xs" style={{ color: 'var(--text2)' }}>{labels.length} total</span>
       </div>
 
       {!readOnly && (
-        <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mb-5 p-3 bg-gray-50 rounded-lg">
+        <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mb-5 p-3 rounded-lg" style={{ background: 'var(--surface-alt)' }}>
           <input
             aria-label="New entity label name"
             className="input-field"
@@ -170,7 +170,7 @@ export default function EntityLabelsPanel({ labels, onCreate, onUpdate, onDelete
             aria-label="New entity label color"
             title="Color"
             type="color"
-            style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' }}
+            style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid var(--border2)', cursor: 'pointer' }}
             value={form.color}
             onChange={(e) => setForm({ ...form, color: e.target.value })}
           />
@@ -184,7 +184,7 @@ export default function EntityLabelsPanel({ labels, onCreate, onUpdate, onDelete
             value={form.display_order}
             onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) })}
           />
-          <label className="inline-flex items-center gap-1 text-sm text-gray-600">
+          <label className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text2)' }}>
             <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
             Active
           </label>
@@ -197,10 +197,10 @@ export default function EntityLabelsPanel({ labels, onCreate, onUpdate, onDelete
       <div className="space-y-2">
         {labels.map((label) =>
           readOnly ? (
-            <div key={label.id} className="flex items-center gap-3 p-2 rounded border border-gray-100">
+            <div key={label.id} className="flex items-center gap-3 p-2 rounded border" style={{ borderColor: 'var(--border)' }}>
               <div style={{ width: 12, height: 12, borderRadius: '50%', background: label.color, flexShrink: 0 }} />
               <span className="text-sm font-medium" style={{ minWidth: 100 }}>{label.name}</span>
-              <span className="text-xs text-gray-400">{label.description}</span>
+              <span className="text-xs" style={{ color: 'var(--text3)' }}>{label.description}</span>
             </div>
           ) : (
             <LabelRow key={label.id} label={label} onUpdate={onUpdate} onDelete={onDelete} />

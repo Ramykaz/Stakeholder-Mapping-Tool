@@ -14,7 +14,7 @@ interface ExportTabProps {
 function CheckIcon({ ok }: { ok: boolean }) {
   if (ok) {
     return (
-      <svg className="w-4 h-4 shrink-0" style={{ color: '#007A87' }} fill="currentColor" viewBox="0 0 20 20">
+      <svg className="w-4 h-4 shrink-0" style={{ color: 'var(--teal)' }} fill="currentColor" viewBox="0 0 20 20">
         <path
           fillRule="evenodd"
           d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
@@ -181,7 +181,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
           disabled={!can_export || pdfBusy}
           title={!can_export ? 'Complete at least one report section to export' : undefined}
           className="flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold text-sm transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: '#007A87', color: 'white' }}
+          style={{ background: 'var(--teal)', color: 'white' }}
         >
           {pdfBusy ? <SpinnerIcon /> : <PDFIcon />}
           {pdfBusy ? 'Generating…' : 'Download PDF report'}
@@ -193,7 +193,7 @@ export default function ExportTab({ projectId }: ExportTabProps) {
           disabled={!can_export || docxBusy}
           title={!can_export ? 'Complete at least one report section to export' : undefined}
           className="flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold text-sm border-2 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ borderColor: '#007A87', color: '#007A87', background: 'transparent' }}
+          style={{ borderColor: 'var(--teal)', color: 'var(--teal)', background: 'transparent' }}
         >
           {docxBusy ? <SpinnerIcon /> : <DocxIcon />}
           {docxBusy ? 'Generating…' : 'Download Word document'}

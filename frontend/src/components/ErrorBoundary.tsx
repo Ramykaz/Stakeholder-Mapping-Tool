@@ -43,45 +43,34 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif' }}>
-          <h2 style={{ color: '#1a1a1a' }}>Something went wrong</h2>
-          <p style={{ color: '#555', maxWidth: 480, margin: '0 auto 1rem' }}>
-            {this.state.error?.message || 'An unexpected error occurred.'}
-          </p>
-          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-            <button
-              onClick={() => this.setState({ hasError: false, error: null, eventId: null })}
-              style={{
-                padding: '0.5rem 1.25rem',
-                background: '#006eb5',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                cursor: 'pointer',
-              }}
-            >
-              Try again
-            </button>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                padding: '0.5rem 1.25rem',
-                background: 'transparent',
-                color: '#006eb5',
-                border: '1px solid #006eb5',
-                borderRadius: 4,
-                cursor: 'pointer',
-              }}
-            >
-              Reload page
-            </button>
-          </div>
-          {this.state.eventId && (
-            <p style={{ marginTop: '1rem', fontSize: '0.75rem', color: '#999' }}>
-              Error ID: {this.state.eventId}
+        <main className="error-page-root">
+          <section className="error-page-card">
+            <p className="error-page-code">Error</p>
+            <h1 className="error-page-title">Something went wrong</h1>
+            <p className="error-page-message" style={{ maxWidth: 480, margin: '0 auto 20px' }}>
+              {this.state.error?.message || 'An unexpected error occurred.'}
             </p>
-          )}
-        </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                onClick={() => this.setState({ hasError: false, error: null, eventId: null })}
+                className="btn-primary"
+              >
+                Try again
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="btn-ghost"
+              >
+                Reload page
+              </button>
+            </div>
+            {this.state.eventId && (
+              <p style={{ marginTop: 16, fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>
+                Error ID: {this.state.eventId}
+              </p>
+            )}
+          </section>
+        </main>
       );
     }
 

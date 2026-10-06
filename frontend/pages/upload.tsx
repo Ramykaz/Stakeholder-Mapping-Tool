@@ -335,19 +335,21 @@ export default function UploadPage() {
             return (
               <React.Fragment key={label}>
                 {i > 0 && (
-                  <div className={`h-px w-16 mx-1 transition-colors duration-300 ${
-                    isCompleted ? 'bg-primary-500' : 'bg-gray-200'
-                  }`} />
+                  <div
+                    className="h-px w-16 mx-1 transition-colors duration-300"
+                    style={{ background: isCompleted ? 'var(--accent)' : 'var(--border2)' }}
+                  />
                 )}
                 <div className="flex items-center gap-2">
                   <span
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 ${
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300"
+                    style={
                       isCompleted
-                        ? 'bg-primary-500 text-white'
+                        ? { background: 'var(--accent)', color: '#fff' }
                         : isActive
-                          ? 'bg-primary-500 text-white ring-4 ring-primary-100'
-                          : 'bg-gray-100 text-gray-400 border border-gray-200'
-                    }`}
+                          ? { background: 'var(--accent)', color: '#fff', boxShadow: '0 0 0 4px var(--accent-soft)' }
+                          : { background: 'var(--surface-alt)', color: 'var(--text3)', border: '1px solid var(--border2)' }
+                    }
                   >
                     {isCompleted ? (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -357,9 +359,10 @@ export default function UploadPage() {
                       i + 1
                     )}
                   </span>
-                  <span className={`text-sm font-medium ${
-                    isCompleted || isActive ? 'text-navy-700' : 'text-gray-400'
-                  }`}>
+                  <span
+                    className="text-sm font-medium"
+                    style={{ color: isCompleted || isActive ? 'var(--text)' : 'var(--text3)' }}
+                  >
                     {label}
                   </span>
                 </div>
@@ -379,13 +382,14 @@ export default function UploadPage() {
         {(step === 'select' || step === 'error') && (
           <div className="animate-slide-up">
             <div
-              className={`relative border-2 border-dashed rounded-xl p-10 text-center transition-all duration-200 cursor-pointer ${
+              className="relative border-2 border-dashed rounded-xl p-10 text-center transition-all duration-200 cursor-pointer"
+              style={
                 dragActive
-                  ? 'border-primary-400 bg-primary-50/50'
+                  ? { borderColor: 'var(--accent)', background: 'var(--accent-soft)' }
                   : file
-                    ? 'border-emerald-300 bg-emerald-50/50'
-                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50'
-              }`}
+                    ? { borderColor: 'var(--teal)', background: 'var(--teal-soft)' }
+                    : { borderColor: 'var(--border2)', background: 'var(--bg2)' }
+              }
               onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
@@ -393,29 +397,30 @@ export default function UploadPage() {
             >
               {(file || fileName) ? (
                 <div className="animate-fade-in">
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl flex items-center justify-center" style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>
                     {getFileIcon(fileName, 26)}
                   </div>
-                  <p className="text-sm font-semibold text-navy-700">{fileName}</p>
-                  <p className="text-xs text-gray-500 mt-1">{formatFileSize(fileSize)}</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{fileName}</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--text2)' }}>{formatFileSize(fileSize)}</p>
                   <button
                     onClick={(e) => { e.stopPropagation(); resetState(); }}
-                    className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
+                    className="mt-3 text-xs underline underline-offset-2 transition-colors"
+                    style={{ color: 'var(--text3)' }}
                   >
                     Remove and choose another
                   </button>
                 </div>
               ) : (
                 <div>
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-gray-100 flex items-center justify-center">
-                    <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-alt)' }}>
+                    <svg className="w-7 h-7" style={{ color: 'var(--text3)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
                   </div>
-                  <p className="text-sm font-medium text-navy-700">
-                    Drop your file here, or <span className="text-primary-500 underline underline-offset-2">browse</span>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>
+                    Drop your file here, or <span className="underline underline-offset-2" style={{ color: 'var(--accent)' }}>browse</span>
                   </p>
-                  <p className="text-xs text-gray-400 mt-1.5">
+                  <p className="text-xs mt-1.5" style={{ color: 'var(--text3)' }}>
                     PDF, DOCX, TXT, or MD &mdash; up to {MAX_SIZE_MB} MB
                   </p>
                 </div>
@@ -454,18 +459,18 @@ export default function UploadPage() {
         {/* Uploaded — ready to extract */}
         {step === 'uploaded' && (
           <div className="card text-center animate-slide-up">
-            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
-              <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ background: 'var(--teal-soft)' }}>
+              <svg className="w-7 h-7" style={{ color: 'var(--teal)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-navy-700 mb-1">Document Uploaded</h2>
-            <p className="text-sm text-gray-500">{fileName}</p>
-            <p className="text-xs text-gray-400 font-mono mt-1 mb-6 bg-gray-50 inline-block px-3 py-1 rounded-md">
+            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text)' }}>Document Uploaded</h2>
+            <p className="text-sm" style={{ color: 'var(--text2)' }}>{fileName}</p>
+            <p className="text-xs font-mono mt-1 mb-6 inline-block px-3 py-1 rounded-md" style={{ color: 'var(--text3)', background: 'var(--surface-alt)' }}>
               {documentId}
             </p>
             <div className="max-w-md mx-auto mb-5 text-left">
-              <label htmlFor="provider-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">Provider</label>
+              <label htmlFor="provider-select" className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text2)' }}>Provider</label>
               <select
                 id="provider-select"
                 value={provider}
@@ -480,7 +485,7 @@ export default function UploadPage() {
 
               {provider === 'openai' && (
                 <>
-                  <label htmlFor="openai-model-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">OpenAI Model</label>
+                  <label htmlFor="openai-model-select" className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text2)' }}>OpenAI Model</label>
                   <select
                     id="openai-model-select"
                     value={openaiModel}
@@ -496,7 +501,7 @@ export default function UploadPage() {
 
               {provider === 'azure_openai' && (
                 <>
-                  <label htmlFor="azure-model-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">Azure OpenAI Model</label>
+                  <label htmlFor="azure-model-select" className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text2)' }}>Azure OpenAI Model</label>
                   <select
                     id="azure-model-select"
                     value={azureModel}
@@ -512,7 +517,7 @@ export default function UploadPage() {
 
               {provider === 'gemini' && (
                 <>
-                  <label htmlFor="gemini-model-select" className="text-xs text-gray-500 font-medium uppercase tracking-wider">Gemini Model</label>
+                  <label htmlFor="gemini-model-select" className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text2)' }}>Gemini Model</label>
                   <select
                     id="gemini-model-select"
                     value={geminiModel}
@@ -554,7 +559,8 @@ export default function UploadPage() {
             </div>
             <button
               onClick={resetState}
-              className="mt-4 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
+              className="mt-4 text-xs underline underline-offset-2 transition-colors"
+              style={{ color: 'var(--text3)' }}
             >
               &larr; Upload a different document
             </button>
@@ -567,17 +573,17 @@ export default function UploadPage() {
             <LoadingSpinner message={`Extracting ${extractionMode === 'entities-relations' ? 'entities and relations' : 'entities'} with ${providerLabel} ${resolveModel()}...`} size="lg" />
             {chunkProgress && chunkProgress.total > 0 && (
               <div className="mt-4 text-center">
-                <p className="text-sm text-gray-500">
+                <p className="text-sm" style={{ color: 'var(--text2)' }}>
                   Chunk{' '}
-                  <span className="font-semibold text-navy-700">{chunkProgress.current}</span>
+                  <span className="font-semibold" style={{ color: 'var(--text)' }}>{chunkProgress.current}</span>
                   {' '}of{' '}
-                  <span className="font-semibold text-navy-700">{chunkProgress.total}</span>
+                  <span className="font-semibold" style={{ color: 'var(--text)' }}>{chunkProgress.total}</span>
                   {' '}processed
                 </p>
-                <div className="mt-2 max-w-xs mx-auto h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div className="mt-2 max-w-xs mx-auto h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border2)' }}>
                   <div
-                    className="h-full bg-primary-500 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.round((chunkProgress.current / chunkProgress.total) * 100)}%` }}
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.round((chunkProgress.current / chunkProgress.total) * 100)}%`, background: 'var(--accent)' }}
                   />
                 </div>
               </div>
@@ -588,36 +594,36 @@ export default function UploadPage() {
         {/* Done — entity extraction complete */}
         {step === 'done' && (
           <div className="card text-center animate-slide-up">
-            <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center">
-              <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ background: 'var(--teal-soft)' }}>
+              <svg className="w-7 h-7" style={{ color: 'var(--teal)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-navy-700 mb-1">Extraction Complete</h2>
-            <p className="text-sm text-gray-500 mb-6">
-              Found <span className="font-semibold text-navy-700">{entitiesCreated}</span> entit{entitiesCreated === 1 ? 'y' : 'ies'}
+            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--text)' }}>Extraction Complete</h2>
+            <p className="text-sm mb-6" style={{ color: 'var(--text2)' }}>
+              Found <span className="font-semibold" style={{ color: 'var(--text)' }}>{entitiesCreated}</span> entit{entitiesCreated === 1 ? 'y' : 'ies'}
               {relationsCreated > 0 && (
-                <> and <span className="font-semibold text-navy-700">{relationsCreated}</span> relation{relationsCreated === 1 ? '' : 's'}</>
+                <> and <span className="font-semibold" style={{ color: 'var(--text)' }}>{relationsCreated}</span> relation{relationsCreated === 1 ? '' : 's'}</>
               )}
               {' '}in <span className="font-medium">{fileName}</span>
             </p>
 
             {extractionMeta && (
-              <div className="max-w-md mx-auto mb-6 text-left border border-gray-200 rounded-lg p-4 bg-gray-50">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">Run Metadata</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Provider:</span> {extractionMeta.provider || 'N/A'}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Model:</span> {extractionMeta.model || 'N/A'}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Input tokens:</span> {extractionMeta.tokens_input ?? 'N/A'}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Output tokens:</span> {extractionMeta.tokens_output ?? 'N/A'}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Cached tokens:</span> {extractionMeta.tokens_cached ?? 'N/A'}</p>
-                <p className="text-sm text-gray-700"><span className="font-medium">Cost (USD):</span> {extractionMeta.cost_usd ?? 'N/A'}</p>
-                <p className="text-xs text-gray-500 mt-2">If usage is unavailable from the provider, token and cost fields display <span className="font-medium">N/A</span>.</p>
+              <div className="max-w-md mx-auto mb-6 text-left border rounded-lg p-4" style={{ borderColor: 'var(--border)', background: 'var(--surface-alt)' }}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text2)' }}>Run Metadata</p>
+                <p className="text-sm" style={{ color: 'var(--text2)' }}><span className="font-medium">Provider:</span> {extractionMeta.provider || 'N/A'}</p>
+                <p className="text-sm" style={{ color: 'var(--text2)' }}><span className="font-medium">Model:</span> {extractionMeta.model || 'N/A'}</p>
+                <p className="text-sm" style={{ color: 'var(--text2)' }}><span className="font-medium">Input tokens:</span> {extractionMeta.tokens_input ?? 'N/A'}</p>
+                <p className="text-sm" style={{ color: 'var(--text2)' }}><span className="font-medium">Output tokens:</span> {extractionMeta.tokens_output ?? 'N/A'}</p>
+                <p className="text-sm" style={{ color: 'var(--text2)' }}><span className="font-medium">Cached tokens:</span> {extractionMeta.tokens_cached ?? 'N/A'}</p>
+                <p className="text-sm" style={{ color: 'var(--text2)' }}><span className="font-medium">Cost (USD):</span> {extractionMeta.cost_usd ?? 'N/A'}</p>
+                <p className="text-xs mt-2" style={{ color: 'var(--text2)' }}>If usage is unavailable from the provider, token and cost fields display <span className="font-medium">N/A</span>.</p>
               </div>
             )}
 
             <div className="flex gap-3 justify-center">
               <button
-                onClick={() => router.push(`/entities?document_id=${documentId}`)}
+                onClick={() => router.push(projectId ? `/projects/${projectId}/map` : '/entities')}
                 className="btn-primary text-sm"
               >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -626,13 +632,13 @@ export default function UploadPage() {
                 View Entities
               </button>
               <button
-                onClick={() => router.push(`/relations?document_id=${documentId}`)}
+                onClick={() => router.push(projectId ? `/projects/${projectId}/map` : '/entities')}
                 className="btn-secondary text-sm"
               >
                 View Relations
               </button>
               <button
-                onClick={() => router.push(`/graph?document_id=${documentId}`)}
+                onClick={() => router.push(projectId ? `/projects/${projectId}/map` : '/entities')}
                 className="btn-secondary text-sm"
               >
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -644,7 +650,8 @@ export default function UploadPage() {
 
             <button
               onClick={resetState}
-              className="mt-5 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
+              className="mt-5 text-xs underline underline-offset-2 transition-colors"
+              style={{ color: 'var(--text3)' }}
             >
               Upload another document
             </button>
@@ -656,14 +663,15 @@ export default function UploadPage() {
       {documents.length > 0 && (
         <div className="mt-10 max-w-3xl mx-auto animate-fade-in">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-navy-700 uppercase tracking-wider">Recent Documents</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--text)' }}>Recent Documents</h2>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">Extract using:</span>
+              <span className="text-xs" style={{ color: 'var(--text3)' }}>Extract using:</span>
               <select
                 value={provider}
                 onChange={(e) => setProvider(e.target.value as Provider)}
                 title="Extraction provider"
-                className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                className="text-xs rounded px-2 py-1"
+                style={{ border: '1px solid var(--border2)', background: 'var(--bg2)', color: 'var(--text2)' }}
               >
                 <option value="groq">Groq</option>
                 <option value="openai">OpenAI</option>
@@ -675,7 +683,8 @@ export default function UploadPage() {
                   value={openaiModel}
                   onChange={(e) => setOpenaiModel(e.target.value as (typeof OPENAI_MODELS)[number])}
                   title="OpenAI model"
-                  className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                  className="text-xs rounded px-2 py-1"
+                  style={{ border: '1px solid var(--border2)', background: 'var(--bg2)', color: 'var(--text2)' }}
                 >
                   {OPENAI_MODELS.map((m) => (
                     <option key={m} value={m}>{m}</option>
@@ -687,7 +696,8 @@ export default function UploadPage() {
                   value={azureModel}
                   onChange={(e) => setAzureModel(e.target.value as (typeof AZURE_OPENAI_MODELS)[number])}
                   title="Azure OpenAI model"
-                  className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                  className="text-xs rounded px-2 py-1"
+                  style={{ border: '1px solid var(--border2)', background: 'var(--bg2)', color: 'var(--text2)' }}
                 >
                   {AZURE_OPENAI_MODELS.map((m) => (
                     <option key={m} value={m}>{m}</option>
@@ -699,7 +709,8 @@ export default function UploadPage() {
                   value={geminiModel}
                   onChange={(e) => setGeminiModel(e.target.value as (typeof GEMINI_MODELS)[number])}
                   title="Gemini model"
-                  className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-600"
+                  className="text-xs rounded px-2 py-1"
+                  style={{ border: '1px solid var(--border2)', background: 'var(--bg2)', color: 'var(--text2)' }}
                 >
                   {GEMINI_MODELS.map((m) => (
                     <option key={m} value={m}>{m}</option>
@@ -708,26 +719,26 @@ export default function UploadPage() {
               )}
             </div>
           </div>
-          <div className="card !p-0 divide-y divide-gray-100 overflow-hidden">
+          <div className="card !p-0 divide-y divide-[var(--border)] overflow-hidden">
             {documents.map((doc) => (
-              <div key={doc.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/80 transition-colors">
+              <div key={doc.id} className="flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-[var(--surface-alt)]">
                 {/* File icon */}
-                <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500">
+                <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--surface-alt)', color: 'var(--text2)' }}>
                   {getFileIcon(doc.filename, 16)}
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-navy-700 truncate">{doc.filename}</p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{doc.filename}</p>
+                  <p className="text-xs" style={{ color: 'var(--text3)' }}>
                     {new Date(doc.upload_timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     {doc.chunk_count != null && <span className="ml-2">&middot; {doc.chunk_count} chunks</span>}
                     {doc.entity_count > 0 && <span className="ml-2">&middot; {doc.entity_count} entities</span>}
                     {doc.relation_count != null && doc.relation_count > 0 && <span className="ml-2">&middot; {doc.relation_count} relations</span>}
                   </p>
                   {doc.last_run && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      <span className="font-medium text-gray-500">{doc.last_run.model}</span>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text3)' }}>
+                      <span className="font-medium" style={{ color: 'var(--text2)' }}>{doc.last_run.model}</span>
                       {doc.last_run.duration_seconds != null && (
                         <span className="ml-2">&middot; {doc.last_run.duration_seconds < 60
                           ? `${doc.last_run.duration_seconds.toFixed(1)}s`
@@ -739,11 +750,14 @@ export default function UploadPage() {
                 </div>
 
                 {/* Status badge */}
-                <span className={`flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${
-                  doc.processing_status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                  doc.processing_status === 'failed' ? 'bg-red-50 text-red-700' :
-                  'bg-amber-50 text-amber-700'
-                }`}>
+                <span
+                  className="flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full"
+                  style={
+                    doc.processing_status === 'completed' ? { background: 'var(--teal-soft)', color: 'var(--teal)' } :
+                    doc.processing_status === 'failed' ? { background: 'var(--coral-soft)', color: 'var(--coral)' } :
+                    { background: 'var(--amber-soft)', color: 'var(--amber)' }
+                  }
+                >
                   {doc.processing_status}
                 </span>
 
@@ -754,13 +768,15 @@ export default function UploadPage() {
                       <>
                         <button
                           onClick={() => handleRowExtract(doc.id, 'entities')}
-                          className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors whitespace-nowrap"
+                          className="text-xs px-2 py-1 rounded transition-colors whitespace-nowrap hover:bg-[var(--border2)]"
+                          style={{ background: 'var(--surface-alt)', color: 'var(--text2)' }}
                         >
                           Entities
                         </button>
                         <button
                           onClick={() => handleRowExtract(doc.id, 'entities-relations')}
-                          className="text-xs px-2 py-1 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 transition-colors whitespace-nowrap"
+                          className="text-xs px-2 py-1 rounded transition-colors whitespace-nowrap hover:bg-[var(--accent-soft)]"
+                          style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
                         >
                           Entities + Relations
                         </button>
@@ -769,7 +785,8 @@ export default function UploadPage() {
                     {doc.entity_count > 0 && (!doc.relation_count || doc.relation_count === 0) && (
                       <button
                         onClick={() => handleRowExtract(doc.id, 'relations')}
-                        className="text-xs px-2 py-1 rounded bg-primary-50 hover:bg-primary-100 text-primary-700 transition-colors whitespace-nowrap"
+                        className="text-xs px-2 py-1 rounded transition-colors whitespace-nowrap hover:bg-[var(--accent-soft)]"
+                        style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
                       >
                         Extract Relations
                       </button>
@@ -777,7 +794,7 @@ export default function UploadPage() {
                   </div>
                 )}
                 {rowExtractingId === doc.id && (
-                  <div className="flex-shrink-0 flex items-center gap-1.5 text-xs text-gray-500">
+                  <div className="flex-shrink-0 flex items-center gap-1.5 text-xs" style={{ color: 'var(--text2)' }}>
                     <svg className="w-3.5 h-3.5 animate-spin flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
@@ -790,8 +807,9 @@ export default function UploadPage() {
                 {/* Action links */}
                 <div className="flex-shrink-0 flex gap-1.5">
                   <Link
-                    href={`/entities?document_id=${doc.id}`}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    href="/entities"
+                    className="p-1.5 rounded-md transition-colors"
+                    style={{ color: 'var(--text3)' }}
                     title="View entities"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -799,8 +817,9 @@ export default function UploadPage() {
                     </svg>
                   </Link>
                   <Link
-                    href={`/graph?document_id=${doc.id}`}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    href="/entities"
+                    className="p-1.5 rounded-md transition-colors"
+                    style={{ color: 'var(--text3)' }}
                     title="View graph"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -808,8 +827,9 @@ export default function UploadPage() {
                     </svg>
                   </Link>
                   <Link
-                    href={`/relations?document_id=${doc.id}`}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    href="/entities"
+                    className="p-1.5 rounded-md transition-colors"
+                    style={{ color: 'var(--text3)' }}
                     title="View relations"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -819,7 +839,8 @@ export default function UploadPage() {
                   <button
                     onClick={() => handleDelete(doc.id)}
                     disabled={deletingId === doc.id}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+                    className="p-1.5 rounded-md transition-colors disabled:opacity-40 hover:bg-[var(--coral-soft)] hover:text-[var(--coral)]"
+                    style={{ color: 'var(--text3)' }}
                     title="Delete document"
                   >
                     {deletingId === doc.id ? (

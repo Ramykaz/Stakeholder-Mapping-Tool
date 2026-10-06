@@ -49,6 +49,11 @@ export default function ProjectsDashboard() {
   const [deleteInput, setDeleteInput] = useState('');
   const [deleting, setDeleting] = useState(false);
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [router.asPath]);
+
   useEffect(() => {
     if (!getStoredAuthToken()) {
       void router.replace('/login');
@@ -80,8 +85,8 @@ export default function ProjectsDashboard() {
       setShowModal(false);
       setModalName('');
       setModalDesc('');
-      // Navigate to setup page for new project
-      await router.push(`/projects/${project.id}/setup`);
+      // Navigate to the initiative profile for the new project
+      await router.push(`/projects/${project.id}/intake`);
     } catch (err: any) {
       setCreateError(err.message || 'Failed to create project');
     } finally {
@@ -151,10 +156,10 @@ export default function ProjectsDashboard() {
     <>
       <Head><title>Projects — UNDP Stakeholder Analysis</title></Head>
       <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation />
+        <TopNavigation onMenuClick={() => setSidebarOpen(v => !v)} />
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
+          <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <main className="app-main">
 
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

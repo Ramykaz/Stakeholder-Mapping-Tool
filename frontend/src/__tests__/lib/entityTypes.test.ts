@@ -94,10 +94,10 @@ describe('getEntityColor', () => {
 
   test('unknown type → fallback grey', () => {
     const color = getEntityColor('COMPLETELY_UNKNOWN');
-    expect(color).toBe('#7b8299');
+    expect(color).toBe('#8a97a6');
   });
 
   test('empty string → fallback grey', () => {
-    expect(getEntityColor('')).toBe('#7b8299');
+    expect(getEntityColor('')).toBe('#8a97a6');
   });
 });

@@ -27,6 +27,7 @@ import ErrorMessage from '@/components/ErrorMessage';
 import EntityStakeholderAnalysis from '@/components/EntityStakeholderAnalysis';
 import { buildEntityNeighborhood } from '@/lib/entityNeighborhood';
 import { normalizeLlmText } from '@/lib/llmText';
+import { getEntityColor } from '@/lib/entityTypes';
 import { CytoscapeEdge, CytoscapeNode } from '@/types';
 
 const GraphVisualization = dynamic(
@@ -38,19 +39,6 @@ const GraphVisualization = dynamic(
     ),
   }
 );
-
-const TYPE_COLORS: Record<string, string> = {
-  PERSON:       '#2ec4a5',
-  ORGANIZATION: '#3d6fff',
-  GOVERNMENT:   '#3d6fff',
-  LOCATION:     '#f5a623',
-  ROLE:         '#7b8299',
-  EVENT:        '#9b6ef3',
-  PROJECT:      '#9b6ef3',
-  POLICY:       '#9b6ef3',
-  CONCEPT:      '#f0614a',
-  THEME:        '#f0614a',
-};
 
 export default function EntityDetailPage() {
   const router = useRouter();
@@ -187,7 +175,7 @@ export default function EntityDetailPage() {
   const mentionCount = timeline.length;
   const influenceScore = totalDegree > 0 ? Math.min(100, Math.round((outDegree / Math.max(totalDegree, 1)) * 100)) : 0;
 
-  const typeColor = profile ? (TYPE_COLORS[profile.entity_type] || '#7b8299') : '#7b8299';
+  const typeColor = getEntityColor(profile?.entity_type || '');
   const confidencePercent = profile ? Math.round((profile.confidence || 0) * 100) : 0;
   const neighborhood = useMemo(
     () => (profile ? buildEntityNeighborhood(profile) : { nodes: [], edges: [] }),

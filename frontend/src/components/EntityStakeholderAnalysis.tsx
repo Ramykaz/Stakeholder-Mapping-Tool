@@ -28,9 +28,9 @@ interface EntityStakeholderAnalysisProps {
 }
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string }> = {
-  High: { bg: '#007A8720', text: '#007A87' },
-  Medium: { bg: '#F59E0B20', text: '#B45309' },
-  Low: { bg: '#E5E7EB', text: '#6B7280' },
+  High: { bg: 'var(--teal-soft)', text: 'var(--teal)' },
+  Medium: { bg: 'var(--amber-soft)', text: 'var(--amber)' },
+  Low: { bg: 'var(--border2)', text: 'var(--text2)' },
 };
 
 export default function EntityStakeholderAnalysis({
@@ -67,7 +67,7 @@ export default function EntityStakeholderAnalysis({
         <button
           onClick={() => router.push(`/projects/${projectId}/stakeholders`)}
           className="text-sm underline"
-          style={{ color: '#007A87' }}
+          style={{ color: 'var(--teal)' }}
         >
           Generate stakeholder table to see priority analysis →
         </button>
@@ -146,7 +146,7 @@ export default function EntityStakeholderAnalysis({
                   router.push(`/projects/${projectId}/report#section-${s.section_number}`)
                 }
                 className="text-xs px-2 py-0.5 rounded font-medium transition-opacity hover:opacity-80"
-                style={{ background: '#007A8720', color: '#007A87' }}
+                style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}
               >
                 §{s.section_number} {s.report_chapter_title}
               </button>
@@ -168,7 +168,7 @@ export default function EntityStakeholderAnalysis({
                 router.push(`/projects/${projectId}/report#personas`)
               }
               className="underline"
-              style={{ color: '#007A87' }}
+              style={{ color: 'var(--teal)' }}
             >
               {persona.persona_name}
             </button>

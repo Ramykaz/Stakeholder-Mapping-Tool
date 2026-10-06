@@ -7,7 +7,7 @@ interface PersonaCardProps {
   entityTypeColor?: string;
 }
 
-export default function PersonaCard({ persona, onEntityClick, entityTypeColor = '#007A87' }: PersonaCardProps) {
+export default function PersonaCard({ persona, onEntityClick, entityTypeColor = 'var(--teal)' }: PersonaCardProps) {
   return (
     <div
       className="card flex flex-col gap-3 transition-transform duration-150 hover:-translate-y-1"

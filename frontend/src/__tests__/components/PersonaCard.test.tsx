@@ -72,7 +72,7 @@ describe('PersonaCard', () => {
       <PersonaCard persona={basePersona as any} onEntityClick={jest.fn()} />,
     );
     const badge = screen.getByText('Organization');
-    expect(badge).toHaveStyle({ color: '#007A87' });
+    expect(badge).toHaveStyle({ color: 'var(--teal)' });
   });
 
   test('uses custom entityTypeColor when provided', () => {

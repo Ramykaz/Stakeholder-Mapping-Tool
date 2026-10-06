@@ -66,16 +66,16 @@ export default function ReportSectionCard({ section, initiativeName = '', onRege
         <div style={{
           padding: '10px 14px',
           borderRadius: 8,
-          background: isRateLimit(section.error_message) ? '#FFFBEB' : 'rgba(240,97,74,0.08)',
-          border: `1px solid ${isRateLimit(section.error_message) ? '#F59E0B' : 'rgba(240,97,74,0.3)'}`,
+          background: isRateLimit(section.error_message) ? 'var(--amber-soft)' : 'var(--coral-soft)',
+          border: `1px solid ${isRateLimit(section.error_message) ? 'var(--amber)' : 'var(--coral)'}`,
           display: 'flex',
           alignItems: 'flex-start',
           gap: 10,
         }}>
-          <span style={{ flexShrink: 0, display: 'inline-flex', color: isRateLimit(section.error_message) ? '#B45309' : 'var(--coral,#f0614a)' }}>
+          <span style={{ flexShrink: 0, display: 'inline-flex', color: isRateLimit(section.error_message) ? 'var(--amber)' : 'var(--coral)' }}>
             {isRateLimit(section.error_message) ? <Clock size={16} strokeWidth={1.75} /> : <TriangleAlert size={16} strokeWidth={1.75} />}
           </span>
-          <p className="text-sm" style={{ color: isRateLimit(section.error_message) ? '#7a3f02' : 'var(--coral,#f0614a)', margin: 0 }}>
+          <p className="text-sm" style={{ color: isRateLimit(section.error_message) ? 'var(--amber)' : 'var(--coral)', margin: 0 }}>
             {section.error_message || 'Generation failed.'}
           </p>
         </div>

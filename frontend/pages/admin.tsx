@@ -23,6 +23,10 @@ export default function AdminPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('stats');
   const [accessDenied, setAccessDenied] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [router.asPath]);
 
   // Stats
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -165,10 +169,10 @@ export default function AdminPage() {
     <>
       <Head><title>Admin Dashboard — UNDP Stakeholder Analysis</title></Head>
       <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation />
+        <TopNavigation onMenuClick={() => setSidebarOpen(v => !v)} />
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
+          <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <main className="app-main">
             <div style={{ maxWidth: 1020, margin: '0 auto' }}>
 
               {/* Page header */}

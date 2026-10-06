@@ -15,10 +15,11 @@ export default function LoadingSpinner({ message = 'Loading...', size = 'md' }: 
   return (
     <div className="flex flex-col items-center justify-center py-16">
       <div
-        className={`${sizeClasses[size]} border-gray-200 border-t-primary-500 rounded-full animate-spin`}
+        className={`${sizeClasses[size]} rounded-full animate-spin`}
+        style={{ borderColor: 'var(--border2)', borderTopColor: 'var(--accent)' }}
       />
       {message && (
-        <p className="mt-4 text-sm text-gray-400 font-medium">{message}</p>
+        <p className="mt-4 text-sm" style={{ color: 'var(--text3)' }}>{message}</p>
       )}
     </div>
   );

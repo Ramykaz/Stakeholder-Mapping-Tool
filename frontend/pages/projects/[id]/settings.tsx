@@ -134,7 +134,7 @@ export default function ProjectSettingsPage() {
           title="Concept note attachment"
           onChange={(e) => setAttachment(e.target.files?.[0] || null)}
         />
-        {message && <p className="text-sm text-gray-600">{message}</p>}
+        {message && <p className="text-sm" style={{ color: 'var(--text2)' }}>{message}</p>}
         <div className="flex items-center gap-3">
           <button onClick={() => void handleSave()} disabled={saving} className="btn-primary w-fit">
             {saving ? 'Saving…' : 'Save Changes'}

@@ -39,7 +39,7 @@ export default function AIFeedback({
 
   if (submitted) {
     return (
-      <span className={`text-xs text-gray-400 ${className}`} aria-live="polite">
+      <span className={`text-xs ${className}`} style={{ color: 'var(--text3)' }} aria-live="polite">
         {submitted === 'thumbs_up' ? 'Thanks for the feedback!' : submitted === 'flag' ? 'Content flagged.' : 'Feedback noted.'}
       </span>
     );
@@ -47,14 +47,14 @@ export default function AIFeedback({
 
   return (
     <div className={`flex items-center gap-1 ${className}`} aria-label="Rate this AI response">
-      <span className="text-xs text-gray-500 mr-1">Helpful?</span>
+      <span className="text-xs mr-1" style={{ color: 'var(--text2)' }}>Helpful?</span>
       <button
         type="button"
         onClick={() => handleFeedback('thumbs_up')}
         disabled={loading}
         aria-label="This response was helpful"
         title="Helpful"
-        className="rounded p-1 text-gray-400 transition-colors hover:bg-green-500/10 hover:text-green-400 focus:outline-none focus:ring-1 focus:ring-green-400 disabled:opacity-50"
+        className="rounded p-1 text-[var(--text3)] transition-colors hover:bg-green-500/10 hover:text-green-400 focus:outline-none focus:ring-1 focus:ring-green-400 disabled:opacity-50"
       >
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -67,7 +67,7 @@ export default function AIFeedback({
         disabled={loading}
         aria-label="This response was not helpful"
         title="Not helpful"
-        className="rounded p-1 text-gray-400 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-1 focus:ring-red-400 disabled:opacity-50"
+        className="rounded p-1 text-[var(--text3)] transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-1 focus:ring-red-400 disabled:opacity-50"
       >
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -80,7 +80,7 @@ export default function AIFeedback({
         disabled={loading}
         aria-label="Flag this response as problematic"
         title="Flag"
-        className="rounded p-1 text-gray-400 transition-colors hover:bg-yellow-500/10 hover:text-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400 disabled:opacity-50"
+        className="rounded p-1 text-[var(--text3)] transition-colors hover:bg-yellow-500/10 hover:text-yellow-400 focus:outline-none focus:ring-1 focus:ring-yellow-400 disabled:opacity-50"
       >
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

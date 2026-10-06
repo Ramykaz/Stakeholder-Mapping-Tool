@@ -1,7 +1,7 @@
 import type { GetServerSideProps } from 'next';
 
 function buildSitemap(siteUrl: string): string {
-  const pages = ['/', '/login', '/forgot-password', '/reset-password', '/upload', '/graph', '/entities'];
+  const pages = ['/', '/login', '/forgot-password', '/reset-password', '/upload', '/entities'];
   const urls = pages
     .map((path) => `<url><loc>${siteUrl}${path}</loc><changefreq>weekly</changefreq></url>`)
     .join('');

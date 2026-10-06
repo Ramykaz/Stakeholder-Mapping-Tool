@@ -237,7 +237,7 @@ function GraphVisualizationInner({
         document_id: node.data.document_id,
         chunk_id: node.data.chunk_id,
         raw_mentions_count: node.data.raw_mentions_count,
-        color: node.data.color || '#7b8299',
+        color: node.data.color || '#8a97a6',
         degree: node.data.degree ?? node.degree ?? 0,
         node_size: node.data.node_size ?? 44,
         x: cx + Math.cos(angle) * radius,
@@ -303,14 +303,14 @@ function GraphVisualizationInner({
     }
 
     const simulation = d3.forceSimulation<SimNode>(simNodeClones)
-      .force('link', d3.forceLink<SimNode, SimEdge>(simEdgeClones).id((d: any) => d.id).distance(150).strength(0.28))
-      .force('charge', d3.forceManyBody().strength(-980))
-      .force('collide', d3.forceCollide<SimNode>().radius(d => Math.max(24, (d.node_size || 44) * 0.55) + 10))
+      .force('link', d3.forceLink<SimNode, SimEdge>(simEdgeClones).id((d: any) => d.id).distance(190).strength(0.22))
+      .force('charge', d3.forceManyBody().strength(-1400))
+      .force('collide', d3.forceCollide<SimNode>().radius(d => Math.max(24, (d.node_size || 44) * 0.55) + 26).iterations(3))
       .force('center', d3.forceCenter(viewportSize.width / 2, viewportSize.height / 2))
       .force('x', d3.forceX(viewportSize.width / 2).strength(0.035))
       .force('y', d3.forceY(viewportSize.height / 2).strength(0.035))
       .alpha(0.9)
-      .alphaDecay(0.03)
+      .alphaDecay(0.018)
       .velocityDecay(0.35);
 
     simulationRef.current = simulation;
@@ -389,8 +389,19 @@ function GraphVisualizationInner({
         datum.fy = datum.y;
       });
 
+    // The <g class="graph-node"> elements are rendered by React, not by a D3
+    // data-join, so they have no bound __data__ by default — d3-drag's handlers
+    // would receive `undefined` as the datum and throw on `datum.fx = ...`,
+    // which silently aborted every drag before it could move anything. Bind
+    // each element's current SimNode explicitly before attaching the behavior.
+    const nodeById = new Map(simNodes.map((n) => [n.id, n]));
     d3.select(viewportGroupRef.current)
       .selectAll<SVGGElement, SimNode>('g.graph-node')
+      .each(function bindDatum() {
+        const id = this.getAttribute('data-node-id');
+        const datum = id ? nodeById.get(id) : undefined;
+        if (datum) d3.select(this).datum(datum);
+      })
       .call(dragBehavior as any);
   }, [simNodes]);
 
@@ -463,7 +474,7 @@ function GraphVisualizationInner({
         canvas.height = Math.max(1, viewportSize.height * 2);
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = theme === 'dark' ? '#0d1220' : '#f0ece2';
+          ctx.fillStyle = theme === 'dark' ? '#0c1819' : '#efe9d8';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           const dataUri = canvas.toDataURL('image/png');
@@ -559,8 +570,8 @@ function GraphVisualizationInner({
 
   const showNodeTooltip = useCallback((node: SimNode) => {
     if (!tooltipRef.current) return;
-    const titleColor = theme === 'dark' ? '#e8eaf0' : '#111827';
-    const metaColor = theme === 'dark' ? '#8f96ad' : '#4b5563';
+    const titleColor = theme === 'dark' ? '#eef1ea' : '#1f2e28';
+    const metaColor = theme === 'dark' ? '#a9bdb6' : '#4d5f54';
     tooltipRef.current.innerHTML = `
       <div style="font-size:14px;color:${titleColor};font-weight:500;margin-bottom:4px">${node.label || ''}</div>
       <div style="font-size:11px;color:${metaColor};font-family:var(--mono)">${node.entity_type || ''}</div>
@@ -570,8 +581,8 @@ function GraphVisualizationInner({
 
   const showEdgeTooltip = useCallback((edge: SimEdge) => {
     if (!tooltipRef.current) return;
-    const titleColor = theme === 'dark' ? '#e8eaf0' : '#111827';
-    const metaColor = theme === 'dark' ? '#8f96ad' : '#4b5563';
+    const titleColor = theme === 'dark' ? '#eef1ea' : '#1f2e28';
+    const metaColor = theme === 'dark' ? '#a9bdb6' : '#4d5f54';
     const relationLabel = (edge.label || 'relates to').replace(/_/g, ' ');
     const relationMeaning = (() => {
       const key = relationLabel.toLowerCase();
@@ -610,15 +621,15 @@ function GraphVisualizationInner({
   }, [centerNodeId, nodeById, zoomLevel, viewportSize.width, viewportSize.height]);
 
   const isDark = theme === 'dark';
-  const panelBg = isDark ? '#1c1f2b' : '#ffffff';
-  const panelBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)';
-  const textColor = isDark ? '#e2e8f0' : '#1a1f2e';
-  const text3Color = isDark ? '#8892aa' : '#6b7280';
+  const panelBg = isDark ? '#112523' : '#f8f3e6';
+  const panelBorder = isDark ? 'rgba(238,241,234,0.12)' : 'rgba(31,46,40,0.14)';
+  const textColor = isDark ? '#eef1ea' : '#1f2e28';
+  const text3Color = isDark ? '#71897f' : '#7c8d80';
 
   const defs = (
     <defs>
       <marker id="graph-arrow" markerWidth="4" markerHeight="4" refX="3.5" refY="2" orient="auto" markerUnits="userSpaceOnUse">
-        <path d="M0,0 L0,4 L3.8,2 z" fill={isDark ? '#93a1c5' : '#4f5a77'} />
+        <path d="M0,0 L0,4 L3.8,2 z" fill={isDark ? '#9fb3ac' : '#4d5f54'} />
       </marker>
       <filter id="node-glow" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="2" result="blur" />
@@ -627,6 +638,9 @@ function GraphVisualizationInner({
           <feMergeNode in="SourceGraphic" />
         </feMerge>
       </filter>
+      <pattern id="carto-field-grid" width="26" height="26" patternUnits="userSpaceOnUse">
+        <path d="M0 0 L26 0 L26 26 L0 26 Z" fill="none" stroke={isDark ? 'rgba(238,241,234,0.035)' : 'rgba(31,46,40,0.05)'} strokeWidth="1" />
+      </pattern>
     </defs>
   );
 
@@ -648,7 +662,7 @@ function GraphVisualizationInner({
       height={showControls ? height : viewportSize.height}
       role="img"
       aria-label="Stakeholder entity graph visualization"
-      style={{ display: 'block', width: '100%', height: '100%', background: isDark ? '#0d1220' : '#f0ece2', cursor: 'grab' }}
+      style={{ display: 'block', width: '100%', height: '100%', background: isDark ? '#0c1819' : '#efe9d8', cursor: 'grab' }}
       onClick={(evt) => {
         if (evt.target === svgRef.current) {
           onBackgroundClickRef.current?.();
@@ -660,6 +674,18 @@ function GraphVisualizationInner({
       }}
     >
       {defs}
+      {/* Fixed survey-sheet texture — a faint grid plus contour rings centered on
+          the viewport, deliberately not part of the pan/zoom group so it reads
+          as the "paper" the network is drawn on, not as part of the data. */}
+      <rect
+        x={0} y={0} width={viewportSize.width} height={showControls ? height : viewportSize.height}
+        fill="url(#carto-field-grid)" pointerEvents="none"
+      />
+      <g fill="none" stroke={isDark ? 'rgba(238,241,234,0.05)' : 'rgba(31,46,40,0.06)'} strokeWidth={1} pointerEvents="none">
+        <circle cx={viewportSize.width / 2} cy={(showControls ? height : viewportSize.height) / 2} r={Math.min(viewportSize.width, height) * 0.22} />
+        <circle cx={viewportSize.width / 2} cy={(showControls ? height : viewportSize.height) / 2} r={Math.min(viewportSize.width, height) * 0.38} />
+        <circle cx={viewportSize.width / 2} cy={(showControls ? height : viewportSize.height) / 2} r={Math.min(viewportSize.width, height) * 0.54} />
+      </g>
       <g ref={viewportGroupRef}>
         {simEdges.map((edge) => {
           const source = typeof edge.source === 'string' ? nodeById.get(edge.source) : edge.source;
@@ -688,9 +714,9 @@ function GraphVisualizationInner({
           const baseStroke = Math.max(1.4, edge.edge_width || 1.2);
           const strokeWidth = baseStroke + confidence * 1.4;
           const edgeOpacity = dimmed ? 0.12 : Math.max(0.5, 0.55 + confidence * 0.4);
-          const edgeColor = isDark ? '#aeb9d8' : '#4f5a77';
-          const edgeLabelColor = isDark ? '#e8ecfb' : '#111827';
-          const edgeLabelHalo = isDark ? '#0d1220' : '#f0ece2';
+          const edgeColor = isDark ? '#cfd9d3' : '#2f3f3a';
+          const edgeLabelColor = isDark ? '#eef1ea' : '#1f2e28';
+          const edgeLabelHalo = isDark ? '#0c1819' : '#efe9d8';
 
           return (
             <g
@@ -737,17 +763,24 @@ function GraphVisualizationInner({
           );
         })}
 
-        {simNodes.map((node) => {
+        {(() => {
+          const maxDegree = Math.max(1, ...simNodes.map((n) => n.degree || 0));
+          return simNodes.map((node) => {
           const dimmed = isNodeDimmed(node.id);
           const isSearchHit = highlightNodeIds.includes(node.id);
           const isFocused = focusMode?.nodeId === node.id;
           const isIsolated = isolatedNodeIds.has(node.id);
+          // Nodes well above the pack in connection count get a small benchmark
+          // cross-mark, like a surveyed reference point on a topographic sheet —
+          // a quiet visual cue for "this one matters" independent of its label.
+          const isBenchmark = (node.degree || 0) >= Math.max(3, maxDegree * 0.7);
           const degreeBoost = Math.sqrt(Math.max(0, node.degree || 0)) * 1.6;
           const radius = Math.max(18, (node.node_size || 44) * 0.56 + degreeBoost);
-          const haloStroke = isFocused ? 'var(--accent)' : isSearchHit ? '#f59e0b' : `${node.color}90`;
+          const haloStroke = isSearchHit ? '#f0c468' : 'var(--accent)';
           const haloSize = radius + (isFocused ? 9 : isSearchHit ? 7 : 5);
-          const labelColor = isDark ? '#eef2ff' : '#111827';
-          const labelHalo = isDark ? '#0d1220' : '#f0ece2';
+          const nodeOutline = isDark ? '#0c1819' : '#efe9d8';
+          const labelColor = isDark ? '#eef1ea' : '#1f2e28';
+          const labelHalo = isDark ? '#0c1819' : '#efe9d8';
 
           return (
             <g
@@ -804,7 +837,7 @@ function GraphVisualizationInner({
                 <circle
                   r={haloSize + 3}
                   fill="none"
-                  stroke={isDark ? '#f59e0b' : '#b45309'}
+                  stroke={isDark ? '#c2893c' : '#8a5c1e'}
                   strokeWidth={2}
                   strokeDasharray="5 4"
                   opacity={0.9}
@@ -813,18 +846,26 @@ function GraphVisualizationInner({
               <circle
                 r={radius}
                 fill={node.color}
-                stroke={isDark ? '#0f1527' : '#d8deea'}
+                stroke={nodeOutline}
                 strokeWidth={2.2}
               />
               <circle
                 r={Math.max(3, radius * 0.26)}
-                fill={isDark ? '#f5f7ff' : '#11203d'}
+                fill={nodeOutline}
                 opacity={0.85}
               />
+              {isBenchmark ? (
+                <path
+                  d={`M ${-radius * 0.26} 0 H ${radius * 0.26} M 0 ${-radius * 0.26} V ${radius * 0.26}`}
+                  stroke={nodeOutline}
+                  strokeWidth={1.4}
+                  opacity={0.9}
+                />
+              ) : null}
               <text
                 y={radius + 18}
                 textAnchor="middle"
-                fontFamily='"Plus Jakarta Sans", system-ui, sans-serif'
+                fontFamily="var(--sans)"
                 fontSize={Math.max(14, fontSize + 2)}
                 fill={labelColor}
                 stroke={labelHalo}
@@ -836,7 +877,8 @@ function GraphVisualizationInner({
               </text>
             </g>
           );
-        })}
+          });
+        })()}
       </g>
     </svg>
   );
@@ -864,7 +906,7 @@ function GraphVisualizationInner({
           width: 32, height: 32, borderRadius: 8,
           background: filterPanelOpen ? 'var(--accent)' : panelBg,
           border: `1px solid ${panelBorder}`,
-          color: filterPanelOpen ? '#fff' : textColor,
+          color: filterPanelOpen ? '#17262a' : textColor,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 14,
         }}
@@ -956,7 +998,7 @@ function GraphVisualizationInner({
                   style={{
                     flex: 1, padding: '5px 0', borderRadius: 6, border: `1px solid ${panelBorder}`,
                     background: clusterMode === mode ? 'var(--accent)' : 'transparent',
-                    color: clusterMode === mode ? '#fff' : textColor,
+                    color: clusterMode === mode ? '#17262a' : textColor,
                     fontSize: 11, cursor: 'pointer', fontFamily: 'var(--mono)',
                   }}
                 >
@@ -1052,7 +1094,7 @@ function GraphVisualizationInner({
         padding: 4, pointerEvents: 'none',
       }}>
         <svg width={miniW - 8} height={miniH - 8} viewBox={`0 0 ${miniW} ${miniH}`}>
-          <rect x={0} y={0} width={miniW} height={miniH} fill={isDark ? '#0f1628' : '#eef2f9'} rx={6} ry={6} />
+          <rect x={0} y={0} width={miniW} height={miniH} fill={isDark ? '#0a1515' : '#efe6d3'} rx={6} ry={6} />
           {simEdges.map((edge) => {
             const source = typeof edge.source === 'string' ? nodeById.get(edge.source) : edge.source;
             const target = typeof edge.target === 'string' ? nodeById.get(edge.target) : edge.target;
@@ -1064,7 +1106,7 @@ function GraphVisualizationInner({
                 y1={sy(source.y)}
                 x2={sx(target.x)}
                 y2={sy(target.y)}
-                stroke={isDark ? '#5a6686' : '#a3afc4'}
+                stroke={isDark ? '#6f8c86' : '#9c8f72'}
                 strokeWidth={0.8}
                 opacity={0.75}
               />
@@ -1108,7 +1150,7 @@ function GraphVisualizationInner({
           fontFamily: 'var(--mono)',
           fontSize: 10,
           letterSpacing: '0.06em',
-          color: '#ffffff',
+          color: '#17262a',
           background: 'var(--accent)',
           borderRadius: 4,
           padding: '2px 6px',
@@ -1158,7 +1200,7 @@ function GraphVisualizationInner({
             style={{
               padding: '2px 8px', borderRadius: 4, border: `1px solid ${panelBorder}`,
               background: focusMode.hopRadius === hop ? 'var(--accent)' : 'transparent',
-              color: focusMode.hopRadius === hop ? '#fff' : text3Color,
+              color: focusMode.hopRadius === hop ? '#17262a' : text3Color,
               fontSize: 11, cursor: 'pointer', fontFamily: 'var(--mono)',
             }}
           >

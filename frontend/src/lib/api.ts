@@ -6,6 +6,7 @@ import axios, {
   InternalAxiosRequestConfig,
   AxiosResponse,
 } from 'axios';
+import { isDemoModeActive, isDemoUrl, matchDemoRoute } from './demoData';
 
 /** Thin wrapper around Sentry to avoid hard import failures when Sentry DSN is not set. */
 function captureException(err: unknown, extras?: Record<string, unknown>): void {
@@ -91,6 +92,35 @@ const AUTH_USER_KEY = 'sat.auth.user';
 function isBrowser(): boolean {
   return typeof window !== 'undefined';
 }
+
+// ── Demo mode ──────────────────────────────────────────────────────────────────
+// When demo mode is active, requests for the reserved "demo" project (and a
+// few global read-only endpoints) never hit the network — they're answered
+// synchronously from src/lib/demoData.ts. This lets the whole app be clicked
+// through reliably even if the real backend is slow, cold, or unreachable.
+apiClient.interceptors.request.use((config) => {
+  const url = config.url || '';
+  if (isDemoModeActive() && isDemoUrl(url)) {
+    const method = config.method || 'get';
+    const matched = matchDemoRoute(method, url, config.data);
+    if (matched) {
+      config.adapter = () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve({
+              data: matched.data,
+              status: 200,
+              statusText: 'OK',
+              headers: matched.headers || {},
+              config,
+              request: {},
+            } as AxiosResponse);
+          }, 180 + Math.random() * 220);
+        });
+    }
+  }
+  return config;
+});
 
 export function getStoredAuthToken(): string | null {
   if (!isBrowser()) {

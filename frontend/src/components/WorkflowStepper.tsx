@@ -33,7 +33,7 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
   return (
     <div
       className="w-full px-4 py-3"
-      style={{ background: 'var(--surface-alt, rgba(0,122,135,0.04))' }}
+      style={{ background: 'var(--surface-alt)' }}
     >
       {/* Desktop stepper */}
       <nav className="hidden md:flex items-center justify-between gap-0">
@@ -49,7 +49,7 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
                 <div
                   className="flex-1 h-px"
                   style={{
-                    background: prevComplete ? '#007A87' : 'var(--border2)',
+                    background: prevComplete ? 'var(--teal)' : 'var(--border2)',
                     borderStyle: prevComplete ? 'solid' : 'dashed',
                   }}
                 />
@@ -67,12 +67,12 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
                   }`}
                   style={
                     isComplete
-                      ? { background: '#007A87', color: 'white' }
+                      ? { background: 'var(--teal)', color: 'white' }
                       : isActive
                       ? {
-                          background: '#007A87',
+                          background: 'var(--teal)',
                           color: 'white',
-                          boxShadow: '0 0 0 3px rgba(0,122,135,0.25)',
+                          boxShadow: '0 0 0 3px var(--teal-soft)',
                         }
                       : {
                           background: 'transparent',
@@ -113,7 +113,7 @@ export default function WorkflowStepper({ workflow }: WorkflowStepperProps) {
           className="flex-1 text-center text-sm font-medium text-[var(--text)]"
         >
           Step {currentStepData.number} of {steps.length} —{' '}
-          <span style={{ color: '#007A87' }}>{currentStepData.label}</span>
+          <span style={{ color: 'var(--teal)' }}>{currentStepData.label}</span>
         </button>
 
         <button

@@ -21,7 +21,10 @@ jest.mock('d3', () => {
     on() { return selectObj; },
     attr() { return selectObj; },
     style() { return selectObj; },
-    selectAll() { return { call: () => undefined }; },
+    selectAll() {
+      const sel: any = { call: () => undefined, each: () => sel };
+      return sel;
+    },
   };
 
   const zoomFn: any = () => undefined;
@@ -47,6 +50,7 @@ jest.mock('d3', () => {
   const forceCollideObj: any = {
     radius: () => forceCollideObj,
     strength: () => forceCollideObj,
+    iterations: () => forceCollideObj,
   };
 
   const forceXObj: any = {

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { getStoredAuthToken } from '@/lib/api';
+import { enterDemoMode, DEMO_PROJECT_ID } from '@/lib/demoData';
 import TopNavigation from '@/components/layout/TopNavigation';
 import { Compass, ScanSearch, Brain, FileText } from 'lucide-react';
 
@@ -15,6 +16,11 @@ export default function Home() {
       void router.replace('/projects');
     }
   }, [router]);
+
+  const onViewDemo = () => {
+    enterDemoMode();
+    void router.push(`/projects/${DEMO_PROJECT_ID}/map`);
+  };
 
   return (
     <>
@@ -85,16 +91,22 @@ export default function Home() {
             display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap',
             opacity: 0, animation: 'fadeUp .6s .65s forwards',
           }}>
-            <Link href="/login?tab=register" className="btn-primary btn-primary-lg">
-              Get started
+            <button onClick={onViewDemo} className="btn-primary btn-primary-lg">
+              View live demo
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 8h10M9 4l4 4-4 4"/>
               </svg>
+            </button>
+            <Link href="/login?tab=register" className="btn-ghost" style={{ padding: '13px 28px', fontSize: 15, borderRadius: 10 }}>
+              Get started
             </Link>
-            <a href="#how" className="btn-ghost" style={{ padding: '13px 28px', fontSize: 15, borderRadius: 10 }}>
-              See how it works
-            </a>
           </div>
+          <p style={{
+            fontSize: 12, color: 'var(--text3)', marginTop: 16,
+            opacity: 0, animation: 'fadeUp .6s .7s forwards',
+          }}>
+            The demo runs on sample data and skips the live backend, so it&apos;s always fast to explore.
+          </p>
 
           {/* Capability pillars */}
           <div className="pillars-grid" style={{ marginTop: 72, opacity: 0, animation: 'fadeUp .6s .8s forwards' }}>
@@ -204,9 +216,14 @@ export default function Home() {
           <p style={{ color: 'var(--text2)', marginBottom: 32 }}>
             From source ingestion to validated insights, all in one workspace.
           </p>
-          <Link href="/login?tab=register" className="btn-primary btn-primary-lg">
-            Create a free account
-          </Link>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={onViewDemo} className="btn-primary btn-primary-lg">
+              View live demo
+            </button>
+            <Link href="/login?tab=register" className="btn-ghost" style={{ padding: '13px 28px', fontSize: 15, borderRadius: 10 }}>
+              Create a free account
+            </Link>
+          </div>
         </section>
 
         {/* Footer */}

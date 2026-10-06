@@ -113,7 +113,7 @@ describe('Workspace context links', () => {
 
     const graphLink = screen.getByRole('link', { name: 'Open Full Graph' });
     const relationLink = screen.getByRole('link', { name: 'Open Relations Table' });
-    expect(graphLink.getAttribute('href')).toBe('/graph?project_id=project-1');
-    expect(relationLink.getAttribute('href')).toBe('/relations?project_id=project-1');
+    expect(graphLink.getAttribute('href')).toBe('/projects/project-1/map');
+    expect(relationLink.getAttribute('href')).toBe('/projects/project-1/map');
   });
 });

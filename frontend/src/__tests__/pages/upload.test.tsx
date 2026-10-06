@@ -188,7 +188,7 @@ describe('UploadPage', () => {
 
     // Navigate to entities view
     fireEvent.click(screen.getByText('View Entities'));
-    expect(mockPush).toHaveBeenCalledWith('/entities?document_id=doc-456');
+    expect(mockPush).toHaveBeenCalledWith('/entities');
   });
 
   it('shows error on upload failure', async () => {

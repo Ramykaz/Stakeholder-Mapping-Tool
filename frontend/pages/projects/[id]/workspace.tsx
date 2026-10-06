@@ -237,15 +237,12 @@ export default function ProjectWorkspacePage() {
     }
 
     if (normalized.includes('open graph')) {
-      await router.push(`/graph?project_id=${projectId}`);
+      await router.push(`/projects/${projectId}/map`);
       return;
     }
 
     if (normalized.includes('open relations')) {
-      const target = selectedDocId
-        ? `/relations?project_id=${projectId}&document_id=${selectedDocId}`
-        : `/relations?project_id=${projectId}`;
-      await router.push(target);
+      await router.push(`/projects/${projectId}/map`);
       return;
     }
 
@@ -300,23 +297,27 @@ export default function ProjectWorkspacePage() {
       )}
       <div className="h-[calc(100vh-160px)] min-h-[620px] flex gap-4">
         <aside className="group card w-16 hover:w-80 transition-all duration-200 overflow-hidden flex flex-col">
-          <p className="text-xs uppercase tracking-wider text-gray-500 mt-1 mb-3">Docs</p>
+          <p className="text-xs uppercase tracking-wider mt-1 mb-3" style={{ color: 'var(--text2)' }}>Docs</p>
           <div className="space-y-2 overflow-auto pr-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
             {loading ? (
-              <p className="text-sm text-gray-500">Loading…</p>
+              <p className="text-sm" style={{ color: 'var(--text2)' }}>Loading…</p>
             ) : documents.length === 0 ? (
-              <p className="text-sm text-gray-500">No documents uploaded.</p>
+              <p className="text-sm" style={{ color: 'var(--text2)' }}>No documents uploaded.</p>
             ) : (
               documents.map((doc) => {
                 const selected = doc.id === selectedDocId;
                 return (
                   <button
                     key={doc.id}
-                    className={`w-full text-left rounded-lg border px-3 py-2 ${selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'}`}
+                    className="w-full text-left rounded-lg border px-3 py-2"
+                    style={{
+                      borderColor: selected ? 'var(--accent)' : 'var(--border2)',
+                      background: selected ? 'var(--accent-soft)' : 'var(--bg2)',
+                    }}
                     onClick={() => setSelectedDocId(doc.id)}
                   >
-                    <p className="text-sm font-medium text-navy-700 truncate">{doc.filename}</p>
-                    <p className="text-xs text-gray-500 mt-1">{doc.entity_count || 0} entities · {doc.relation_count || 0} relations</p>
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{doc.filename}</p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text2)' }}>{doc.entity_count || 0} entities · {doc.relation_count || 0} relations</p>
                   </button>
                 );
               })
@@ -326,7 +327,7 @@ export default function ProjectWorkspacePage() {
 
         <div className="flex-1 grid lg:grid-cols-[1.6fr_1fr] gap-4 min-w-0">
           <section className="card flex flex-col min-h-0">
-            <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-gray-100">
+            <div className="flex flex-wrap items-center gap-2 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
               <input
                 type="file"
                 className="input-field max-w-xs"
@@ -396,24 +397,25 @@ export default function ProjectWorkspacePage() {
               </button>
             </div>
 
-            {error && <p className="text-sm text-red-600 pt-3">{error}</p>}
+            {error && <p className="text-sm pt-3" style={{ color: 'var(--coral)' }}>{error}</p>}
 
             <div className="flex-1 overflow-auto py-4 space-y-3">
               {chatMessages.map((message, idx) => (
                 <div
                   key={`${message.role}-${idx}`}
-                  className={`rounded-lg px-3 py-2 text-sm max-w-[92%] ${
+                  className={`rounded-lg px-3 py-2 text-sm max-w-[92%] ${message.role === 'assistant' ? '' : 'ml-auto'}`}
+                  style={
                     message.role === 'assistant'
-                      ? 'bg-gray-100 text-gray-700'
-                      : 'ml-auto bg-primary-500 text-white'
-                  }`}
+                      ? { background: 'var(--surface-alt)', color: 'var(--text2)' }
+                      : { background: 'var(--accent)', color: '#fff' }
+                  }
                 >
                   {message.text}
                 </div>
               ))}
             </div>
 
-            <div className="pt-3 mt-2 border-t border-gray-100 flex gap-2">
+            <div className="pt-3 mt-2 border-t flex gap-2" style={{ borderColor: 'var(--border)' }}>
               <input
                 className="input-field"
                 value={chatInput}
@@ -431,24 +433,25 @@ export default function ProjectWorkspacePage() {
 
           <section className="card space-y-4">
             <div>
-              <h2 className="text-sm font-semibold text-navy-700 uppercase tracking-wider">Project Context</h2>
-              <p className="text-sm text-gray-600 mt-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--text)' }}>Project Context</h2>
+              <p className="text-sm mt-2" style={{ color: 'var(--text2)' }}>
                 {conceptPreview ? `${conceptPreview.slice(0, 280)}${conceptPreview.length > 280 ? '…' : ''}` : 'No concept note yet. Add one in settings.'}
               </p>
             </div>
 
-            <div className="pt-3 border-t border-gray-100">
-              <h3 className="text-sm font-semibold text-navy-700">Selected Document</h3>
+            <div className="pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Selected Document</h3>
               {selectedDoc ? (
-                <div className="mt-2 text-sm text-gray-700 space-y-2">
+                <div className="mt-2 text-sm space-y-2" style={{ color: 'var(--text2)' }}>
                   <p className="font-medium break-all">{selectedDoc.filename}</p>
                   <p>{selectedDoc.entity_count || 0} entities · {selectedDoc.relation_count || 0} relations</p>
                   <div className="flex flex-wrap gap-2">
-                    <Link href={`/entities?project_id=${projectId}&document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Entities</Link>
-                    <Link href={`/relations?project_id=${projectId}&document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Relations</Link>
-                    <Link href={`/graph?project_id=${projectId}&document_id=${selectedDoc.id}`} className="btn-ghost text-xs">Graph</Link>
+                    <Link href={projectId ? `/projects/${projectId}/map` : '/projects'} className="btn-ghost text-xs">Entities</Link>
+                    <Link href={projectId ? `/projects/${projectId}/map` : '/projects'} className="btn-ghost text-xs">Relations</Link>
+                    <Link href={projectId ? `/projects/${projectId}/map` : '/projects'} className="btn-ghost text-xs">Graph</Link>
                     <button
-                      className="btn-ghost text-xs text-red-600"
+                      className="btn-ghost text-xs"
+                      style={{ color: 'var(--coral)' }}
                       onClick={() => void onDelete(selectedDoc.id)}
                       disabled={activeDoc === selectedDoc.id}
                     >
@@ -457,26 +460,26 @@ export default function ProjectWorkspacePage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 mt-2">Select a document from the left panel.</p>
+                <p className="text-sm mt-2" style={{ color: 'var(--text2)' }}>Select a document from the left panel.</p>
               )}
             </div>
 
-            <div className="pt-3 border-t border-gray-100 flex flex-wrap gap-2">
+            <div className="pt-3 border-t flex flex-wrap gap-2" style={{ borderColor: 'var(--border)' }}>
               <Link href={projectId ? `/projects/${projectId}/settings` : '/projects'} className="btn-ghost text-sm">Project Settings</Link>
               <button className="btn-ghost text-sm" onClick={() => void reload()}>Refresh</button>
             </div>
 
-            <div className="pt-3 border-t border-gray-100 space-y-3">
-              <h3 className="text-sm font-semibold text-navy-700">Analysis Views</h3>
-              <p className="text-sm text-gray-600">
+            <div className="pt-3 border-t space-y-3" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Analysis Views</h3>
+              <p className="text-sm" style={{ color: 'var(--text2)' }}>
                 Open dedicated views for the full project graph and relationship table.
               </p>
               <div className="flex flex-wrap gap-2">
-                <Link href={`/graph?project_id=${projectId}`} className="btn-ghost text-sm">Open Full Graph</Link>
-                <Link href={`/relations?project_id=${projectId}`} className="btn-ghost text-sm">Open Relations Table</Link>
-                <Link href={`/entities?project_id=${projectId}`} className="btn-ghost text-sm">Open Entities</Link>
+                <Link href={projectId ? `/projects/${projectId}/map` : '/projects'} className="btn-ghost text-sm">Open Full Graph</Link>
+                <Link href={projectId ? `/projects/${projectId}/map` : '/projects'} className="btn-ghost text-sm">Open Relations Table</Link>
+                <Link href={`/entities`} className="btn-ghost text-sm">Open Entities</Link>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs" style={{ color: 'var(--text2)' }}>
                 Current graph scope: {graphNodes.length} entities · {graphEdges.length} relations · {workspaceAvailableEntityTypes.length} entity types · {workspaceAvailableRelationTypes.length} relation types.
               </p>
             </div>

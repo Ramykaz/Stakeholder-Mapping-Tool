@@ -2,53 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== Design System Tokens — Dark (default) ===== */
+/* ===== Design System Tokens — "Cartographer" — Dark / field-notebook (default) ===== */
 :root {
-  --bg:           #080c14;
-  --bg2:          #0d1220;
-  --bg3:          #111827;
-  --border:       rgba(255,255,255,0.06);
-  --border2:      rgba(255,255,255,0.11);
-  --text:         #e4e8f4;
-  --text2:        #9aa6c4;
-  --text3:        #7c89aa;
-  --accent:       #3d6fff;
-  --accent-soft:  rgba(61,111,255,0.12);
-  --teal:         #2ec4a5;
-  --teal-soft:    rgba(46,196,165,0.10);
-  --purple:       #9b6ef3;
-  --purple-soft:  rgba(155,110,243,0.10);
-  --amber:        #f5a623;
-  --amber-soft:   rgba(245,166,35,0.10);
-  --coral:        #f0614a;
-  --coral-soft:   rgba(240,97,74,0.10);
-  /* Plus Jakarta Sans for body text; Sora for headings/display (aliased as --serif, used app-wide for titles); JetBrains Mono for code */
-  --sans:    'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --serif:   'Sora', 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --display: 'Sora', 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --bg:           #0c1819;
+  --bg2:          #112523;
+  --bg3:          #16302d;
+  --border:       rgba(238,241,234,0.07);
+  --border2:      rgba(238,241,234,0.14);
+  --text:         #eef1ea;
+  --text2:        #a9bdb6;
+  --text3:        #71897f;
+  --accent:       #d4a24e;
+  --accent-soft:  rgba(212,162,78,0.14);
+  --teal:         #5fa89d;
+  --teal-soft:    rgba(95,168,157,0.12);
+  --purple:       #9c7fae;
+  --purple-soft:  rgba(156,127,174,0.12);
+  --amber:        #c2893c;
+  --amber-soft:   rgba(194,137,60,0.12);
+  --coral:        #a85a46;
+  --coral-soft:   rgba(168,90,70,0.12);
+  /* Aliases used by workflow/export/workplan components — resolve against the tokens above so they follow the active theme */
+  --surface:        var(--bg2);
+  --surface-alt:    var(--bg3);
+  --muted:          var(--text3);
+  --accent-subtle:  var(--teal-soft);
+  /* Public Sans for body text; Big Shoulders Display for headings/display (aliased as --serif, used app-wide for titles); JetBrains Mono for code */
+  --sans:    'Public Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --serif:   'Big Shoulders Display', 'Public Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --display: 'Big Shoulders Display', 'Public Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono:    'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
 
-/* ===== Light / Day Mode ===== */
+/* ===== Light / Day Mode — survey sheet in daylight ===== */
 [data-theme="light"] {
-  --bg:           #f0f2f5;
-  --bg2:          #ffffff;
-  --bg3:          #e8eaf0;
-  --border:       rgba(0,0,0,0.08);
-  --border2:      rgba(0,0,0,0.14);
-  --text:         #1a1f2e;
-  --text2:        #4a5370;
-  --text3:        #8a91a8;
-  --accent:       #2d5fe8;
-  --accent-soft:  rgba(45,95,232,0.12);
-  --teal:         #1faa8e;
-  --teal-soft:    rgba(31,170,142,0.12);
-  --purple:       #8255d6;
-  --purple-soft:  rgba(130,85,214,0.12);
-  --amber:        #c47e00;
-  --amber-soft:   rgba(196,126,0,0.12);
-  --coral:        #d44030;
-  --coral-soft:   rgba(212,64,48,0.12);
+  --bg:           #efe9d8;
+  --bg2:          #f8f3e6;
+  --bg3:          #e6ddc6;
+  --border:       rgba(31,46,40,0.1);
+  --border2:      rgba(31,46,40,0.18);
+  --text:         #1f2e28;
+  --text2:        #4d5f54;
+  --text3:        #7c8d80;
+  --accent:       #96652a;
+  --accent-soft:  rgba(150,101,42,0.14);
+  --teal:         #2f6b61;
+  --teal-soft:    rgba(47,107,97,0.12);
+  --purple:       #6e5480;
+  --purple-soft:  rgba(110,84,128,0.12);
+  --amber:        #8a5c1e;
+  --amber-soft:   rgba(138,92,30,0.12);
+  --coral:        #823f30;
+  --coral-soft:   rgba(130,63,48,0.12);
 }
 
 /* ===== Light mode text overrides ===== */
@@ -57,12 +62,12 @@
 [data-theme="light"] h3,
 [data-theme="light"] h4,
 [data-theme="light"] h5,
-[data-theme="light"] h6 { color: #1a1f2e !important; }
+[data-theme="light"] h6 { color: #1f2e28 !important; }
 
-[data-theme="light"] [style*="var(--serif)"] { color: #1a1f2e !important; }
-[data-theme="light"] [style*="color: #fff"]      { color: #1a1f2e !important; }
-[data-theme="light"] [style*="color: #ffffff"]   { color: #1a1f2e !important; }
-[data-theme="light"] [style*="color: white"]     { color: #1a1f2e !important; }
+[data-theme="light"] [style*="var(--serif)"] { color: #1f2e28 !important; }
+[data-theme="light"] [style*="color: #fff"]      { color: #1f2e28 !important; }
+[data-theme="light"] [style*="color: #ffffff"]   { color: #1f2e28 !important; }
+[data-theme="light"] [style*="color: white"]     { color: #1f2e28 !important; }
 
 [data-theme="light"] em { color: var(--teal) !important; }
 
@@ -70,56 +75,56 @@
 [data-theme="light"] input,
 [data-theme="light"] textarea,
 [data-theme="light"] select {
-  background: #ffffff;
-  border-color: rgba(0,0,0,0.16);
-  color: #1a1f2e;
+  background: #f8f3e6;
+  border-color: rgba(31,46,40,0.18);
+  color: #1f2e28;
 }
 [data-theme="light"] input::placeholder,
-[data-theme="light"] textarea::placeholder { color: #9199b4; }
+[data-theme="light"] textarea::placeholder { color: #8d8065; }
 
 /* Buttons */
 [data-theme="light"] .btn-ghost {
-  border-color: rgba(0,0,0,0.18);
-  color: #4a5370;
+  border-color: rgba(31,46,40,0.2);
+  color: #4d5f54;
 }
 [data-theme="light"] .btn-ghost:hover {
-  border-color: rgba(0,0,0,0.30);
-  color: #1a1f2e;
+  border-color: rgba(31,46,40,0.34);
+  color: #1f2e28;
 }
 
 /* Badges */
-[data-theme="light"] .badge-live  { color: #1faa8e; background: rgba(31,170,142,0.12); border-color: rgba(31,170,142,0.3); }
-[data-theme="light"] .badge-proc  { color: #c47e00; background: rgba(196,126,0,0.12);  border-color: rgba(196,126,0,0.3); }
-[data-theme="light"] .badge-draft { color: #4a5370; background: transparent;           border-color: rgba(0,0,0,0.15); }
-[data-theme="light"] .badge-error { color: #d44030; background: rgba(212,64,48,0.12);  border-color: rgba(212,64,48,0.3); }
+[data-theme="light"] .badge-live  { color: #2f6b61; background: rgba(47,107,97,0.12);  border-color: rgba(47,107,97,0.3); }
+[data-theme="light"] .badge-proc  { color: #8a5c1e; background: rgba(138,92,30,0.12);  border-color: rgba(138,92,30,0.3); }
+[data-theme="light"] .badge-draft { color: #4d5f54; background: transparent;           border-color: rgba(31,46,40,0.16); }
+[data-theme="light"] .badge-error { color: #823f30; background: rgba(130,63,48,0.12);  border-color: rgba(130,63,48,0.3); }
 
 /* Section label */
-[data-theme="light"] .section-label::after { background: rgba(0,0,0,0.12); }
+[data-theme="light"] .section-label::after { background: rgba(31,46,40,0.14); }
 
 /* Cards in light mode */
-[data-theme="light"] .card        { background: #ffffff; border-color: rgba(0,0,0,0.08); }
-[data-theme="light"] .stat-card   { background: #ffffff; border-color: rgba(0,0,0,0.08); }
+[data-theme="light"] .card        { background: #f8f3e6; border-color: rgba(31,46,40,0.1); }
+[data-theme="light"] .stat-card   { background: #f8f3e6; border-color: rgba(31,46,40,0.1); }
 
 /* Input field component in light mode */
 [data-theme="light"] .input-field {
-  background: #ffffff;
-  border-color: rgba(0,0,0,0.16);
-  color: #1a1f2e;
+  background: #f8f3e6;
+  border-color: rgba(31,46,40,0.18);
+  color: #1f2e28;
 }
-[data-theme="light"] .input-field::placeholder { color: #9199b4; }
+[data-theme="light"] .input-field::placeholder { color: #8d8065; }
 
 /* Secondary button in light mode */
 [data-theme="light"] .btn-secondary {
-  background: #ffffff;
-  color: #2d5fe8;
-  border-color: rgba(45,95,232,0.25);
+  background: #f8f3e6;
+  color: #96652a;
+  border-color: rgba(150,101,42,0.3);
 }
 [data-theme="light"] .btn-secondary:hover {
-  background: rgba(45,95,232,0.05);
+  background: rgba(150,101,42,0.08);
 }
 
 /* Scrollbar */
-[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(31,46,40,0.2); }
 
 /* ===== Base Styles ===== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -348,106 +353,6 @@ div:hover > .card-menu-btn { opacity: 1 !important; }
   height: 100%;
   min-height: 600px;
   background: var(--bg2);
-}
-
-/* ===== Component Layer ===== */
-@layer components {
-  /* Entity type badges */
-  .badge-person {
-    @apply bg-blue-50 text-blue-700 border border-blue-200;
-  }
-  .badge-organization {
-    @apply bg-violet-50 text-violet-700 border border-violet-200;
-  }
-  .badge-location {
-    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
-  }
-  .badge-role {
-    @apply bg-amber-50 text-amber-700 border border-amber-200;
-  }
-
-  /* Confidence bar */
-  .confidence-bar {
-    @apply h-1.5 rounded-full;
-    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  /* Card — theme-aware via CSS custom properties */
-  .card {
-    @apply rounded-xl p-6 transition-all duration-200;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
-  }
-  .card:hover {
-    border-color: var(--border2);
-    box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
-  }
-
-  /* UNDP Primary button */
-  .btn-primary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 bg-primary-500 text-white font-medium rounded-lg
-           hover:bg-primary-600 active:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed
-           transition-all duration-150 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-    font-size: 14px;
-    letter-spacing: -0.01em;
-  }
-
-  /* Secondary button — theme-aware */
-  .btn-secondary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 font-medium rounded-lg
-           disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150
-           focus:outline-none focus:ring-2 focus:ring-primary-500/20;
-    background: var(--bg2);
-    color: var(--accent);
-    border: 1px solid var(--border2);
-    font-size: 14px;
-  }
-  .btn-secondary:hover {
-    background: var(--accent-soft);
-    border-color: var(--accent);
-  }
-
-  /* Ghost button — theme-aware */
-  .btn-ghost {
-    @apply inline-flex items-center justify-center px-4 py-2 font-medium rounded-lg
-           transition-all duration-150 focus:outline-none;
-    background: transparent;
-    color: var(--text2);
-    border: 1px solid var(--border2);
-    font-size: 14px;
-  }
-  .btn-ghost:hover {
-    background: var(--bg3);
-    color: var(--text);
-  }
-
-  /* Input field — theme-aware */
-  .input-field {
-    @apply w-full px-4 py-2.5 rounded-lg outline-none transition-all duration-150;
-    background: var(--bg2);
-    border: 1px solid var(--border2);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 15px;
-  }
-  .input-field::placeholder { color: var(--text3); }
-  .input-field:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-
-  /* Stat card — theme-aware */
-  .stat-card {
-    @apply rounded-xl p-5 text-center transition-all duration-200;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
-  }
-  .stat-card:hover {
-    border-color: var(--border2);
-    box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.06);
-  }
 }
 
 /* ===== Custom scrollbar ===== */

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { getGlobalEntities, getStoredAuthToken, GlobalEntitySummary } from '@/lib/api';
+import { getEntityColor } from '@/lib/entityTypes';
 import TopNavigation from '@/components/layout/TopNavigation';
 import Sidebar from '@/components/layout/Sidebar';
 
@@ -10,6 +11,10 @@ export default function GlobalEntitiesPage() {
   const [entities, setEntities] = useState<GlobalEntitySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [router.asPath]);
 
   useEffect(() => {
     if (!getStoredAuthToken()) { void router.replace('/login'); return; }
@@ -25,18 +30,15 @@ export default function GlobalEntitiesPage() {
   };
 
   const ENTITY_TYPES = ['PERSON', 'ORGANIZATION', 'LOCATION', 'ROLE'];
-  const TYPE_COLORS: Record<string, string> = {
-    PERSON: '#2ec4a5', ORGANIZATION: '#3d6fff', LOCATION: '#f5a623', ROLE: '#7b8299',
-  };
 
   return (
     <>
       <Head><title>All Entities</title></Head>
       <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-        <TopNavigation />
+        <TopNavigation onMenuClick={() => setSidebarOpen(v => !v)} />
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar />
-          <main style={{ flex: 1, overflowY: 'auto', padding: 40 }}>
+          <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <main className="app-main">
             <div style={{ maxWidth: 800, margin: '0 auto' }}>
               <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
                 <div>
@@ -83,7 +85,7 @@ export default function GlobalEntitiesPage() {
                     <span>Confidence</span>
                   </div>
                   {entities.map((e, i) => {
-                    const color = TYPE_COLORS[e.entity_type] || '#7b8299';
+                    const color = getEntityColor(e.entity_type);
                     return (
                       <div
                         key={i}

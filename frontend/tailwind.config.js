@@ -6,58 +6,9 @@ module.exports = {
   ],
   theme: {
     extend: {
-      colors: {
-        // UNDP brand palette
-        primary: {
-          50: '#e6f1fa',
-          100: '#cce4f5',
-          200: '#99c8eb',
-          300: '#66ade0',
-          400: '#3391d6',
-          500: '#0468B1', // UNDP Blue
-          600: '#035a9a',
-          700: '#024b82',
-          800: '#023d6b',
-          900: '#012e53',
-          950: '#011e37',
-        },
-        // Dark navy for headers/text
-        navy: {
-          50: '#f0f1f4',
-          100: '#d5d8e0',
-          200: '#abb1c1',
-          300: '#818ba3',
-          400: '#576484',
-          500: '#3a4a6b',
-          600: '#2d3a55',
-          700: '#1F2A44',
-          800: '#182236',
-          900: '#111928',
-        },
-        // Accent teal for highlights
-        accent: {
-          50: '#e6f8fc',
-          100: '#b3ecf7',
-          200: '#80e0f2',
-          300: '#4dd3ec',
-          400: '#1ac7e7',
-          500: '#00B4D8',
-          600: '#0099b8',
-          700: '#007d97',
-          800: '#006277',
-          900: '#004757',
-        },
-        // Semantic entity colors
-        entity: {
-          person: '#3b82f6',
-          organization: '#8b5cf6',
-          location: '#10b981',
-          role: '#f59e0b',
-        },
-      },
       fontFamily: {
-        sans: ['Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-        display: ['Sora', 'Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Public Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        display: ['Big Shoulders Display', 'Public Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
       },
       boxShadow: {

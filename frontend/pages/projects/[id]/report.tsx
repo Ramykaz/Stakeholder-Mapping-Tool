@@ -482,13 +482,13 @@ export default function ProjectReportPage() {
             </div>
 
             {!section6Complete && !(workplan?.generated) ? (
-              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <div className="text-sm rounded px-3 py-2" style={{ color: 'var(--amber)', background: 'var(--amber-soft)', border: '1px solid var(--amber)' }}>
                 Section 6 is not complete yet. You can still generate a workplan from available report/project context.
               </div>
             ) : null}
 
             {section6Stale ? (
-              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <div className="text-sm rounded px-3 py-2" style={{ color: 'var(--amber)', background: 'var(--amber-soft)', border: '1px solid var(--amber)' }}>
                 Section 6 is marked stale. Regenerate it to refresh workplan quality.
               </div>
             ) : null}
@@ -518,13 +518,13 @@ export default function ProjectReportPage() {
             </div>
 
             {workplanGenerationStatus === 'error' && workplanGenerationMessage ? (
-              <div className="text-sm text-[var(--coral,#f0614a)] bg-red-50 border border-red-200 rounded px-3 py-2">
+              <div className="text-sm rounded px-3 py-2" style={{ color: 'var(--coral)', background: 'var(--coral-soft)', border: '1px solid var(--coral)' }}>
                 {workplanGenerationMessage}
               </div>
             ) : null}
 
             {workplan && !workplan.generated && !workplanIsGenerating && (
-              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <div className="text-sm rounded px-3 py-2" style={{ color: 'var(--amber)', background: 'var(--amber-soft)', border: '1px solid var(--amber)' }}>
                 No workplan has been generated yet.
               </div>
             )}

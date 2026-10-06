@@ -8,14 +8,9 @@ import {
   ProjectSummary, DocumentSummary, ProjectExtractionStatus,
 } from '@/lib/api';
 import Layout from '@/components/Layout';
+import { getEntityColor } from '@/lib/entityTypes';
 
 const POLLING_INTERVAL = 3000;
-
-const TYPE_COLORS: Record<string, string> = {
-  PERSON: '#2ec4a5', ORGANIZATION: '#3d6fff', GOVERNMENT: '#3d6fff',
-  LOCATION: '#f5a623', ROLE: '#7b8299', EVENT: '#9b6ef3',
-  PROJECT: '#9b6ef3', POLICY: '#9b6ef3', CONCEPT: '#f0614a',
-};
 
 export default function AnalyzePage() {
   const router = useRouter();
@@ -343,7 +338,7 @@ export default function AnalyzePage() {
                         ))}
                       </div>
                       {entities.slice(0, 50).map((ent: any) => {
-                        const color = TYPE_COLORS[ent.entity_type] || '#7b8299';
+                        const color = getEntityColor(ent.entity_type);
                         const conf = Math.round((ent.confidence || 0) * 100);
                         return (
                           <div

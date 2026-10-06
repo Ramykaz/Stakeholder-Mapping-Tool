@@ -108,7 +108,7 @@ export default function NextStepCard({ step, show = true }: NextStepCardProps) {
   return (
     <div
       className="w-full flex items-center justify-between gap-4 p-4 rounded-lg border-l-4 bg-[var(--surface)]"
-      style={{ borderLeftColor: '#007A87', borderTop: '1px solid var(--border)', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
+      style={{ borderLeftColor: 'var(--teal)', borderTop: '1px solid var(--border)', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
     >
       <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-0.5">

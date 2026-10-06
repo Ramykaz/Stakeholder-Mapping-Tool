@@ -19,7 +19,7 @@ export default function StalenessNotice({
   primaryLabel,
   secondaryLabel,
 }: StalenessNoticeProps) {
-  const iconColor = variant === 'rate_limit' ? '#D97706' : '#D97706';
+  const iconColor = 'var(--amber)';
   const primaryActionLabel = primaryLabel || (variant === 'rate_limit' ? 'Retry now' : 'Regenerate this section');
   const secondaryActionLabel = secondaryLabel || (variant === 'rate_limit' ? 'Open settings' : 'Keep current version');
 
@@ -27,8 +27,8 @@ export default function StalenessNotice({
     <div
       className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-4 py-3 rounded-lg border"
       style={{
-        background: '#FFFBEB',
-        borderColor: '#F59E0B',
+        background: 'var(--amber-soft)',
+        borderColor: 'var(--amber)',
       }}
     >
       <div className="flex items-start gap-2">
@@ -44,7 +44,7 @@ export default function StalenessNotice({
             clipRule="evenodd"
           />
         </svg>
-        <p className="text-sm font-medium" style={{ color: '#92400E' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--amber)' }}>
           {title}
         </p>
       </div>
@@ -53,7 +53,7 @@ export default function StalenessNotice({
           onClick={onRegenerate}
           disabled={isRegenerating}
           className="text-sm px-3 py-1.5 rounded font-medium transition-opacity disabled:opacity-60 flex items-center gap-1.5"
-          style={{ background: '#F59E0B', color: 'white' }}
+          style={{ background: 'var(--amber)', color: 'white' }}
         >
           {isRegenerating && (
             <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -67,7 +67,7 @@ export default function StalenessNotice({
           onClick={onKeepCurrent}
           disabled={isRegenerating}
           className="text-sm px-3 py-1.5 rounded font-medium border transition-opacity disabled:opacity-60"
-          style={{ borderColor: '#F59E0B', color: '#92400E', background: 'transparent' }}
+          style={{ borderColor: 'var(--amber)', color: 'var(--amber)', background: 'transparent' }}
         >
           {secondaryActionLabel}
         </button>

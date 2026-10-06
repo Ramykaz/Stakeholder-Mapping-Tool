@@ -84,7 +84,6 @@ import {
 
 import HomePage from '../../../pages/index';
 import AdminPage from '../../../pages/admin';
-import RelationsPage from '../../../pages/relations';
 import ForgotPasswordPage from '../../../pages/forgot-password';
 import ResetPasswordPage from '../../../pages/reset-password';
 import LegacyRegisterPage from '../../../pages/register';
@@ -140,32 +139,6 @@ describe('Missing pages smoke coverage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Admin access required/i)).toBeInTheDocument();
     });
-  });
-
-  it('renders relations page and loads document relations', async () => {
-    routerState.pathname = '/relations';
-    routerState.query = {};
-    mockGetRelations.mockResolvedValue([
-      {
-        id: 'r1',
-        source_entity_name: 'UNDP',
-        target_entity_name: 'Nairobi',
-        label: 'WORKS_IN',
-        confidence: 0.91,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-
-    render(<RelationsPage />);
-
-    const input = screen.getByPlaceholderText(/Enter Document ID/i);
-    fireEvent.change(input, { target: { value: 'doc-123' } });
-    fireEvent.click(screen.getByRole('button', { name: /Load/i }));
-
-    await waitFor(() => {
-      expect(mockGetRelations).toHaveBeenCalledWith('doc-123');
-    });
-    expect(screen.getByText('UNDP')).toBeInTheDocument();
   });
 
   it('handles forgot password validation and success flow', async () => {

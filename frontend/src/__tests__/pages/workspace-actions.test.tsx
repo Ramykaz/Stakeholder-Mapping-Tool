@@ -109,7 +109,7 @@ describe('Workspace page command flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/relations?project_id=project-1&document_id=doc-1');
+      expect(mockPush).toHaveBeenCalledWith('/projects/project-1/map');
     });
   });
 

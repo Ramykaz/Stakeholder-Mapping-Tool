@@ -55,7 +55,7 @@ function RelTypeRow({
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg p-3 flex items-center gap-2 flex-wrap">
+    <div className="border rounded-lg p-3 flex items-center gap-2 flex-wrap" style={{ borderColor: 'var(--border2)' }}>
       <div
         style={{ width: 14, height: 14, borderRadius: 3, background: draft.color, flexShrink: 0, border: '1px solid rgba(0,0,0,0.15)' }}
       />
@@ -78,7 +78,7 @@ function RelTypeRow({
         aria-label="Color"
         title="Color"
         type="color"
-        style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' }}
+        style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid var(--border2)', cursor: 'pointer' }}
         value={draft.color}
         onChange={(e) => setDraft({ ...draft, color: e.target.value })}
       />
@@ -92,11 +92,11 @@ function RelTypeRow({
         value={draft.display_order}
         onChange={(e) => setDraft({ ...draft, display_order: Number(e.target.value) })}
       />
-      <label className="inline-flex items-center gap-1 text-sm text-gray-600">
+      <label className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text2)' }}>
         <input type="checkbox" checked={draft.directional} onChange={(e) => setDraft({ ...draft, directional: e.target.checked })} />
         Directional
       </label>
-      <label className="inline-flex items-center gap-1 text-sm text-gray-600">
+      <label className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text2)' }}>
         <input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
         Active
       </label>
@@ -145,12 +145,12 @@ export default function RelationshipTypesPanel({ types, onCreate, onUpdate, onDe
   return (
     <section className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-navy-700">Relationship Types</h2>
-        <span className="text-xs text-gray-500">{types.length} total</span>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Relationship Types</h2>
+        <span className="text-xs" style={{ color: 'var(--text2)' }}>{types.length} total</span>
       </div>
 
       {!readOnly && (
-        <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mb-5 p-3 bg-gray-50 rounded-lg">
+        <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mb-5 p-3 rounded-lg" style={{ background: 'var(--surface-alt)' }}>
           <input
             aria-label="New relationship type name"
             className="input-field"
@@ -172,7 +172,7 @@ export default function RelationshipTypesPanel({ types, onCreate, onUpdate, onDe
             aria-label="New relationship type color"
             title="Color"
             type="color"
-            style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid #d1d5db', cursor: 'pointer' }}
+            style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: '1px solid var(--border2)', cursor: 'pointer' }}
             value={form.color}
             onChange={(e) => setForm({ ...form, color: e.target.value })}
           />
@@ -186,11 +186,11 @@ export default function RelationshipTypesPanel({ types, onCreate, onUpdate, onDe
             value={form.display_order}
             onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) })}
           />
-          <label className="inline-flex items-center gap-1 text-sm text-gray-600">
+          <label className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text2)' }}>
             <input type="checkbox" checked={form.directional} onChange={(e) => setForm({ ...form, directional: e.target.checked })} />
             Directional
           </label>
-          <label className="inline-flex items-center gap-1 text-sm text-gray-600">
+          <label className="inline-flex items-center gap-1 text-sm" style={{ color: 'var(--text2)' }}>
             <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} />
             Active
           </label>
@@ -203,10 +203,10 @@ export default function RelationshipTypesPanel({ types, onCreate, onUpdate, onDe
       <div className="space-y-2">
         {types.map((relType) =>
           readOnly ? (
-            <div key={relType.id} className="flex items-center gap-3 p-2 rounded border border-gray-100">
+            <div key={relType.id} className="flex items-center gap-3 p-2 rounded border" style={{ borderColor: 'var(--border)' }}>
               <div style={{ width: 12, height: 12, borderRadius: 3, background: relType.color, flexShrink: 0 }} />
               <span className="text-sm font-medium" style={{ minWidth: 100 }}>{relType.name}</span>
-              <span className="text-xs text-gray-400">{relType.description}</span>
+              <span className="text-xs" style={{ color: 'var(--text3)' }}>{relType.description}</span>
             </div>
           ) : (
             <RelTypeRow key={relType.id} relType={relType} onUpdate={onUpdate} onDelete={onDelete} />

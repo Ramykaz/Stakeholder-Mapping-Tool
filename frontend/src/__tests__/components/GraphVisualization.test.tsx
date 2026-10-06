@@ -36,6 +36,7 @@ jest.mock('d3', () => {
 
   const dragFn: any = () => undefined;
   dragFn.on = () => dragFn;
+  dragFn.subject = () => dragFn;
 
   const forceLinkObj: any = {
     id: () => forceLinkObj,

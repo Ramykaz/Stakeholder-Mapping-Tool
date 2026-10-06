@@ -263,6 +263,12 @@ function GraphVisualizationInner({
   const [simEdges, setSimEdges] = useState<SimEdge[]>([]);
   const simulationRef = useRef<d3.Simulation<SimNode, undefined> | null>(null);
   const draggingNodeIdRef = useRef<string | null>(null);
+  // Kept current on every tick so the drag behavior can always resolve the
+  // live node without needing to be re-attached (see the drag effect below).
+  const nodesByIdRef = useRef<Map<string, SimNode>>(new Map());
+  useEffect(() => {
+    nodesByIdRef.current = new Map(simNodes.map((n) => [n.id, n]));
+  }, [simNodes]);
 
   const destroySimulation = useCallback(() => {
     if (simulationRef.current) {
@@ -364,11 +370,40 @@ function GraphVisualizationInner({
     };
   }, []);
 
+  // Stable across simulation ticks (same characters in, same primitive string
+  // out) and only changes when nodes are actually added or removed — see why
+  // that distinction matters below.
+  const nodeIdsKey = useMemo(() => simNodes.map((n) => n.id).join(','), [simNodes]);
+
   useEffect(() => {
     if (!viewportGroupRef.current || !simulationRef.current) return;
 
+    // The <g class="graph-node"> elements are rendered by React, not by a D3
+    // data-join, so they have no bound __data__ by default. The subject()
+    // below resolves the live node straight from nodesByIdRef (kept current
+    // every tick) instead of relying on a pre-bound datum, so this effect
+    // only needs to run when the node *set* changes, not on every tick.
+    //
+    // That distinction is why touch-dragging specifically broke: mouse drags
+    // track movement via mousemove/mouseup listeners on `window`, which
+    // survive a re-attach, but touch drags track movement via touchmove/
+    // touchend listeners on the node elements themselves. Re-running
+    // `.call(dragBehavior)` on every tick — which an active drag triggers
+    // continuously, since it deliberately keeps the simulation "warm" —
+    // replaced those per-element listeners mid-gesture with a fresh,
+    // empty-state drag instance, silently dropping the rest of the touch
+    // gesture. Mouse dragging and the independent pan/zoom behavior (which
+    // isn't re-attached per tick at all) were never affected.
     const dragBehavior = d3.drag<SVGGElement, SimNode>()
+      .subject(function resolveSubject(event) {
+        const id = this.getAttribute('data-node-id');
+        const found = id ? nodesByIdRef.current.get(id) : undefined;
+        // d3-drag's own types require a fallback when no datum is found;
+        // the handlers below check `datum?.id` to tell the two apart.
+        return found ?? ({ x: (event as any).x, y: (event as any).y } as unknown as SimNode);
+      })
       .on('start', (event, datum) => {
+        if (!datum?.id) return;
         event.sourceEvent?.stopPropagation?.();
         draggingNodeIdRef.current = datum.id;
         if (!event.active) simulationRef.current?.alphaTarget(0.2).restart();
@@ -376,6 +411,7 @@ function GraphVisualizationInner({
         datum.fy = datum.y;
       })
       .on('drag', (event, datum) => {
+        if (!datum?.id) return;
         datum.fx = event.x;
         datum.fy = event.y;
         setSimNodes((prev) => prev.map((node) => (
@@ -383,27 +419,17 @@ function GraphVisualizationInner({
         )));
       })
       .on('end', (event, datum) => {
+        if (!datum?.id) return;
         draggingNodeIdRef.current = null;
         if (!event.active) simulationRef.current?.alphaTarget(0);
         datum.fx = datum.x;
         datum.fy = datum.y;
       });
 
-    // The <g class="graph-node"> elements are rendered by React, not by a D3
-    // data-join, so they have no bound __data__ by default — d3-drag's handlers
-    // would receive `undefined` as the datum and throw on `datum.fx = ...`,
-    // which silently aborted every drag before it could move anything. Bind
-    // each element's current SimNode explicitly before attaching the behavior.
-    const nodeById = new Map(simNodes.map((n) => [n.id, n]));
     d3.select(viewportGroupRef.current)
       .selectAll<SVGGElement, SimNode>('g.graph-node')
-      .each(function bindDatum() {
-        const id = this.getAttribute('data-node-id');
-        const datum = id ? nodeById.get(id) : undefined;
-        if (datum) d3.select(this).datum(datum);
-      })
       .call(dragBehavior as any);
-  }, [simNodes]);
+  }, [nodeIdsKey]);
 
   const fitView = useCallback((duration = 250) => {
     if (!svgRef.current || !zoomBehaviorRef.current || simNodes.length === 0) return;

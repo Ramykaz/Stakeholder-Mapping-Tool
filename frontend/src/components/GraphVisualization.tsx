@@ -915,7 +915,7 @@ function GraphVisualizationInner({
       </button>
 
       {filterPanelOpen && (
-        <div style={{
+        <div className="graph-filter-dropdown" style={{
           position: 'absolute', top: 56, right: 16, zIndex: 10,
           width: 220, maxHeight: 'calc(100% - 80px)', overflowY: 'auto',
           background: panelBg, border: `1px solid ${panelBorder}`,
@@ -1026,7 +1026,7 @@ function GraphVisualizationInner({
   ) : null;
 
   const sizeLegend = showLegend ? (
-    <div style={{
+    <div className="graph-legend-panel" style={{
       position: 'absolute', bottom: 16, left: 16, zIndex: 5,
       background: panelBg, border: `1px solid ${panelBorder}`,
       borderRadius: 8, padding: '10px 14px',
@@ -1087,7 +1087,7 @@ function GraphVisualizationInner({
     const viewH = (worldHeight / minimapData.height) * (miniH - pad * 2);
 
     return (
-      <div style={{
+      <div className="graph-minimap-panel" style={{
         position: 'absolute', right: 16, bottom: 16, zIndex: 9,
         width: miniW, height: miniH,
         background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8,
@@ -1139,7 +1139,7 @@ function GraphVisualizationInner({
   })() : null;
 
   const controlsOverlay = (
-    <div style={{
+    <div className="graph-controls-overlay" style={{
       position: 'absolute', left: 16, top: 16, zIndex: 9,
       display: 'flex', alignItems: 'center', gap: 6,
       background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8,

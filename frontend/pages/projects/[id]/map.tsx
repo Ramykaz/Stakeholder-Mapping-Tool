@@ -254,7 +254,7 @@ export default function MapPage() {
                   )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div className="map-banner-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 {tab === 'graph' && (
                   <button
                     onClick={() => cmd('png')}
@@ -337,7 +337,7 @@ export default function MapPage() {
 
             {/* Canvas area */}
             {tab === 'graph' && (
-              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+              <div className="graph-canvas-area" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
 
                 {/* Loading overlay */}
                 {loading && (
@@ -393,7 +393,7 @@ export default function MapPage() {
                 {/* Entity side panel (right overlay) */}
                 {selectedNode && (
                   <RouteErrorBoundary label="Entity panel" inline>
-                  <div style={{
+                  <div className="graph-entity-panel" style={{
                     position: 'absolute', top: 16, right: 16, bottom: 80, zIndex: 5,
                     width: 300, overflowY: 'auto',
                     background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12,
@@ -547,7 +547,7 @@ export default function MapPage() {
 
                 {/* NL Query bar (bottom center) */}
                 {!loading && !error && (
-                  <div style={{
+                  <div className="graph-search-bar" style={{
                     position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
                     zIndex: 5, width: 'min(560px, calc(100% - 360px))',
                   }}>

@@ -333,6 +333,63 @@ h6 { font-size: 0.875rem; }
   .text-page-title { font-size: 1.375rem; }
 }
 
+/* ===== Map / Graph page — mobile responsiveness =====
+   The graph page floats several independently-positioned overlays (zoom
+   controls, filter toggle, legend, minimap, entity detail panel, search
+   bar) sized and placed for desktop. Below 760px there isn't room for all
+   of them at once, so: drop the two purely-reference overlays (legend,
+   minimap), let the dense button rows scroll horizontally instead of
+   overflowing the viewport, and turn the entity panel + search bar into
+   full-width bottom elements instead of a floating 300px sidebar and a
+   centered bar sized with a desktop-only calc() that goes negative on a
+   phone-width screen. */
+@media (max-width: 760px) {
+  .map-banner-actions {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+  }
+
+  .graph-controls-overlay {
+    max-width: calc(100vw - 32px);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .graph-legend-panel,
+  .graph-minimap-panel {
+    display: none !important;
+  }
+
+  .graph-search-bar {
+    left: 10px !important;
+    right: 10px !important;
+    transform: none !important;
+    width: auto !important;
+    bottom: 10px !important;
+  }
+
+  .graph-entity-panel {
+    top: auto !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: 10px !important;
+    width: auto !important;
+    max-height: 65vh !important;
+  }
+
+  /* When the entity panel is open, it already occupies the bottom of the
+     screen — hide the search bar underneath it rather than stacking both. */
+  .graph-canvas-area:has(.graph-entity-panel) .graph-search-bar {
+    display: none !important;
+  }
+
+  .graph-filter-dropdown {
+    width: calc(100vw - 32px) !important;
+    max-width: 280px;
+  }
+}
+
 /* ===== Login / auth split screen ===== */
 @media (max-width: 860px) {
   .auth-screen { flex-direction: column !important; height: auto !important; min-height: 100vh; }

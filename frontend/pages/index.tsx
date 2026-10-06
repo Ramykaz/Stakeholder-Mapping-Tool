@@ -5,7 +5,7 @@ import Head from 'next/head';
 import { getStoredAuthToken } from '@/lib/api';
 import { enterDemoMode, DEMO_PROJECT_ID } from '@/lib/demoData';
 import TopNavigation from '@/components/layout/TopNavigation';
-import { Compass, ScanSearch, Brain, FileText } from 'lucide-react';
+import { Compass, ScanSearch, ClipboardList, FileText } from 'lucide-react';
 
 export default function Home() {
   const router = useRouter();
@@ -63,7 +63,7 @@ export default function Home() {
             <span style={{
               fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.12em',
               textTransform: 'uppercase', color: 'var(--accent)',
-            }}>AI-Powered Stakeholder Mapping</span>
+            }}>Evidence-Backed Stakeholder Mapping</span>
             <div style={{ width: 24, height: 1, background: 'var(--accent)', opacity: 0.4 }}/>
           </div>
 
@@ -113,7 +113,7 @@ export default function Home() {
             {[
               { icon: Compass, l: 'Initiative-profile first' },
               { icon: ScanSearch, l: 'Analyze + graph review' },
-              { icon: Brain, l: 'SMQ + report workflow' },
+              { icon: ClipboardList, l: 'SMQ + report workflow' },
               { icon: FileText, l: 'Stakeholder table + export' },
             ].map(s => (
               <div key={s.l} style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
@@ -227,17 +227,19 @@ export default function Home() {
         </section>
 
         {/* Footer */}
-        <footer style={{
+        <footer className="site-footer" style={{
           borderTop: '1px solid var(--border)', padding: '28px 48px',
-          display: 'flex', alignItems: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
         }}>
-          <span style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--text2)' }}>
-            UNDP Stakeholder Analysis Tool
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--text3)', marginLeft: 16 }}>
-            Built at UNDP SDG AI Lab
-          </span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--text2)' }}>
+              UNDP Stakeholder Analysis Tool
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+              Built at UNDP SDG AI Lab
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 20 }}>
             {['Privacy', 'Terms', 'Docs'].map(l => (
               <a key={l} href="#" style={{ fontSize: 12, color: 'var(--text3)', textDecoration: 'none' }}>{l}</a>
             ))}
@@ -288,6 +290,12 @@ export default function Home() {
           .process-grid,
           .pillars-grid {
             grid-template-columns: 1fr;
+          }
+
+          .site-footer {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            padding: 20px !important;
           }
         }
       `}</style>

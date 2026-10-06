@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import { loginUser } from '@/lib/api';
-import { FileText, Brain, Map } from 'lucide-react';
+import { FileText, Network, Map } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -149,7 +149,7 @@ export default function LoginPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
                   { icon: FileText, text: 'Upload PDFs, DOCX, TXT, or Markdown files' },
-                  { icon: Brain, text: 'LLM extracts entities & relationships' },
+                  { icon: Network, text: 'LLM extracts entities & relationships' },
                   { icon: Map, text: 'Explore an interactive knowledge graph' },
                 ].map(f => (
                   <div key={f.text} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

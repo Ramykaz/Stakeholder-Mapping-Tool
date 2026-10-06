@@ -203,7 +203,7 @@ export default function StakeholderPriorityTable({ projectId, generationState, o
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Filter stakeholders by entity type"
           title="Filter stakeholders by entity type"

@@ -398,7 +398,7 @@ export default function ProjectReportPage() {
               </div>
             )}
 
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
               <button className="btn-primary" disabled={busy} onClick={() => void onGenerateAll()}>
                 {busy ? 'Working…' : 'Generate All Sections'}
               </button>
@@ -493,7 +493,7 @@ export default function ProjectReportPage() {
               </div>
             ) : null}
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 className="btn-primary"
                 disabled={workplanIsGenerating}

@@ -236,7 +236,7 @@ export default function MapPage() {
           <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
             {/* Project banner */}
-            <div style={{
+            <div className="map-page-banner" style={{
               height: 54, flexShrink: 0,
               background: 'var(--bg2)', borderBottom: '1px solid var(--border)',
               display: 'flex', alignItems: 'center', padding: '0 24px', gap: 16,

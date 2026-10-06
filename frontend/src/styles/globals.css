@@ -344,10 +344,18 @@ h6 { font-size: 0.875rem; }
    centered bar sized with a desktop-only calc() that goes negative on a
    phone-width screen. */
 @media (max-width: 760px) {
+  /* The banner is [name+stats] [export buttons] [back button] in one fixed-
+     height row on desktop. On mobile that's too many things for one line —
+     stack them into their own rows instead of cramming or scroll-hiding. */
+  .map-page-banner {
+    height: auto !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 10px 14px !important;
+    gap: 8px !important;
+  }
   .map-banner-actions {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    flex-wrap: nowrap !important;
+    flex-wrap: wrap !important;
   }
 
   .graph-controls-overlay {
